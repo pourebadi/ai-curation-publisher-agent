@@ -18,6 +18,20 @@ export class ItemsRepository {
     return this.db.prepare("SELECT * FROM items WHERE source_post_id = ?").bind(sourcePostId).first<Item>();
   }
 
+  async findByCanonicalUrl(canonicalUrl: string): Promise<Item | null> {
+    return this.db
+      .prepare("SELECT * FROM items WHERE canonical_url_hash = ?")
+      .bind(stableHash(canonicalUrl))
+      .first<Item>();
+  }
+
+  async findByNormalizedText(text: string): Promise<Item | null> {
+    return this.db
+      .prepare("SELECT * FROM items WHERE normalized_text_hash = ?")
+      .bind(stableHash(normalizeText(text)))
+      .first<Item>();
+  }
+
   async updateStatus(id: string, status: ItemStatus): Promise<void> {
     await this.db.prepare("UPDATE items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(status, id).run();
   }
