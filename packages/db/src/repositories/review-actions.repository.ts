@@ -1,11 +1,10 @@
-import type { TelegramReviewAction } from "@curator/telegram";
 import type { D1DatabaseLike } from "../client";
 
 export type ReviewActionRecord = {
   id: string;
   item_id: string;
   reviewer_id: string;
-  action: TelegramReviewAction;
+  action: string;
   payload_json: string;
   created_at: string;
 };
@@ -13,7 +12,7 @@ export type ReviewActionRecord = {
 export type CreateReviewActionInput = {
   itemId: string;
   reviewerId: string;
-  action: TelegramReviewAction;
+  action: string;
   payload?: Record<string, unknown>;
 };
 
