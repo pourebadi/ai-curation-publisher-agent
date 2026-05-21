@@ -20,10 +20,12 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
   }
 
   const parsed = parseTelegramUpdate(update);
+  const updateIdFields = parsed.updateId === undefined ? {} : { receivedUpdateId: parsed.updateId };
+
   if (parsed.kind === "ignored") {
     return jsonResponse({
       ok: true,
-      receivedUpdateId: parsed.updateId,
+      ...updateIdFields,
       kind: parsed.kind,
       ignoredReason: parsed.reason
     });
@@ -34,7 +36,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
     return jsonResponse({
       ok: false,
       error: "unauthorized_reviewer",
-      receivedUpdateId: parsed.updateId
+      ...updateIdFields
     }, { status: 403 });
   }
 
@@ -45,7 +47,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
 
     const body: TelegramWebhookAck & { manualIngest: typeof result } = {
       ok: true,
-      receivedUpdateId: parsed.updateId,
+      ...updateIdFields,
       kind: parsed.kind,
       itemId: result.itemId,
       manualIngest: result
@@ -57,7 +59,7 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
   const callbackResult = await handleReviewCallback(parsed, env.DB);
   const body: TelegramWebhookAck & { callbackResult: typeof callbackResult } = {
     ok: true,
-    receivedUpdateId: parsed.updateId,
+    ...updateIdFields,
     kind: parsed.kind,
     itemId: callbackResult.itemId,
     callbackAction: callbackResult.action,
