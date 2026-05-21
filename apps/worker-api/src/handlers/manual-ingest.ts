@@ -23,12 +23,18 @@ export async function handleManualIngest(
   const sourcesRepository = new SourcesRepository(db);
   const itemsRepository = new ItemsRepository(db);
   const reviewMessagesRepository = new ReviewMessagesRepository(db);
+
   const sourcePostId = createManualSourcePostId(parsed);
-  const existingItem = await itemsRepository.findBySourcePostId(sourcePostId);
+  const canonicalUrl = parsed.urls[0] ?? `telegram://manual/${parsed.message.chat.id}/${parsed.message.message_id}`;
+
+  const existingBySourcePostId = await itemsRepository.findBySourcePostId(sourcePostId);
+  const existingByCanonicalUrl = existingBySourcePostId ?? await itemsRepository.findByCanonicalUrl(canonicalUrl);
+  const existingItem = existingByCanonicalUrl ?? (
+    parsed.urls.length === 0 ? await itemsRepository.findByNormalizedText(parsed.text) : null
+  );
 
   await sourcesRepository.ensureManualTelegramSource();
 
-  const canonicalUrl = parsed.urls[0] ?? `telegram://manual/${parsed.message.chat.id}/${parsed.message.message_id}`;
   const post = createManualNormalizedPost(parsed, sourcePostId, canonicalUrl);
   const item = existingItem ?? await itemsRepository.createFromNormalizedPost({
     sourceId: "manual_telegram",
