@@ -8,31 +8,31 @@ This repository is designed to be built phase by phase. Do not ask a coding agen
 
 ## Current phase
 
-This branch implements **Phase 1: Repository Bootstrap**.
+This branch implements **Phase 2: Telegram Manual Ingest + Review**.
 
-Included in Phase 1:
+Included in Phase 2:
 
-- pnpm monorepo scaffold
-- TypeScript project references
-- Cloudflare Worker scaffold
-- D1 migration for the MVP tables
-- shared core types for sources, items, media, providers, outputs, lifecycle statuses, queues, and settings
-- repository and service layer stubs
-- mock social provider adapter
-- Telegram webhook route stub
-- GitHub Actions CI for lint, typecheck, and tests
-- `.env.example` with placeholder values only
+- real Telegram webhook parsing for message and callback updates
+- manual text input ingestion
+- manual URL input ingestion
+- manual item creation in D1 using mocked processing
+- basic duplicate detection by Telegram source message ID
+- manual review message draft formatting
+- inline review buttons for Edit, Send, Cancel, and Status
+- callback routing stubs for edit, send, cancel, and status
+- review message metadata storage
+- review action logging
+- tests for parsing, manual item creation, and callback routing
 
-Not included in Phase 1:
+Still not included in Phase 2:
 
 - real Instagram provider calls
 - real X/Twitter provider calls
 - real AI provider calls
 - real WordPress publishing
-- yt-dlp or ffmpeg media processing
-- production Telegram publishing
-- dashboard
-- Cloudflare deployment automation beyond CI
+- real final Telegram publishing
+- media download or processing
+- production scheduling logic beyond stubs
 
 ## Repository structure
 
@@ -83,7 +83,7 @@ pnpm install
 pnpm lint
 ```
 
-The Phase 1 lint script performs lightweight repository hygiene checks without adding ESLint yet. A full linting setup can be added later when coding conventions stabilize.
+The current lint script performs lightweight repository hygiene checks. A full linting setup can be added later when coding conventions stabilize.
 
 ## Typecheck
 
@@ -97,7 +97,7 @@ pnpm typecheck
 pnpm test
 ```
 
-Phase 1 tests cover lifecycle transition rules and the mock provider adapter.
+Phase 2 tests cover Telegram webhook parsing, manual item creation, and review callback routing.
 
 ## Run the Worker locally
 
@@ -106,6 +106,8 @@ Copy the example environment file:
 ```bash
 cp .env.example .dev.vars
 ```
+
+Set local-only values in `.dev.vars`. Do not commit that file. At minimum, configure the review chat and allowed reviewer IDs with your own local Telegram IDs.
 
 Apply local D1 migrations:
 
@@ -126,7 +128,40 @@ GET  /health
 POST /telegram/webhook
 ```
 
-The Telegram webhook route is a stub. It validates the request shape and returns a structured acknowledgement, but it does not call the Telegram Bot API or publish anything.
+## Test Telegram webhook with local mocks
+
+After starting the Worker, send a manual text update:
+
+```bash
+curl -X POST http://localhost:8787/telegram/webhook \
+  -H 'content-type: application/json' \
+  -d '{"update_id":1,"message":{"message_id":2,"from":{"id":3,"first_name":"Local"},"chat":{"id":4,"type":"private"},"text":"Manual post for review https://source.local/post"}}'
+```
+
+Expected behavior:
+
+- the update is parsed as `manual_message`
+- the sender is checked against `TELEGRAM_ALLOWED_REVIEWER_IDS`
+- a manual source row is ensured
+- an item row is created or reused
+- review message metadata is stored
+- the JSON response includes a `reviewDraft` with Edit, Send, Cancel, and Status buttons
+
+Send a callback mock:
+
+```bash
+curl -X POST http://localhost:8787/telegram/webhook \
+  -H 'content-type: application/json' \
+  -d '{"update_id":5,"callback_query":{"id":"callback-local","from":{"id":3,"first_name":"Local"},"message":{"message_id":6,"chat":{"id":4,"type":"private"}},"data":"review:status:item_local"}}'
+```
+
+Expected behavior:
+
+- the update is parsed as `callback`
+- the callback action is logged in `review_actions`
+- `status` and `edit` remain stubs
+- `send` marks the item as approved but does not publish
+- `cancel` marks the item as cancelled
 
 ## D1 migrations
 
@@ -156,14 +191,13 @@ prompts/PHASE_02_PROMPT.md
 
 Never prompt an agent to build the full project at once.
 
-## Phase 2 next
+## Phase 3 next
 
-Phase 2 should implement Telegram manual ingest and review flow:
+Phase 3 should implement stronger dedupe, validation, and lifecycle rules before AI or media processing:
 
-- real Telegram webhook parsing
-- manual link/text ingestion
-- reviewer authorization
-- review message builder
-- inline keyboard for edit/send/cancel/status
-- `review_actions` logging
-- item lookup from Telegram reply/callback context
+- canonical URL hashing strategy
+- normalized text hashing strategy
+- exact duplicate detection across sources
+- validation service for manual and provider items
+- lifecycle transition guards in the ingest flow
+- tests for duplicate and invalid states
