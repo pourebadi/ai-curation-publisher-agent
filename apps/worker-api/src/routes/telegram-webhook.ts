@@ -1,5 +1,5 @@
 import { parseAllowedReviewerIds, parseTelegramUpdate, isReviewerAllowed, type TelegramUpdate, type TelegramWebhookAck } from "@curator/telegram";
-import { handleManualIngest } from "../handlers/manual-ingest";
+import { handleManualIngest, type ManualIngestOptions } from "../handlers/manual-ingest";
 import { handleReviewCallback } from "../handlers/review-callback";
 import { jsonResponse } from "../http/json";
 import type { Env } from "../types";
@@ -41,9 +41,10 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
   }
 
   if (parsed.kind === "manual_message") {
-    const result = await handleManualIngest(parsed, env.DB, {
+    const ingestOptions: ManualIngestOptions = env.TELEGRAM_REVIEW_CHAT_ID === undefined ? {} : {
       reviewChatId: env.TELEGRAM_REVIEW_CHAT_ID
-    });
+    };
+    const result = await handleManualIngest(parsed, env.DB, ingestOptions);
 
     const body: TelegramWebhookAck & { manualIngest: typeof result } = {
       ok: true,
