@@ -118,10 +118,6 @@ export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
 }
 
 export function isReviewerAllowed(reviewerId: string, allowedReviewerIds: Set<string>): boolean {
-  if (allowedReviewerIds.size === 0) {
-    return true;
-  }
-
   return allowedReviewerIds.has(reviewerId);
 }
 
