@@ -1,4 +1,4 @@
-import { ItemsRepository, ReviewMessagesRepository } from "@curator/db";
+import { ItemsRepository, ReviewMessagesRepository, SourcesRepository } from "@curator/db";
 import type { NormalizedPost } from "@curator/core";
 import { buildTelegramReviewDraft, type ParsedManualTelegramMessage, type TelegramReviewDraft } from "@curator/telegram";
 import type { D1DatabaseLike } from "@curator/db";
@@ -20,10 +20,13 @@ export async function handleManualIngest(
   db: D1DatabaseLike,
   options: ManualIngestOptions = {}
 ): Promise<ManualIngestResult> {
+  const sourcesRepository = new SourcesRepository(db);
   const itemsRepository = new ItemsRepository(db);
   const reviewMessagesRepository = new ReviewMessagesRepository(db);
   const sourcePostId = createManualSourcePostId(parsed);
   const existingItem = await itemsRepository.findBySourcePostId(sourcePostId);
+
+  await sourcesRepository.ensureManualTelegramSource();
 
   const canonicalUrl = parsed.urls[0] ?? `telegram://manual/${parsed.message.chat.id}/${parsed.message.message_id}`;
   const post = createManualNormalizedPost(parsed, sourcePostId, canonicalUrl);
