@@ -130,12 +130,12 @@ POST /telegram/webhook
 
 ## Test Telegram webhook with local mocks
 
-After starting the Worker, send a manual text update:
+After starting the Worker, send a manual text update. Replace the angle-bracket values with local test values before running the command. The reviewer ID must also be present in `TELEGRAM_ALLOWED_REVIEWER_IDS` inside `.dev.vars`.
 
 ```bash
 curl -X POST http://localhost:8787/telegram/webhook \
   -H 'content-type: application/json' \
-  -d '{"update_id":1,"message":{"message_id":2,"from":{"id":3,"first_name":"Local"},"chat":{"id":4,"type":"private"},"text":"Manual post for review https://source.local/post"}}'
+  -d '{"update_id":<update_id>,"message":{"message_id":<message_id>,"from":{"id":<reviewer_id>,"first_name":"Local"},"chat":{"id":<chat_id>,"type":"private"},"text":"Manual post for review https://source.local/post"}}'
 ```
 
 Expected behavior:
@@ -147,12 +147,12 @@ Expected behavior:
 - review message metadata is stored
 - the JSON response includes a `reviewDraft` with Edit, Send, Cancel, and Status buttons
 
-Send a callback mock:
+Send a callback mock. Use the item ID returned by the manual-ingest response.
 
 ```bash
 curl -X POST http://localhost:8787/telegram/webhook \
   -H 'content-type: application/json' \
-  -d '{"update_id":5,"callback_query":{"id":"callback-local","from":{"id":3,"first_name":"Local"},"message":{"message_id":6,"chat":{"id":4,"type":"private"}},"data":"review:status:item_local"}}'
+  -d '{"update_id":<update_id>,"callback_query":{"id":"callback-local","from":{"id":<reviewer_id>,"first_name":"Local"},"message":{"message_id":<message_id>,"chat":{"id":<chat_id>,"type":"private"}},"data":"review:status:<item_id>"}}'
 ```
 
 Expected behavior:
