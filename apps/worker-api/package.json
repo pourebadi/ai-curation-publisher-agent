@@ -13,6 +13,7 @@
   "dependencies": {
     "@curator/core": "workspace:*",
     "@curator/db": "workspace:*",
-    "@curator/providers": "workspace:*"
+    "@curator/providers": "workspace:*",
+    "@curator/telegram": "workspace:*"
   }
 }

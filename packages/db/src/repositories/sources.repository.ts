@@ -13,7 +13,21 @@ export class SourcesRepository {
     return result.results ?? [];
   }
 
+  async ensureManualTelegramSource(): Promise<void> {
+    await this.db.prepare(
+      `INSERT OR IGNORE INTO sources (id, platform, source_type, value, status, provider_priority_json)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      "manual_telegram",
+      "manual",
+      "manual",
+      "telegram_manual_input",
+      "active",
+      JSON.stringify(["mock_social_provider"])
+    ).run();
+  }
+
   async updateWatermark(): Promise<never> {
-    throw new Error("SourcesRepository.updateWatermark is intentionally deferred beyond Phase 1");
+    throw new Error("SourcesRepository.updateWatermark is intentionally deferred beyond Phase 2");
   }
 }

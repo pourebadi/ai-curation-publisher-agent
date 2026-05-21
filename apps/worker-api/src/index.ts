@@ -1,5 +1,3 @@
-import { handleManualIngestStub } from "./handlers/manual-ingest";
-import { handleReviewCallbackStub } from "./handlers/review-callback";
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
 import { handleTelegramWebhook } from "./routes/telegram-webhook";
@@ -15,15 +13,7 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (url.pathname === "/telegram/webhook") {
-      return handleTelegramWebhook(request);
-    }
-
-    if (url.pathname === "/telegram/review-callback-stub") {
-      return handleReviewCallbackStub();
-    }
-
-    if (url.pathname === "/telegram/manual-ingest-stub") {
-      return handleManualIngestStub();
+      return handleTelegramWebhook(request, env);
     }
 
     return jsonResponse({ ok: false, error: "not_found" }, { status: 404 });
