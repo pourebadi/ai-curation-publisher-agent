@@ -1,68 +1,169 @@
-# Social Curator MVP Docs
+# AI Curation Publisher Agent
 
-این بسته شامل فایل‌های Markdown لازم برای شروع پیاده‌سازی پروژه **Incremental Social Content Curator** است.
+Incremental, provider-agnostic social content curator for Telegram and WordPress.
 
-هدف این بسته این است که بعد از ساخت GitHub repository، این فایل‌ها را داخل repo قرار بدهید و بعد پروژه را مرحله‌به‌مرحله به ChatGPT Pro / Codex / agent کدنویس بدهید تا پیاده‌سازی را شروع کند.
+The MVP ingests public social posts, normalizes them, deduplicates them before any expensive processing, validates them, generates platform-specific AI outputs, sends items to a private Telegram review channel, and publishes approved content to Telegram and then WordPress.
 
-## ساختار فایل‌ها
+This repository is designed to be built phase by phase. Do not ask a coding agent to build the entire product in one pass.
 
-```text
-README.md
-.env.example
-docs/
-  BLUEPRINT.md
-  IMPLEMENTATION_PLAN.md
-  CODEX_WORKFLOW.md
-  ACCEPTANCE_CRITERIA.md
-  RUNBOOK.md
-  COST_MODEL.md
-  ARCHITECTURE_DECISIONS.md
-  tasks/
-    TASK_01_REPO_BOOTSTRAP.md
-    TASK_02_DATABASE_AND_LIFECYCLE.md
-    TASK_03_TELEGRAM_MANUAL_REVIEW.md
-    TASK_04_DEDUPE_AI_PIPELINE.md
-    TASK_05_PUBLISH_TELEGRAM_WORDPRESS.md
-    TASK_06_PROVIDER_ADAPTERS.md
-    TASK_07_MEDIA_PIPELINE.md
-    TASK_08_CLOUDFLARE_GITHUB_DEPLOYMENT.md
-prompts/
-  START_HERE_PROMPT.md
-  PHASE_01_PROMPT.md
-  PHASE_02_PROMPT.md
-  PHASE_03_PROMPT.md
-  PHASE_04_PROMPT.md
-  PHASE_05_PROMPT.md
-```
+## Current phase
 
-## روش پیشنهادی استفاده
+This branch implements **Phase 1: Repository Bootstrap**.
 
-1. یک GitHub repository جدید بسازید.
-2. این فایل‌ها را در root همان repo کپی کنید.
-3. فعلاً هیچ secret واقعی داخل repo نگذارید.
-4. فایل `.env.example` را نگه دارید، ولی `.env` واقعی را commit نکنید.
-5. در ChatGPT Pro یا Codex، repo را باز کنید یا فایل‌ها را upload کنید.
-6. ابتدا محتوای `prompts/START_HERE_PROMPT.md` را به agent بدهید.
-7. سپس فقط Phase 1 را شروع کنید.
-8. بعد از هر فاز، خروجی را بررسی کنید و فاز بعدی را بدهید.
+Included in Phase 1:
 
-## قانون مهم
+- pnpm monorepo scaffold
+- TypeScript project references
+- Cloudflare Worker scaffold
+- D1 migration for the MVP tables
+- shared core types for sources, items, media, providers, outputs, lifecycle statuses, queues, and settings
+- repository and service layer stubs
+- mock social provider adapter
+- Telegram webhook route stub
+- GitHub Actions CI for lint, typecheck, and tests
+- `.env.example` with placeholder values only
 
-از agent نخواهید کل پروژه را یک‌جا بسازد. این پروژه چند لایه دارد: providerها، Telegram، WordPress، AI، media pipeline، Cloudflare، GitHub Actions و queueها. اگر همه یک‌جا ساخته شود، خروجی احتمالاً ظاهراً بزرگ و از داخل شکننده می‌شود.
+Not included in Phase 1:
 
-## ترتیب پیشنهادی پیاده‌سازی
+- real Instagram provider calls
+- real X/Twitter provider calls
+- real AI provider calls
+- real WordPress publishing
+- yt-dlp or ffmpeg media processing
+- production Telegram publishing
+- dashboard
+- Cloudflare deployment automation beyond CI
+
+## Repository structure
 
 ```text
-Phase 1: repo scaffold + core types + D1 migrations + mock provider
-Phase 2: Telegram manual ingest + review channel + buttons
-Phase 3: dedupe + validation + lifecycle engine
-Phase 4: AI adapter + Telegram prompt output
-Phase 5: publishing queue + Telegram final publish + WordPress REST publisher
-Phase 6: real provider adapters for GetXAPI and Apify
-Phase 7: media pipeline with yt-dlp + ffmpeg
-Phase 8: Cloudflare Cron, Queues, deployment, monitoring, backup
+apps/
+  worker-api/
+    src/
+      index.ts
+      routes/
+      handlers/
+      queues/
+      scheduled/
+packages/
+  core/
+  db/
+  providers/
+  ai/
+  telegram/
+  wordpress/
+  media/
+  scheduler/
+  observability/
+.github/workflows/
 ```
 
-## خروجی MVP
+## Requirements
 
-سیستم نهایی باید بتواند محتوای جدید public را از Instagram و X/Twitter دریافت کند، تکراری‌ها را حذف کند، خروجی تلگرام و وردپرس بسازد، در تلگرام برای review بفرستد، بعد از تأیید منتشر کند و همه چیز را لاگ کند.
+- Node.js 22+
+- pnpm 9+
+- Cloudflare Wrangler, installed through dev dependencies
+
+Enable pnpm through Corepack if it is not installed globally:
+
+```bash
+corepack enable
+corepack prepare pnpm@9.15.4 --activate
+```
+
+## Install
+
+```bash
+pnpm install
+```
+
+## Lint
+
+```bash
+pnpm lint
+```
+
+The Phase 1 lint script performs lightweight repository hygiene checks without adding ESLint yet. A full linting setup can be added later when coding conventions stabilize.
+
+## Typecheck
+
+```bash
+pnpm typecheck
+```
+
+## Test
+
+```bash
+pnpm test
+```
+
+Phase 1 tests cover lifecycle transition rules and the mock provider adapter.
+
+## Run the Worker locally
+
+Copy the example environment file:
+
+```bash
+cp .env.example .dev.vars
+```
+
+Apply local D1 migrations:
+
+```bash
+pnpm db:migrate:local
+```
+
+Start the Worker:
+
+```bash
+pnpm worker:dev
+```
+
+Available local routes:
+
+```text
+GET  /health
+POST /telegram/webhook
+```
+
+The Telegram webhook route is a stub. It validates the request shape and returns a structured acknowledgement, but it does not call the Telegram Bot API or publish anything.
+
+## D1 migrations
+
+The initial D1 schema lives in:
+
+```text
+packages/db/migrations/0001_initial_schema.sql
+```
+
+It creates the MVP state tables described in `docs/BLUEPRINT.md`: sources, items, dedupe keys, media assets, prompts, outputs, review messages, publish queue, WordPress posts, provider logs, review actions, and settings.
+
+## Agent workflow
+
+Start every coding session with:
+
+```text
+prompts/START_HERE_PROMPT.md
+```
+
+Then move one phase at a time:
+
+```text
+prompts/PHASE_01_PROMPT.md
+prompts/PHASE_02_PROMPT.md
+...
+```
+
+Never prompt an agent to build the full project at once.
+
+## Phase 2 next
+
+Phase 2 should implement Telegram manual ingest and review flow:
+
+- real Telegram webhook parsing
+- manual link/text ingestion
+- reviewer authorization
+- review message builder
+- inline keyboard for edit/send/cancel/status
+- `review_actions` logging
+- item lookup from Telegram reply/callback context
