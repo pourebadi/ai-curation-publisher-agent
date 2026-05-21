@@ -1,0 +1,27 @@
+{
+  "name": "ai-curation-publisher-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Incremental provider-agnostic social content curator for Telegram and WordPress.",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "dev": "pnpm --filter @curator/worker-api dev",
+    "worker:dev": "pnpm --filter @curator/worker-api dev",
+    "db:migrate:local": "wrangler d1 migrations apply curator_mvp --local --config wrangler.toml"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.100.0"
+  }
+}
