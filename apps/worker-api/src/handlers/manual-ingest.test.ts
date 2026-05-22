@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseTelegramUpdate } from "@curator/telegram";
+import { MockTelegramClient } from "@curator/telegram";
 import { handleManualIngest } from "./manual-ingest";
 import type { D1DatabaseLike, D1PreparedStatementLike, D1RunResult, D1Result, D1Value } from "@curator/db";
 import type { DedupeKeyType, Item } from "@curator/core";
@@ -146,7 +147,7 @@ function makeInvalidManualMessage(): ParsedManualTelegramMessage {
 }
 
 describe("handleManualIngest", () => {
-  it("passes valid manual input through the gate and creates review metadata", async () => {
+  it("passes valid manual input through the gate, sends review message, and stores metadata", async () => {
     const parsed = requireManualMessage(parseTelegramUpdate({
       update_id: 11,
       message: {
@@ -158,7 +159,8 @@ describe("handleManualIngest", () => {
     }));
 
     const db = new FakeDb();
-    const result = await handleManualIngest(parsed, db, { reviewChatId: "review-chat-local" });
+    const telegramClient = new MockTelegramClient();
+    const result = await handleManualIngest(parsed, db, { reviewChatId: "review-chat-local", telegramClient });
 
     expect(result.status).toBe("created");
     expect(result.lifecycleStatus).toBe("queued_for_ai");
@@ -170,14 +172,17 @@ describe("handleManualIngest", () => {
     });
     expect(result.itemId).toMatch(/^item_/);
     expect(result.reviewChatId).toBe("review-chat-local");
-    expect(result.reviewDraft?.text).toContain("Manual item");
+    expect(result.reviewMessageId).toBe("mock_telegram_review_1");
+    expect(result.reviewDraft?.text).toContain("کپشن");
     expect(result.reviewDraft?.reply_markup.inline_keyboard.flat().map((button) => button.text)).toContain("Send");
+    expect(telegramClient.sentReviewMessages).toHaveLength(1);
+    expect(telegramClient.sentReviewMessages[0]?.text).toContain("Persian caption");
     expect(db.insertedRows.some((row) => row.query.includes("INSERT OR IGNORE INTO sources"))).toBe(true);
     expect(db.insertedRows.some((row) => row.query.includes("INSERT INTO items"))).toBe(true);
     expect(db.insertedRows.some((row) => row.query.includes("INSERT OR REPLACE INTO review_messages"))).toBe(true);
   });
 
-  it("does not insert a second item or review message for duplicate manual URL input", async () => {
+  it("does not insert a second item or send a second review message for duplicate manual URL input", async () => {
     const firstParsed = requireManualMessage(parseTelegramUpdate({
       update_id: 101,
       message: {
@@ -199,8 +204,9 @@ describe("handleManualIngest", () => {
     }));
 
     const db = new FakeDb();
-    const firstResult = await handleManualIngest(firstParsed, db, { reviewChatId: "review-chat-local" });
-    const secondResult = await handleManualIngest(secondParsed, db, { reviewChatId: "review-chat-local" });
+    const telegramClient = new MockTelegramClient();
+    const firstResult = await handleManualIngest(firstParsed, db, { reviewChatId: "review-chat-local", telegramClient });
+    const secondResult = await handleManualIngest(secondParsed, db, { reviewChatId: "review-chat-local", telegramClient });
 
     expect(firstResult.status).toBe("created");
     expect(secondResult.status).toBe("duplicate");
@@ -214,11 +220,12 @@ describe("handleManualIngest", () => {
     expect(secondResult.duplicateOfItemId).toBe(firstResult.itemId);
     expect(secondResult.reviewDraft).toBeUndefined();
     expect(secondResult.reviewMessageId).toBeUndefined();
+    expect(telegramClient.sentReviewMessages).toHaveLength(1);
     expect(db.insertedRows.filter((row) => row.query.includes("INSERT INTO items"))).toHaveLength(1);
     expect(db.insertedRows.filter((row) => row.query.includes("INSERT OR REPLACE INTO review_messages"))).toHaveLength(1);
   });
 
-  it("returns duplicate behavior for equivalent text-only manual input", async () => {
+  it("returns duplicate behavior for equivalent text-only manual input without sending a second review", async () => {
     const firstParsed = requireManualMessage(parseTelegramUpdate({
       update_id: 111,
       message: {
@@ -240,8 +247,9 @@ describe("handleManualIngest", () => {
     }));
 
     const db = new FakeDb();
-    const firstResult = await handleManualIngest(firstParsed, db, { reviewChatId: "review-chat-local" });
-    const secondResult = await handleManualIngest(secondParsed, db, { reviewChatId: "review-chat-local" });
+    const telegramClient = new MockTelegramClient();
+    const firstResult = await handleManualIngest(firstParsed, db, { reviewChatId: "review-chat-local", telegramClient });
+    const secondResult = await handleManualIngest(secondParsed, db, { reviewChatId: "review-chat-local", telegramClient });
 
     expect(firstResult.status).toBe("created");
     expect(secondResult.status).toBe("duplicate");
@@ -250,13 +258,15 @@ describe("handleManualIngest", () => {
     expect(secondResult.costControl.entersMediaQueue).toBe(false);
     expect(secondResult.costControl.entersReviewQueue).toBe(false);
     expect(secondResult.itemId).toBe(firstResult.itemId);
+    expect(telegramClient.sentReviewMessages).toHaveLength(1);
     expect(db.insertedRows.filter((row) => row.query.includes("INSERT INTO items"))).toHaveLength(1);
     expect(db.insertedRows.filter((row) => row.query.includes("INSERT OR REPLACE INTO review_messages"))).toHaveLength(1);
   });
 
-  it("returns invalid behavior without creating review metadata", async () => {
+  it("returns invalid behavior without sending review metadata", async () => {
     const db = new FakeDb();
-    const result = await handleManualIngest(makeInvalidManualMessage(), db, { reviewChatId: "review-chat-local" });
+    const telegramClient = new MockTelegramClient();
+    const result = await handleManualIngest(makeInvalidManualMessage(), db, { reviewChatId: "review-chat-local", telegramClient });
 
     expect(result.status).toBe("invalid");
     expect(result.lifecycleStatus).toBe("invalid");
@@ -268,6 +278,7 @@ describe("handleManualIngest", () => {
     });
     expect(result.reviewDraft).toBeUndefined();
     expect(result.reviewMessageId).toBeUndefined();
+    expect(telegramClient.sentReviewMessages).toHaveLength(0);
     expect(db.insertedRows.filter((row) => row.query.includes("INSERT INTO items"))).toHaveLength(0);
     expect(db.insertedRows.filter((row) => row.query.includes("INSERT OR REPLACE INTO review_messages"))).toHaveLength(0);
   });
