@@ -132,7 +132,7 @@ export async function runScheduledPollOperation(env: Env, options: SchedulerRunO
     maxItems: settings.maxItems,
     totalSources: pollResult.totalSources,
     totalReturned: pollResult.totalReturned,
-    totalQueued: settings.dryRun ? 0 : pollResult.totalQueued,
+    totalQueued: 0,
     totalDuplicates: pollResult.totalDuplicates,
     totalInvalid: pollResult.totalInvalid,
     totalErrors: pollResult.totalErrors,
