@@ -78,12 +78,13 @@ export async function handleManualIngest(
     post,
     sourceAttributionText: `Source: ${canonicalUrl}`
   });
+  const originalTextExcerpt = createOriginalTextExcerpt(parsed.text);
   const reviewDraft = buildTelegramAiReviewDraft({
     itemId: item.id,
     status: item.status,
     sourceUrl: canonicalUrl,
     aiOutput: aiResult.output,
-    originalTextExcerpt: createOriginalTextExcerpt(parsed.text),
+    ...(originalTextExcerpt === undefined ? {} : { originalTextExcerpt }),
     provider: post.provider,
     platform: post.platform,
     sourceType: post.sourceType
