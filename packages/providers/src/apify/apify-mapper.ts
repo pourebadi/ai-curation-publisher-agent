@@ -42,6 +42,8 @@ export function mapApifyInstagramResponseToPosts(input: unknown, providerId = "a
     const canonicalUrl = asString(candidate.url);
     const sourcePostId = asString(candidate.id) ?? asString(candidate.shortcode) ?? canonicalUrl;
     const text = asString(candidate.caption);
+    const publishedAt = asString(candidate.timestamp);
+    const authorHandle = asString(candidate.ownerUsername);
 
     if (!sourcePostId || !canonicalUrl) {
       warnings.push(`Skipped Apify record ${index}: missing source post id or URL.`);
@@ -54,8 +56,8 @@ export function mapApifyInstagramResponseToPosts(input: unknown, providerId = "a
       sourceType: "direct_url",
       sourcePostId,
       canonicalUrl,
-      ...(asString(candidate.timestamp) === undefined ? {} : { publishedAt: asString(candidate.timestamp) }),
-      ...(asString(candidate.ownerUsername) === undefined ? {} : { authorHandle: asString(candidate.ownerUsername) }),
+      ...(publishedAt === undefined ? {} : { publishedAt }),
+      ...(authorHandle === undefined ? {} : { authorHandle }),
       ...(text === undefined ? {} : { text }),
       links: [canonicalUrl],
       media: collectMedia(candidate),

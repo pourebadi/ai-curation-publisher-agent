@@ -42,25 +42,38 @@ export function mapGetXApiResponseToPosts(input: unknown, providerId = "getxapi"
     const sourcePostId = asString(candidate.id) ?? asString(candidate.tweet_id);
     const canonicalUrl = asString(candidate.url) ?? (sourcePostId === undefined ? undefined : `https://x.com/i/web/status/${sourcePostId}`);
     const text = asString(candidate.text) ?? asString(candidate.full_text);
+    const publishedAt = asString(candidate.created_at);
+    const authorHandle = extractAuthor(candidate);
 
     if (!sourcePostId || !canonicalUrl) {
       warnings.push(`Skipped GetXAPI record ${index}: missing tweet id or URL.`);
       return;
     }
 
-    posts.push({
+    const post: NormalizedPost = {
       provider: providerId,
       platform: "x",
       sourceType: "direct_url",
       sourcePostId,
       canonicalUrl,
-      ...(asString(candidate.created_at) === undefined ? {} : { publishedAt: asString(candidate.created_at) }),
-      ...(extractAuthor(candidate) === undefined ? {} : { authorHandle: extractAuthor(candidate) }),
-      ...(text === undefined ? {} : { text }),
       links: [canonicalUrl],
       media: collectMedia(candidate.media),
       rawPayload: record
-    });
+    };
+
+    if (publishedAt !== undefined) {
+      post.publishedAt = publishedAt;
+    }
+
+    if (authorHandle !== undefined) {
+      post.authorHandle = authorHandle;
+    }
+
+    if (text !== undefined) {
+      post.text = text;
+    }
+
+    posts.push(post);
   });
 
   return { posts, warnings, errors };

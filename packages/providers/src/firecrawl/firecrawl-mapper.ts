@@ -43,25 +43,39 @@ export function mapFirecrawlResponseToPosts(input: unknown, providerId = "firecr
     const canonicalUrl = asString(candidate.url) ?? asString(candidate.sourceUrl) ?? extractMetadataString(candidate.metadata, "sourceURL");
     const title = asString(candidate.title) ?? extractMetadataString(candidate.metadata, "title");
     const content = asString(candidate.markdown) ?? asString(candidate.content) ?? asString(candidate.excerpt) ?? asString(candidate.description);
+    const publishedAt = extractPublishedAt(candidate);
+    const authorHandle = extractAuthor(candidate);
+    const text = content === undefined ? undefined : title === undefined ? content : `${title}\n\n${content}`;
 
     if (!canonicalUrl) {
       warnings.push(`Skipped Firecrawl record ${index}: missing URL.`);
       return;
     }
 
-    posts.push({
+    const post: NormalizedPost = {
       provider: providerId,
       platform: "web",
       sourceType: "web_url",
       sourcePostId: canonicalUrl,
       canonicalUrl,
-      ...(extractPublishedAt(candidate) === undefined ? {} : { publishedAt: extractPublishedAt(candidate) }),
-      ...(extractAuthor(candidate) === undefined ? {} : { authorHandle: extractAuthor(candidate) }),
-      ...(content === undefined ? {} : { text: title === undefined ? content : `${title}\n\n${content}` }),
       links: [canonicalUrl],
       media: [],
       rawPayload: record
-    });
+    };
+
+    if (publishedAt !== undefined) {
+      post.publishedAt = publishedAt;
+    }
+
+    if (authorHandle !== undefined) {
+      post.authorHandle = authorHandle;
+    }
+
+    if (text !== undefined) {
+      post.text = text;
+    }
+
+    posts.push(post);
   });
 
   return { posts, warnings, errors };

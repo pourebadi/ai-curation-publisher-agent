@@ -48,7 +48,7 @@ export function classifyProviderError(error: unknown): ProviderError {
     return new ProviderError({
       category: status === "disabled" ? "provider_disabled" : status === "missing_credentials" ? "missing_credentials" : "provider_error",
       message: error.message,
-      providerId: error.providerId,
+      ...(error.providerId === undefined ? {} : { providerId: error.providerId }),
       cause: error
     });
   }
