@@ -113,6 +113,19 @@ function makeEnv(db = new FakeDb(), overrides: Partial<Env> = {}): Env {
   };
 }
 
+function makeReadyProductionEnv(overrides: Partial<Env> = {}): Env {
+  return makeEnv(new FakeDb(), {
+    ENVIRONMENT: "production",
+    INTERNAL_API_SECRET: "configured-secret",
+    TELEGRAM_REVIEW_CHAT_ID: "review-chat",
+    TELEGRAM_FINAL_CHAT_ID: "final-chat",
+    WORDPRESS_BASE_URL: "https://wordpress.local",
+    WORDPRESS_USERNAME: "writer",
+    WORDPRESS_APPLICATION_PASSWORD: "configured-password",
+    ...overrides
+  });
+}
+
 async function fetchWorker(request: globalThis.Request, env = makeEnv()): Promise<Response> {
   if (!worker.fetch) {
     throw new Error("Worker fetch handler is not defined");
@@ -141,6 +154,55 @@ describe("operational worker routes", () => {
     expect(body.service).toBe("ai-curation-publisher-agent");
     expect(body.environment).toBe("test");
     expect(typeof body.timestamp).toBe("string");
+  });
+
+  it("GET /ready returns ready in local mock mode with warnings", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/ready"));
+    const body = await json(response);
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.ready).toBe(true);
+    expect(body.summary).toMatchObject({
+      environment: "test",
+      mockMode: true,
+      providersMode: "mock",
+      hasInternalSecret: false,
+      hasTelegramConfig: true
+    });
+    expect(Array.isArray(body.warnings)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("review-chat");
+    expect(JSON.stringify(body)).not.toContain("final-chat");
+  });
+
+  it("GET /ready returns 503 for production missing required config", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/ready"), makeEnv(new FakeDb(), {
+      ENVIRONMENT: "production",
+      TELEGRAM_REVIEW_CHAT_ID: "",
+      TELEGRAM_FINAL_CHAT_ID: ""
+    }));
+    const body = await json(response);
+
+    expect(response.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(body.ready).toBe(false);
+    expect(body.errors).toEqual(expect.arrayContaining([
+      "INTERNAL_API_SECRET is not configured.",
+      "Telegram runtime configuration is incomplete."
+    ]));
+  });
+
+  it("GET /ready does not expose configured secret values", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/ready"), makeReadyProductionEnv({
+      APIFY_TOKEN: "provider-token"
+    }));
+    const body = await json(response);
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("configured-secret");
+    expect(JSON.stringify(body)).not.toContain("configured-password");
+    expect(JSON.stringify(body)).not.toContain("provider-token");
   });
 
   it("GET /status returns operational module status without secrets", async () => {
@@ -174,7 +236,7 @@ describe("operational worker routes", () => {
     expect(JSON.stringify(body)).not.toContain("configured");
   });
 
-  it("POST /internal/poll with a mock source returns poll metadata", async () => {
+  it("POST /internal/poll remains accessible without secret in local mode", async () => {
     const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -200,6 +262,57 @@ describe("operational worker routes", () => {
     expect(body.failedSources).toBe(0);
     expect(body.totalReturned).toBe(1);
     expect(Array.isArray(body.perSource)).toBe(true);
+  });
+
+  it("POST /internal/poll rejects missing secret when configured", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-request-id": "req-test" },
+      body: JSON.stringify({})
+    }), makeEnv(new FakeDb(), { INTERNAL_API_SECRET: "configured-secret" }));
+    const body = await json(response);
+
+    expect(response.status).toBe(401);
+    expect(body).toMatchObject({
+      ok: false,
+      error: "internal_auth_required",
+      message: "Internal API authorization failed.",
+      requestId: "req-test"
+    });
+    expect(typeof body.timestamp).toBe("string");
+    expect(JSON.stringify(body)).not.toContain("configured-secret");
+  });
+
+  it("POST /internal/poll rejects invalid secret", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-api-secret": "wrong"
+      },
+      body: JSON.stringify({})
+    }), makeEnv(new FakeDb(), { INTERNAL_API_SECRET: "configured-secret" }));
+    const body = await json(response);
+
+    expect(response.status).toBe(401);
+    expect(body.error).toBe("internal_auth_invalid");
+    expect(JSON.stringify(body)).not.toContain("configured-secret");
+  });
+
+  it("POST /internal/poll accepts valid secret", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-api-secret": "configured-secret"
+      },
+      body: JSON.stringify({})
+    }), makeEnv(new FakeDb(), { INTERNAL_API_SECRET: "configured-secret" }));
+    const body = await json(response);
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.totalSources).toBe(3);
   });
 
   it("POST /internal/poll uses default mock sources", async () => {
@@ -274,6 +387,22 @@ describe("operational worker routes", () => {
     expect(body.wordpressPostId).toBe("mock_wp_post_1");
   });
 
+  it("POST /internal/e2e/mock-pipeline requires valid secret when configured", async () => {
+    const missingResponse = await fetchWorker(new Request("https://worker.local/internal/e2e/mock-pipeline", {
+      method: "POST"
+    }), makeEnv(new FakeDb(), { INTERNAL_API_SECRET: "configured-secret" }));
+    expect(missingResponse.status).toBe(401);
+
+    const validResponse = await fetchWorker(new Request("https://worker.local/internal/e2e/mock-pipeline", {
+      method: "POST",
+      headers: { "x-internal-api-secret": "configured-secret" }
+    }), makeEnv(new FakeDb(), { INTERNAL_API_SECRET: "configured-secret" }));
+    const body = await json(validResponse);
+
+    expect(validResponse.status).toBe(200);
+    expect(body.ok).toBe(true);
+  });
+
   it("POST /internal/publish/telegram returns structured no-item result", async () => {
     const response = await fetchWorker(new Request("https://worker.local/internal/publish/telegram", {
       method: "POST",
@@ -318,6 +447,16 @@ describe("operational worker routes", () => {
     expect(body.finalMessageId).toBe("mock_telegram_final_1");
   });
 
+  it("POST /internal/publish/telegram requires valid secret when configured", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/internal/publish/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({})
+    }), makeEnv(new FakeDb(), { INTERNAL_API_SECRET: "configured-secret" }));
+
+    expect(response.status).toBe(401);
+  });
+
   it("scheduled poll operation returns mock-safe result", async () => {
     const result = await runScheduledPoll({
       scheduledTime: 1_700_000_000_000,
@@ -339,6 +478,8 @@ describe("operational worker routes", () => {
 
     expect(response.status).toBe(405);
     expect(body.error).toBe("method_not_allowed");
+    expect(typeof body.requestId).toBe("string");
+    expect(typeof body.timestamp).toBe("string");
   });
 
   it("returns 405 for invalid e2e method", async () => {
@@ -359,5 +500,8 @@ describe("operational worker routes", () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toBe("malformed_json");
+    expect(body.message).toBe("Request body could not be parsed as JSON.");
+    expect(typeof body.requestId).toBe("string");
+    expect(typeof body.timestamp).toBe("string");
   });
 });

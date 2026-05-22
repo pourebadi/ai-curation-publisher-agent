@@ -2,11 +2,15 @@ export interface Env {
   DB: D1Database;
   ENVIRONMENT?: string;
   LOG_LEVEL?: string;
+  INTERNAL_API_SECRET?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   TELEGRAM_REVIEW_CHAT_ID?: string;
   TELEGRAM_FINAL_CHAT_ID?: string;
   TELEGRAM_ALLOWED_REVIEWER_IDS?: string;
+  WORDPRESS_BASE_URL?: string;
+  WORDPRESS_USERNAME?: string;
+  WORDPRESS_APPLICATION_PASSWORD?: string;
   PROVIDERS_MODE?: string;
   ENABLE_APIFY_PROVIDER?: string;
   ENABLE_GETXAPI_PROVIDER?: string;

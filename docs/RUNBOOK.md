@@ -1,6 +1,6 @@
 # Operations Runbook
 
-This runbook covers operational setup, deployment, smoke testing, rollback, and recovery for the AI Curation Publisher Agent.
+This runbook covers operational setup, deployment, smoke testing, readiness checks, rollback, and recovery for the AI Curation Publisher Agent.
 
 Mock/local mode is the default for tests and operational smoke checks. Do not introduce real provider calls or real credentials while following this runbook.
 
@@ -15,6 +15,7 @@ Never commit:
 - webhook secrets
 - WordPress usernames or application passwords
 - provider credentials
+- internal API secrets
 - private Cloudflare database IDs unless intentionally public project config
 - `.dev.vars`
 - exported production data
@@ -98,6 +99,7 @@ Local operational routes:
 
 ```text
 GET  /health
+GET  /ready
 GET  /status
 POST /internal/poll
 POST /internal/e2e/mock-pipeline
@@ -107,7 +109,104 @@ POST /telegram/webhook
 
 ---
 
-## 5. CI
+## 5. Internal route protection
+
+Internal routes are protected when `INTERNAL_API_SECRET` is configured:
+
+```text
+POST /internal/poll
+POST /internal/e2e/mock-pipeline
+POST /internal/publish/telegram
+```
+
+Local/mock behavior:
+
+- if `INTERNAL_API_SECRET` is unset, internal routes remain accessible for local development and tests
+- no real provider calls are made by default
+
+Production behavior:
+
+- configure `INTERNAL_API_SECRET` as a Cloudflare Worker secret
+- send the header with every internal route request
+
+```bash
+pnpm exec wrangler secret put INTERNAL_API_SECRET --config wrangler.toml
+```
+
+Example internal request:
+
+```bash
+curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
+  -H "content-type: application/json" \
+  -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
+  -d '{"options":{"limit":1}}'
+```
+
+Do not log, print, commit, or paste the secret value.
+
+---
+
+## 6. Readiness checks
+
+Readiness route:
+
+```text
+GET /ready
+```
+
+Local/mock mode should return `200` with `ready: true` and warnings when optional production config is missing.
+
+Production mode returns `503` when required production config is missing. Expected production checks include:
+
+- `INTERNAL_API_SECRET` configured
+- Telegram review/final chat IDs configured
+- provider mode and provider credentials are consistent
+- WordPress config is summarized without exposing values
+
+Run locally or against a deployed Worker:
+
+```bash
+curl -fsS "$WORKER_BASE_URL/ready"
+```
+
+Readiness responses must not expose token, secret, password, API key, or authorization values.
+
+---
+
+## 7. Safe logging policy
+
+Use the Worker logger utility for structured logs. It redacts known secret-like keys, including:
+
+- `token`
+- `secret`
+- `password`
+- `apiKey`
+- `applicationPassword`
+- `authorization`
+
+Logging rules:
+
+- log booleans like `hasTelegramConfig`, not raw values
+- never log request headers wholesale
+- never log `.dev.vars`
+- never log provider credentials
+- never log Telegram bot tokens or WordPress application passwords
+
+---
+
+## 8. Rate-limit guard foundation
+
+Phase 16 adds a lightweight rate-limit guard interface:
+
+- `RateLimitGuard`
+- `NoopRateLimitGuard`
+- `InMemoryRateLimitGuard` for tests/future wiring
+
+The default internal route behavior uses the no-op guard. Do not assume this is production-grade abuse protection. Durable Objects, KV, or another shared store should be introduced in a future scoped phase if production distributed rate limiting is needed.
+
+---
+
+## 9. CI
 
 The CI workflow runs:
 
@@ -122,7 +221,7 @@ Run the same commands locally before opening or merging a PR.
 
 ---
 
-## 6. Deploy Worker
+## 10. Deploy Worker
 
 Manual deploy from GitHub Actions:
 
@@ -148,7 +247,7 @@ No runtime provider, Telegram, WordPress, or AI secrets are required for mock-mo
 
 ---
 
-## 7. D1 migrations
+## 11. D1 migrations
 
 Local migrations:
 
@@ -178,7 +277,7 @@ Migration rules:
 
 ---
 
-## 8. Smoke tests
+## 12. Smoke tests
 
 Manual GitHub Actions smoke test:
 
@@ -198,6 +297,7 @@ Manual route checks:
 
 ```bash
 curl -fsS "$WORKER_BASE_URL/health"
+curl -fsS "$WORKER_BASE_URL/ready"
 curl -fsS "$WORKER_BASE_URL/status"
 curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
   -H 'content-type: application/json' \
@@ -205,16 +305,18 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
 curl -fsS -X POST "$WORKER_BASE_URL/internal/e2e/mock-pipeline"
 ```
 
+When `INTERNAL_API_SECRET` is configured, include `x-internal-api-secret` on internal route checks.
+
 Expected `/internal/poll` behavior:
 
 - uses mock providers by default
 - does not call Apify, GetXAPI, HikerAPI, Firecrawl, or browser scraping
 - returns per-source metadata and aggregate counts
-- does not require provider credentials
+- does not require provider credentials in mock mode
 
 ---
 
-## 9. End-to-end mock pipeline
+## 13. End-to-end mock pipeline
 
 Run the E2E mock pipeline locally:
 
@@ -254,14 +356,14 @@ It does not test:
 - real Telegram Bot API calls
 - real WordPress REST API calls
 - real media download or upload
-- production auth
+- production auth beyond the optional internal header guard
 - Cloudflare Cron behavior
 
-Use this before enabling real providers or deployment changes. If it fails, fix the mock pipeline before debugging external integrations. Yes, apparently checking the plumbing before flooding the house is useful.
+Use this before enabling real providers or deployment changes.
 
 ---
 
-## 10. Trigger mock publish
+## 14. Trigger mock publish
 
 Trigger the Telegram publish route:
 
@@ -281,7 +383,7 @@ The internal publish route uses `MockTelegramClient`. Tests must not call the re
 
 ---
 
-## 11. Scheduled handler
+## 15. Scheduled handler
 
 `wrangler.toml` defines a mock-safe scheduled trigger:
 
@@ -308,7 +410,26 @@ In Cloudflare Dashboard, inspect Worker logs and trigger history for scheduled e
 
 ---
 
-## 12. Backup and export
+## 16. Production readiness checklist
+
+Before production rollout:
+
+- `pnpm lint` passes
+- `pnpm typecheck` passes
+- `pnpm test` passes
+- `/health` returns `200`
+- `/ready` returns `200`
+- `INTERNAL_API_SECRET` is configured as a Cloudflare secret
+- internal route calls include `x-internal-api-secret`
+- D1 migrations have been applied
+- Cloudflare Worker logs do not contain secrets
+- real providers remain disabled unless a scoped rollout phase enables them
+- mock E2E pipeline succeeds
+- rollback path is known
+
+---
+
+## 17. Backup and export
 
 The `Backup D1 Stub` workflow is intentionally a documented stub. Verify the current Cloudflare-supported D1 export command before enabling automated backups.
 
@@ -328,7 +449,7 @@ Before enabling real backups:
 
 ---
 
-## 13. Rollback
+## 18. Rollback
 
 Rollback options:
 
@@ -338,7 +459,7 @@ Rollback options:
 
 Rollback checklist:
 
-- Check `/health` and `/status`.
+- Check `/health`, `/ready`, and `/status`.
 - Run mock `/internal/poll` smoke test.
 - Run `/internal/e2e/mock-pipeline`.
 - Check Worker logs with `wrangler tail`.
@@ -347,7 +468,7 @@ Rollback checklist:
 
 ---
 
-## 14. Failure recovery
+## 19. Failure recovery
 
 ### Worker deploy failure
 
@@ -366,10 +487,12 @@ Rollback checklist:
 ### Smoke test failure
 
 1. Check `/health`.
-2. Check `/status`.
-3. Check Worker logs.
-4. Confirm the Worker URL input is correct.
-5. Confirm `/internal/poll` and `/internal/e2e/mock-pipeline` are not blocked by routing rules.
+2. Check `/ready`.
+3. Check `/status`.
+4. Check Worker logs.
+5. Confirm the Worker URL input is correct.
+6. Confirm `/internal/poll` and `/internal/e2e/mock-pipeline` are not blocked by routing rules.
+7. If `INTERNAL_API_SECRET` is configured, confirm the request includes `x-internal-api-secret`.
 
 ### Provider failure
 
@@ -377,10 +500,11 @@ Provider smoke tests should use mocks by default. If a real provider is being ca
 
 ---
 
-## 15. Operational routes reference
+## 20. Operational routes reference
 
 ```text
 GET  /health
+GET  /ready
 GET  /status
 POST /internal/poll
 POST /internal/e2e/mock-pipeline
@@ -388,21 +512,22 @@ POST /internal/publish/telegram
 POST /telegram/webhook
 ```
 
-No route should expose secrets. `/status` may expose whether a config is present, but not the configured value.
+No route should expose secrets. `/status` and `/ready` may expose whether a config is present, but not the configured value.
 
 ---
 
-## 16. Future phases
+## 21. Future phases
 
-Do not add these in the E2E mock phase:
+Do not add these in the production hardening phase:
 
-- real provider polling credentials
+- real provider rollout
 - real Apify/GetXAPI/HikerAPI/Firecrawl calls
 - real Telegram Bot API calls
 - real WordPress API calls
 - real media download jobs
-- real dashboard
+- dashboard
 - paid service integrations
-- Phase 16 behavior
+- Durable Objects or KV rate limiting
+- Phase 17 behavior
 
 Add those only in their own scoped phases with tests and rollback notes.

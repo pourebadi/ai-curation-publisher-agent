@@ -1,7 +1,9 @@
 import type { Source } from "@curator/core";
 import { runMockPollOperation, type OperationalPollOptions } from "../operations/mock-poll";
 import { jsonResponse } from "../http/json";
-import { methodNotAllowed, parseJsonBody, serverError } from "./response";
+import { verifyInternalRequest } from "../security/internal-auth";
+import { NoopRateLimitGuard, type RateLimitGuard } from "../security/rate-limit";
+import { methodNotAllowed, parseJsonBody, serverError, tooManyRequests, unauthorized } from "./response";
 import type { Env } from "../types";
 
 type InternalPollRequestBody = {
@@ -9,9 +11,19 @@ type InternalPollRequestBody = {
   options?: OperationalPollOptions;
 };
 
-export async function handleInternalPoll(request: Request, env: Env): Promise<Response> {
+export async function handleInternalPoll(request: Request, env: Env, rateLimitGuard: RateLimitGuard = new NoopRateLimitGuard()): Promise<Response> {
   if (request.method !== "POST") {
-    return methodNotAllowed(["POST"]);
+    return methodNotAllowed(["POST"], request);
+  }
+
+  const auth = verifyInternalRequest(request, env);
+  if (!auth.ok) {
+    return unauthorized(auth.error, "Internal API authorization failed.", request);
+  }
+
+  const rateLimit = await rateLimitGuard.check(request);
+  if (!rateLimit.allowed) {
+    return tooManyRequests(rateLimit.reason, rateLimit.retryAfterSeconds, request);
   }
 
   const parsed = await parseJsonBody<InternalPollRequestBody>(request);
@@ -28,6 +40,6 @@ export async function handleInternalPoll(request: Request, env: Env): Promise<Re
 
     return jsonResponse(result);
   } catch (error) {
-    return serverError(error instanceof Error ? error.message : "internal_poll_failed");
+    return serverError("internal_poll_failed", error instanceof Error ? error.message : "Internal poll failed.", request);
   }
 }

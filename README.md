@@ -8,9 +8,9 @@ The project is intentionally implemented phase by phase. Keep future work scoped
 
 ## Operational status
 
-This branch implements **Phase 15: end-to-end mock pipeline smoke scenario**.
+This branch implements **Phase 16: production readiness hardening**.
 
-Phase 15 keeps mock/local mode as the default. It does not add real provider API calls, real Telegram Bot API calls, real WordPress API calls, real media downloads, or real credentials.
+Phase 16 keeps mock/local mode as the default. It adds internal route protection, readiness checks, safe config summaries, safe logging utilities, and rate-limit guard foundations without enabling real providers or real external publishing by default.
 
 ## Repository structure
 
@@ -75,6 +75,7 @@ Local operational routes:
 
 ```text
 GET  /health
+GET  /ready
 GET  /status
 POST /internal/poll
 POST /internal/e2e/mock-pipeline
@@ -95,6 +96,16 @@ Run the end-to-end mock pipeline smoke scenario:
 ```bash
 WORKER_BASE_URL=http://localhost:8787 pnpm worker:e2e:mock
 ```
+
+## Internal route protection
+
+Internal routes remain accessible in local/mock mode when `INTERNAL_API_SECRET` is unset. When configured, requests must include:
+
+```text
+x-internal-api-secret: <configured secret>
+```
+
+Set `INTERNAL_API_SECRET` as a Cloudflare secret for production. Do not commit it.
 
 ## Deploy
 
@@ -129,10 +140,16 @@ WORKER_BASE_URL=https://your-worker.example pnpm worker:smoke
 WORKER_BASE_URL=https://your-worker.example pnpm worker:e2e:mock
 ```
 
+Check readiness before production deploys:
+
+```bash
+curl -fsS "$WORKER_BASE_URL/ready"
+```
+
 The smoke workflow checks `/health`, `/status`, and can optionally call `/internal/poll` with mock providers. The E2E mock route is manual/internal and exercises the mock pipeline without real external services.
 
 ## Secrets policy
 
-Never commit real secrets, API keys, tokens, passwords, database IDs for private infrastructure, webhook secrets, or provider credentials. Use Cloudflare secrets and GitHub Actions secrets. `.env.example` must remain sanitized with empty values only.
+Never commit real secrets, API keys, tokens, passwords, database IDs for private infrastructure, webhook secrets, provider credentials, or `.dev.vars`. Use Cloudflare secrets and GitHub Actions secrets. `.env.example` must remain sanitized with empty values only.
 
-Detailed deployment, rollback, migration, and recovery steps are in `docs/RUNBOOK.md`. 
+Detailed deployment, rollback, migration, readiness, internal-route protection, and recovery steps are in `docs/RUNBOOK.md`.
