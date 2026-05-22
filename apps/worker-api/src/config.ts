@@ -10,6 +10,8 @@ export type WorkerOperationalConfig = {
     reviewChatConfigured: boolean;
     finalChatConfigured: boolean;
     finalChatId: string;
+    botTokenConfigured: boolean;
+    realReviewEnabled: boolean;
   };
   providers: ProviderConfigSummary;
   readiness: SafeConfigSummary;
@@ -21,6 +23,8 @@ export type SafeConfigSummary = {
   providersMode: string;
   hasInternalSecret: boolean;
   hasTelegramConfig: boolean;
+  hasTelegramBotToken: boolean;
+  telegramRealReviewEnabled: boolean;
   hasWordPressConfig: boolean;
   hasProviderCredentials: {
     apify: boolean;
@@ -47,7 +51,9 @@ export function readOperationalConfig(env: Env): WorkerOperationalConfig {
     telegram: {
       reviewChatConfigured: Boolean(env.TELEGRAM_REVIEW_CHAT_ID),
       finalChatConfigured: Boolean(env.TELEGRAM_FINAL_CHAT_ID),
-      finalChatId: env.TELEGRAM_FINAL_CHAT_ID ?? "mock_final_chat"
+      finalChatId: env.TELEGRAM_FINAL_CHAT_ID ?? "mock_final_chat",
+      botTokenConfigured: hasValue(env.TELEGRAM_BOT_TOKEN),
+      realReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true"
     },
     providers: summarizeProviderConfig(providerConfig),
     readiness: buildSafeConfigSummary(env)
@@ -71,6 +77,15 @@ export function validateRuntimeConfig(env: Env): ConfigValidationResult {
 
   if (!summary.hasTelegramConfig) {
     const message = "Telegram runtime configuration is incomplete.";
+    if (production) {
+      errors.push(message);
+    } else {
+      warnings.push(message);
+    }
+  }
+
+  if (summary.telegramRealReviewEnabled && (!summary.hasTelegramBotToken || !summary.hasTelegramConfig)) {
+    const message = "Telegram real review dry-run is enabled but Telegram review configuration is incomplete.";
     if (production) {
       errors.push(message);
     } else {
@@ -113,6 +128,8 @@ export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
     providersMode: providerConfig.mode,
     hasInternalSecret: hasValue(env.INTERNAL_API_SECRET),
     hasTelegramConfig: hasValue(env.TELEGRAM_REVIEW_CHAT_ID) && hasValue(env.TELEGRAM_FINAL_CHAT_ID),
+    hasTelegramBotToken: hasValue(env.TELEGRAM_BOT_TOKEN),
+    telegramRealReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true",
     hasWordPressConfig: hasValue(env.WORDPRESS_BASE_URL) && hasValue(env.WORDPRESS_USERNAME) && hasValue(env.WORDPRESS_APPLICATION_PASSWORD),
     hasProviderCredentials: {
       apify: hasValue(env.APIFY_TOKEN),

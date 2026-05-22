@@ -27,7 +27,9 @@ export function handleStatus(request: Request, env: Env): Response {
     providers: config.providers,
     telegram: {
       reviewChatConfigured: config.telegram.reviewChatConfigured,
-      finalChatConfigured: config.telegram.finalChatConfigured
+      finalChatConfigured: config.telegram.finalChatConfigured,
+      botTokenConfigured: config.telegram.botTokenConfigured,
+      realReviewEnabled: config.telegram.realReviewEnabled
     },
     timestamp: timestamp()
   });

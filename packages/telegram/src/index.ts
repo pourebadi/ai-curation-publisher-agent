@@ -230,4 +230,5 @@ export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): 
 }
 
 export * from "./client";
+export * from "./real-telegram-client";
 export * from "./review-message";

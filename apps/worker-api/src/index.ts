@@ -4,6 +4,7 @@ import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalPoll } from "./routes/internal-poll";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
+import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
 import { handleReady } from "./routes/ready";
 import { handleStatus } from "./routes/status";
 import { handleTelegramWebhook } from "./routes/telegram-webhook";
@@ -32,6 +33,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/internal/providers/firecrawl/sandbox-fetch") {
       return handleInternalFirecrawlSandbox(request, env);
+    }
+
+    if (url.pathname === "/internal/telegram/review-dry-run") {
+      return handleInternalTelegramReviewDryRun(request, env);
     }
 
     if (url.pathname === "/internal/e2e/mock-pipeline") {
