@@ -2,37 +2,15 @@
 
 Incremental, provider-agnostic social content curator for Telegram and WordPress.
 
-The MVP ingests public social posts, normalizes them, deduplicates them before any expensive processing, validates them, generates platform-specific AI outputs, sends items to a private Telegram review channel, and publishes approved content to Telegram and then WordPress.
+The system ingests public social/web content, normalizes it, deduplicates and validates it before expensive processing, generates platform-specific outputs, sends items through Telegram review, publishes approved content to Telegram, and supports WordPress publishing through an abstracted client.
 
-This repository is designed to be built phase by phase. Do not ask a coding agent to build the entire product in one pass.
+The project is intentionally implemented phase by phase. Keep future work scoped and avoid collapsing multiple phases into one change.
 
-## Current phase
+## Operational status
 
-This branch implements **Phase 2: Telegram Manual Ingest + Review**.
+This branch implements **Phase 12: Cloudflare deployment wiring, scheduled jobs, GitHub Actions workflows, smoke tests, and operational runbook documentation**.
 
-Included in Phase 2:
-
-- real Telegram webhook parsing for message and callback updates
-- manual text input ingestion
-- manual URL input ingestion
-- manual item creation in D1 using mocked processing
-- basic duplicate detection by Telegram source message ID
-- manual review message draft formatting
-- inline review buttons for Edit, Send, Cancel, and Status
-- callback routing stubs for edit, send, cancel, and status
-- review message metadata storage
-- review action logging
-- tests for parsing, manual item creation, and callback routing
-
-Still not included in Phase 2:
-
-- real Instagram provider calls
-- real X/Twitter provider calls
-- real AI provider calls
-- real WordPress publishing
-- real final Telegram publishing
-- media download or processing
-- production scheduling logic beyond stubs
+Phase 12 keeps mock/local mode as the default for tests and smoke checks. It does not add real provider API calls, real provider secrets, real media downloads, or real Telegram/WordPress credentials.
 
 ## Repository structure
 
@@ -43,6 +21,7 @@ apps/
       index.ts
       routes/
       handlers/
+      operations/
       queues/
       scheduled/
 packages/
@@ -64,140 +43,88 @@ packages/
 - pnpm 9+
 - Cloudflare Wrangler, installed through dev dependencies
 
-Enable pnpm through Corepack if it is not installed globally:
+Enable pnpm through Corepack if needed:
 
 ```bash
 corepack enable
 corepack prepare pnpm@9.15.4 --activate
 ```
 
-## Install
+## Install and verify
 
 ```bash
 pnpm install
-```
-
-## Lint
-
-```bash
 pnpm lint
-```
-
-The current lint script performs lightweight repository hygiene checks. A full linting setup can be added later when coding conventions stabilize.
-
-## Typecheck
-
-```bash
 pnpm typecheck
-```
-
-## Test
-
-```bash
 pnpm test
 ```
 
-Phase 2 tests cover Telegram webhook parsing, manual item creation, and review callback routing.
+CI runs the same lint, typecheck, and test commands.
 
 ## Run the Worker locally
 
-Copy the example environment file:
+Copy local env values into `.dev.vars` if needed. Do not commit `.dev.vars`.
 
 ```bash
 cp .env.example .dev.vars
-```
-
-Set local-only values in `.dev.vars`. Do not commit that file. At minimum, configure the review chat and allowed reviewer IDs with your own local Telegram IDs.
-
-Apply local D1 migrations:
-
-```bash
-pnpm db:migrate:local
-```
-
-Start the Worker:
-
-```bash
+pnpm d1:migrate:local
 pnpm worker:dev
 ```
 
-Available local routes:
+Local operational routes:
 
 ```text
 GET  /health
+GET  /status
+POST /internal/poll
+POST /internal/publish/telegram
 POST /telegram/webhook
 ```
 
-## Test Telegram webhook with local mocks
-
-After starting the Worker, send a manual text update. Replace the angle-bracket values with local test values before running the command. The reviewer ID must also be present in `TELEGRAM_ALLOWED_REVIEWER_IDS` inside `.dev.vars`.
+Trigger a mock poll locally:
 
 ```bash
-curl -X POST http://localhost:8787/telegram/webhook \
+curl -fsS -X POST http://localhost:8787/internal/poll \
   -H 'content-type: application/json' \
-  -d '{"update_id":<update_id>,"message":{"message_id":<message_id>,"from":{"id":<reviewer_id>,"first_name":"Local"},"chat":{"id":<chat_id>,"type":"private"},"text":"Manual post for review https://source.local/post"}}'
+  -d '{"sources":[{"id":"source_instagram_demo","platform":"instagram","sourceType":"profile","value":"demo_profile","providerPriority":["mock_instagram"]}],"options":{"limit":1}}'
 ```
 
-Expected behavior:
+## Deploy
 
-- the update is parsed as `manual_message`
-- the sender is checked against `TELEGRAM_ALLOWED_REVIEWER_IDS`
-- a manual source row is ensured
-- an item row is created or reused
-- review message metadata is stored
-- the JSON response includes a `reviewDraft` with Edit, Send, Cancel, and Status buttons
+Deployment is configured through `wrangler.toml` and GitHub Actions.
 
-Send a callback mock. Use the item ID returned by the manual-ingest response.
+Required GitHub repository secrets for deployment workflows:
+
+```text
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+```
+
+Run deploy manually from GitHub Actions using **Deploy Cloudflare Worker**, or deploy locally with:
 
 ```bash
-curl -X POST http://localhost:8787/telegram/webhook \
-  -H 'content-type: application/json' \
-  -d '{"update_id":<update_id>,"callback_query":{"id":"callback-local","from":{"id":<reviewer_id>,"first_name":"Local"},"message":{"message_id":<message_id>,"chat":{"id":<chat_id>,"type":"private"}},"data":"review:status:<item_id>"}}'
+pnpm worker:deploy
 ```
 
-Expected behavior:
+Apply D1 migrations locally or remotely:
 
-- the update is parsed as `callback`
-- the callback action is logged in `review_actions`
-- `status` and `edit` remain stubs
-- `send` marks the item as approved but does not publish
-- `cancel` marks the item as cancelled
-
-## D1 migrations
-
-The initial D1 schema lives in:
-
-```text
-packages/db/migrations/0001_initial_schema.sql
+```bash
+pnpm d1:migrate:local
+pnpm d1:migrate:remote
 ```
 
-It creates the MVP state tables described in `docs/BLUEPRINT.md`: sources, items, dedupe keys, media assets, prompts, outputs, review messages, publish queue, WordPress posts, provider logs, review actions, and settings.
+## Smoke tests
 
-## Agent workflow
+Use the manual GitHub Actions workflow **Worker Smoke Test**, or run:
 
-Start every coding session with:
-
-```text
-prompts/START_HERE_PROMPT.md
+```bash
+WORKER_BASE_URL=https://your-worker.example pnpm worker:smoke
 ```
 
-Then move one phase at a time:
+The smoke workflow checks `/health`, `/status`, and can optionally call `/internal/poll` with mock providers.
 
-```text
-prompts/PHASE_01_PROMPT.md
-prompts/PHASE_02_PROMPT.md
-...
-```
+## Secrets policy
 
-Never prompt an agent to build the full project at once.
+Never commit real secrets, API keys, tokens, passwords, database IDs for private infrastructure, webhook secrets, or provider credentials. Use Cloudflare secrets and GitHub Actions secrets. `.env.example` must remain sanitized with empty values only.
 
-## Phase 3 next
-
-Phase 3 should implement stronger dedupe, validation, and lifecycle rules before AI or media processing:
-
-- canonical URL hashing strategy
-- normalized text hashing strategy
-- exact duplicate detection across sources
-- validation service for manual and provider items
-- lifecycle transition guards in the ingest flow
-- tests for duplicate and invalid states
+Detailed deployment, rollback, migration, and recovery steps are in `docs/RUNBOOK.md`.
