@@ -9,6 +9,19 @@ type RunCall = {
   values: D1Value[];
 };
 
+type PublishQueueRow = {
+  id: string;
+  item_id: string;
+  target: string;
+  status: string;
+  scheduled_for: string | null;
+  attempt_count: number;
+  last_error: string | null;
+  final_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 class FakeStatement implements D1PreparedStatementLike {
   private values: D1Value[] = [];
 
@@ -20,6 +33,12 @@ class FakeStatement implements D1PreparedStatementLike {
   }
 
   async first<T = unknown>(): Promise<T | null> {
+    if (this.query.includes("FROM publish_queue")) {
+      const itemId = String(this.values[0]);
+      const target = String(this.values[1]);
+      return (this.db.publishQueue.find((row) => row.item_id === itemId && row.target === target && (row.status === "pending" || row.status === "scheduled")) as T | undefined) ?? null;
+    }
+
     return null;
   }
 
@@ -29,12 +48,29 @@ class FakeStatement implements D1PreparedStatementLike {
 
   async run(): Promise<D1RunResult> {
     this.db.runCalls.push({ query: this.query, values: this.values });
+
+    if (this.query.includes("INSERT INTO publish_queue")) {
+      this.db.publishQueue.push({
+        id: String(this.values[0]),
+        item_id: String(this.values[1]),
+        target: String(this.values[2]),
+        status: String(this.values[3]),
+        scheduled_for: this.values[4] === null ? null : String(this.values[4]),
+        attempt_count: Number(this.values[5]),
+        last_error: null,
+        final_message_id: null,
+        created_at: String(this.values[6]),
+        updated_at: String(this.values[7])
+      });
+    }
+
     return { success: true, changes: 1 };
   }
 }
 
 class FakeDb implements D1DatabaseLike {
   runCalls: RunCall[] = [];
+  publishQueue: PublishQueueRow[] = [];
 
   prepare(query: string): D1PreparedStatementLike {
     return new FakeStatement(this, query);
@@ -60,25 +96,30 @@ function makeCallback(action: TelegramReviewAction): ParsedTelegramCallback {
 }
 
 describe("handleReviewCallback", () => {
-  it("logs send callbacks and marks the item approved without final publishing", async () => {
+  it("logs send callbacks, marks the item approved, and enqueues publishing", async () => {
     const db = new FakeDb();
     const result = await handleReviewCallback(makeCallback("send"), db);
 
     expect(result.action).toBe("send");
-    expect(result.resultingStatus).toBe("approved");
+    expect(result.resultingStatus).toBe("queued_for_publish");
+    expect(result.publishQueueStatus).toBe("pending");
+    expect(result.publishQueueId).toMatch(/^publish_/);
     expect(result.statusResponse).toEqual({
       itemId: "item_local",
       action: "send",
-      status: "approved",
-      message: "Send action approved the item. Final publishing is not triggered in Phase 5.",
+      status: "queued_for_publish",
+      publishStatus: "pending",
+      message: "Send action approved the item and queued it for publishing. Final publishing is not triggered by the callback.",
       finalPublishingTriggered: false,
       editStubbed: false
     });
+    expect(db.publishQueue).toHaveLength(1);
     expect(db.runCalls.some((call) => call.query.includes("INSERT INTO review_actions"))).toBe(true);
-    expect(db.runCalls.some((call) => call.query.includes("UPDATE items SET status"))).toBe(true);
+    expect(db.runCalls.some((call) => call.query.includes("INSERT INTO publish_queue"))).toBe(true);
+    expect(db.runCalls.filter((call) => call.query.includes("UPDATE items SET status"))).toHaveLength(2);
   });
 
-  it("logs cancel callbacks and marks the item cancelled", async () => {
+  it("logs cancel callbacks and does not enqueue publishing", async () => {
     const db = new FakeDb();
     const result = await handleReviewCallback(makeCallback("cancel"), db);
 
@@ -86,8 +127,9 @@ describe("handleReviewCallback", () => {
     expect(result.resultingStatus).toBe("cancelled");
     expect(result.statusResponse.status).toBe("cancelled");
     expect(result.statusResponse.finalPublishingTriggered).toBe(false);
+    expect(db.publishQueue).toHaveLength(0);
     expect(db.runCalls.some((call) => call.query.includes("INSERT INTO review_actions"))).toBe(true);
-    expect(db.runCalls.some((call) => call.query.includes("UPDATE items SET status"))).toBe(true);
+    expect(db.runCalls.some((call) => call.query.includes("INSERT INTO publish_queue"))).toBe(false);
   });
 
   it("logs status callbacks and returns structured status without changing item state", async () => {
@@ -100,10 +142,11 @@ describe("handleReviewCallback", () => {
       itemId: "item_local",
       action: "status",
       status: "sent_to_review",
-      message: "Status action returned current review routing state.",
+      message: "Status action returned current review and publishing routing state.",
       finalPublishingTriggered: false,
       editStubbed: false
     });
+    expect(db.publishQueue).toHaveLength(0);
     expect(db.runCalls.some((call) => call.query.includes("INSERT INTO review_actions"))).toBe(true);
     expect(db.runCalls.some((call) => call.query.includes("UPDATE items SET status"))).toBe(false);
   });
@@ -117,6 +160,7 @@ describe("handleReviewCallback", () => {
     expect(result.statusResponse.editStubbed).toBe(true);
     expect(result.statusResponse.finalPublishingTriggered).toBe(false);
     expect(result.statusResponse.message).toContain("stubbed");
+    expect(db.publishQueue).toHaveLength(0);
     expect(db.runCalls.some((call) => call.query.includes("INSERT INTO review_actions"))).toBe(true);
     expect(db.runCalls.some((call) => call.query.includes("UPDATE items SET status"))).toBe(false);
   });
