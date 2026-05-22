@@ -249,6 +249,31 @@ describe("operational worker routes", () => {
     expect(body.totalErrors).toBe(1);
   });
 
+  it("POST /internal/e2e/mock-pipeline returns full mock smoke result", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/internal/e2e/mock-pipeline", {
+      method: "POST"
+    }));
+    const body = await json(response);
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.itemId).toMatch(/^item_/);
+    expect(body.providerUsed).toBe("mock_instagram");
+    expect(body.normalizedCount).toBe(1);
+    expect(body.queuedCount).toBe(1);
+    expect(body.duplicateCount).toBe(0);
+    expect(body.invalidCount).toBe(0);
+    expect(body.aiOutputCreated).toBe(true);
+    expect(body.reviewMessageCreated).toBe(true);
+    expect(body.approved).toBe(true);
+    expect(body.queuedForPublish).toBe(true);
+    expect(body.telegramPublished).toBe(true);
+    expect(body.finalMessageId).toMatch(/^mock_telegram_final_/);
+    expect(body.wordpressPrepared).toBe(true);
+    expect(body.wordpressPublished).toBe(true);
+    expect(body.wordpressPostId).toBe("mock_wp_post_1");
+  });
+
   it("POST /internal/publish/telegram returns structured no-item result", async () => {
     const response = await fetchWorker(new Request("https://worker.local/internal/publish/telegram", {
       method: "POST",
@@ -310,6 +335,14 @@ describe("operational worker routes", () => {
 
   it("returns 405 for invalid methods", async () => {
     const response = await fetchWorker(new Request("https://worker.local/internal/poll", { method: "GET" }));
+    const body = await json(response);
+
+    expect(response.status).toBe(405);
+    expect(body.error).toBe("method_not_allowed");
+  });
+
+  it("returns 405 for invalid e2e method", async () => {
+    const response = await fetchWorker(new Request("https://worker.local/internal/e2e/mock-pipeline", { method: "GET" }));
     const body = await json(response);
 
     expect(response.status).toBe(405);
