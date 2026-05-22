@@ -66,3 +66,13 @@ export function canTransitionItemStatus(from: ItemStatus, to: ItemStatus): boole
 
   return TRANSITIONS[from].includes(to);
 }
+
+export function assertItemStatusTransition(from: ItemStatus, to: ItemStatus): void {
+  if (!canTransitionItemStatus(from, to)) {
+    throw new Error(`Invalid item lifecycle transition: ${from} -> ${to}`);
+  }
+}
+
+export function canEnterCostlyProcessing(status: ItemStatus): boolean {
+  return status === "queued_for_ai";
+}
