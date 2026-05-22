@@ -56,8 +56,8 @@ export async function fetchMockRecentPosts(input: {
   supportedSourceTypes: readonly SourceType[];
   scenario: MockProviderScenario;
   now: () => Date;
-  limit?: number;
-  backfillLimit?: number;
+  limit?: number | undefined;
+  backfillLimit?: number | undefined;
 }): Promise<ProviderFetchResponse> {
   assertSourceTypeSupported(input.provider, input.source.sourceType);
 
@@ -73,7 +73,7 @@ export async function fetchMockRecentPosts(input: {
     sourceType: input.source.sourceType,
     posts: applyProviderLimit(posts, { limit: input.limit, backfillLimit: input.backfillLimit }),
     fetchedAt: input.now().toISOString(),
-    nextCursor: posts.length === 0 ? undefined : `${input.provider.id}-cursor-001`
+    ...(posts.length === 0 ? {} : { nextCursor: `${input.provider.id}-cursor-001` })
   };
 }
 
