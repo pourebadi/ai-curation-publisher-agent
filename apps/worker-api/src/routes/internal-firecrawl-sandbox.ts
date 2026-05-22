@@ -1,3 +1,4 @@
+import type { ProviderHttpClient } from "@curator/providers";
 import { runFirecrawlSandboxFetch, type FirecrawlSandboxFetchInput } from "../operations/firecrawl-sandbox";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
@@ -8,7 +9,8 @@ import type { Env } from "../types";
 export async function handleInternalFirecrawlSandbox(
   request: Request,
   env: Env,
-  rateLimitGuard: RateLimitGuard = new NoopRateLimitGuard()
+  rateLimitGuard: RateLimitGuard = new NoopRateLimitGuard(),
+  httpClient?: ProviderHttpClient
 ): Promise<Response> {
   if (request.method !== "POST") {
     return methodNotAllowed(["POST"], request);
@@ -49,7 +51,8 @@ export async function handleInternalFirecrawlSandbox(
     input: {
       url: url.toString(),
       ...(parsed.value.limit === undefined ? {} : { limit: parsed.value.limit })
-    }
+    },
+    ...(httpClient === undefined ? {} : { httpClient })
   });
 
   return jsonResponse(result, { status: result.ok ? 200 : 409 });
