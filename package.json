@@ -15,7 +15,12 @@
     "test": "vitest run",
     "dev": "pnpm --filter @curator/worker-api dev",
     "worker:dev": "pnpm --filter @curator/worker-api dev",
-    "db:migrate:local": "wrangler d1 migrations apply curator_mvp --local --config wrangler.toml"
+    "worker:deploy": "wrangler deploy --config wrangler.toml",
+    "worker:health": "curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/health",
+    "worker:smoke": "curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/health && echo && curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/status && echo",
+    "db:migrate:local": "wrangler d1 migrations apply curator_mvp --local --config wrangler.toml",
+    "d1:migrate:local": "pnpm db:migrate:local",
+    "d1:migrate:remote": "wrangler d1 migrations apply curator_mvp --remote --config wrangler.toml"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
