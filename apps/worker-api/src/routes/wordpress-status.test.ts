@@ -3,6 +3,8 @@ import { handleReady } from "./ready";
 import { handleStatus } from "./status";
 import type { Env } from "../types";
 
+const hiddenRuntimeValue = "opaque-runtime-value";
+
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     DB: {} as D1Database,
@@ -12,7 +14,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     TELEGRAM_FINAL_CHAT_ID: "final-chat",
     WORDPRESS_BASE_URL: "https://wordpress.local",
     WORDPRESS_USERNAME: "editor",
-    WORDPRESS_APPLICATION_PASSWORD: "configured",
+    WORDPRESS_APPLICATION_PASSWORD: hiddenRuntimeValue,
     WORDPRESS_REAL_DRY_RUN_ENABLED: "true",
     WORDPRESS_DEFAULT_STATUS: "draft",
     ...overrides
@@ -37,7 +39,7 @@ describe("WordPress dry-run status redaction", () => {
       defaultStatus: "draft"
     });
     expect(JSON.stringify(body)).not.toContain("editor");
-    expect(JSON.stringify(body)).not.toContain("configured");
+    expect(JSON.stringify(body)).not.toContain(hiddenRuntimeValue);
     expect(JSON.stringify(body)).not.toContain("wordpress.local");
   });
 
@@ -54,7 +56,7 @@ describe("WordPress dry-run status redaction", () => {
       wordpressDefaultStatus: "draft"
     });
     expect(JSON.stringify(body)).not.toContain("editor");
-    expect(JSON.stringify(body)).not.toContain("configured");
+    expect(JSON.stringify(body)).not.toContain(hiddenRuntimeValue);
     expect(JSON.stringify(body)).not.toContain("wordpress.local");
   });
 });
