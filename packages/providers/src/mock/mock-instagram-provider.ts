@@ -4,7 +4,7 @@ import { assertSourceTypeSupported } from "../provider-adapter";
 import { fetchMockDirectUrl, fetchMockRecentPosts, type MockProviderOptions, type MockProviderScenario } from "./mock-provider-utils";
 
 export class MockInstagramProvider implements ProviderAdapter {
-  readonly id = "mock_instagram";
+  readonly id: string;
   readonly name = "Mock Instagram Provider";
   readonly platform: Platform = "instagram";
   readonly supportedSourceTypes = ["profile", "hashtag", "direct_url"] as const satisfies readonly SourceType[];
@@ -13,6 +13,7 @@ export class MockInstagramProvider implements ProviderAdapter {
   private readonly now: () => Date;
 
   constructor(options: MockProviderOptions = {}) {
+    this.id = options.id ?? "mock_instagram";
     this.scenario = options.scenario ?? "normal";
     this.now = options.now ?? (() => new Date(0));
   }
