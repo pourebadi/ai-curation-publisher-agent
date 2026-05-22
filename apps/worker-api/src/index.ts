@@ -4,6 +4,7 @@ import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalPoll } from "./routes/internal-poll";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
+import { handleInternalSchedulerRun } from "./routes/internal-scheduler-run";
 import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
 import { handleInternalWordPressDryRun } from "./routes/internal-wordpress-dry-run";
 import { handleReady } from "./routes/ready";
@@ -30,6 +31,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/internal/poll") {
       return handleInternalPoll(request, env);
+    }
+
+    if (url.pathname === "/internal/scheduler/run") {
+      return handleInternalSchedulerRun(request, env);
     }
 
     if (url.pathname === "/internal/providers/firecrawl/sandbox-fetch") {
