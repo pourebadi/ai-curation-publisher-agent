@@ -3,6 +3,8 @@ import { MockWordPressClient } from "@curator/wordpress";
 import { handleInternalWordPressDryRun } from "./internal-wordpress-dry-run";
 import type { Env } from "../types";
 
+const hiddenRuntimeValue = "opaque-runtime-value";
+
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     DB: {} as D1Database,
@@ -18,7 +20,7 @@ function configuredWordPressEnv(overrides: Partial<Env> = {}): Partial<Env> {
   return {
     WORDPRESS_BASE_URL: "https://wordpress.local",
     WORDPRESS_USERNAME: "editor",
-    WORDPRESS_APPLICATION_PASSWORD: "configured",
+    WORDPRESS_APPLICATION_PASSWORD: hiddenRuntimeValue,
     ...overrides
   };
 }
@@ -181,7 +183,7 @@ describe("handleInternalWordPressDryRun", () => {
       payloadPrepared: true,
       postCreated: true
     });
-    expect(JSON.stringify(body)).not.toContain("configured");
+    expect(JSON.stringify(body)).not.toContain(hiddenRuntimeValue);
     expect(client.createdPosts).toHaveLength(1);
     expect(client.createdPosts[0]?.status).toBe("draft");
   });
