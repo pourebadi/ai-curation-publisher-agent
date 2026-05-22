@@ -3,6 +3,8 @@ import { MockWordPressClient, WordPressClientError, type WordPressClient, type W
 import { runWordPressDryRun } from "./wordpress-dry-run";
 import type { Env } from "../types";
 
+const hiddenRuntimeValue = "opaque-runtime-value";
+
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     DB: {} as D1Database,
@@ -18,7 +20,7 @@ function configuredWordPressEnv(overrides: Partial<Env> = {}): Partial<Env> {
   return {
     WORDPRESS_BASE_URL: "https://wordpress.local",
     WORDPRESS_USERNAME: "editor",
-    WORDPRESS_APPLICATION_PASSWORD: "configured",
+    WORDPRESS_APPLICATION_PASSWORD: hiddenRuntimeValue,
     ...overrides
   };
 }
@@ -157,6 +159,6 @@ describe("runWordPressDryRun", () => {
       error: "wordpress_api_error",
       message: "WordPress REST API returned an error."
     });
-    expect(JSON.stringify(result)).not.toContain("configured");
+    expect(JSON.stringify(result)).not.toContain(hiddenRuntimeValue);
   });
 });
