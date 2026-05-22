@@ -1,6 +1,7 @@
 export * from "./platform";
 export * from "./lifecycle";
 export * from "./dedupe";
+export * from "./validation";
 export * from "./media";
 export * from "./source";
 export * from "./item";
