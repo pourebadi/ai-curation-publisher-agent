@@ -1,6 +1,5 @@
 import { ItemsRepository, ReviewActionsRepository } from "@curator/db";
 import type { D1DatabaseLike } from "@curator/db";
-import type { ItemStatus } from "@curator/core";
 import type { ParsedTelegramCallback, TelegramReviewAction } from "@curator/telegram";
 
 export type ReviewCallbackResult = {
