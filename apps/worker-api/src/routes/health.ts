@@ -1,11 +1,19 @@
-import type { Env } from "../types";
+import { readOperationalConfig } from "../config";
 import { jsonResponse } from "../http/json";
+import { methodNotAllowed, timestamp } from "./response";
+import type { Env } from "../types";
 
-export function handleHealth(_request: Request, env: Env): Response {
+export function handleHealth(request: Request, env: Env): Response {
+  if (request.method !== "GET") {
+    return methodNotAllowed(["GET"]);
+  }
+
+  const config = readOperationalConfig(env);
+
   return jsonResponse({
     ok: true,
-    service: "ai-curation-publisher-agent",
-    phase: "phase-01-repo-bootstrap",
-    environment: env.ENVIRONMENT ?? "unknown"
+    service: config.serviceName,
+    environment: config.environment,
+    timestamp: timestamp()
   });
 }
