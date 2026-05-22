@@ -78,7 +78,10 @@ function createIngestGateAdapter(env: Env): PollIngestGate {
         return ingestGate.process(input);
       }
 
-      return (ingestGate as unknown as { processNormalizedPost(input: typeof input): Promise<{ outcome: "queued" | "duplicate" | "invalid" | "failed" }> }).processNormalizedPost(input);
+      const normalizedPostProcessor = ingestGate as unknown as {
+        processNormalizedPost(input: Parameters<PollIngestGate["processNormalizedPost"]>[0]): ReturnType<PollIngestGate["processNormalizedPost"]>;
+      };
+      return normalizedPostProcessor.processNormalizedPost(input);
     }
   };
 }
