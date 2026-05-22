@@ -676,6 +676,8 @@ Before deploying:
 7. Run smoke checks.
 8. Confirm rollback steps.
 
+For the first controlled Cloudflare deployment dry run, use `docs/PRODUCTION_DRY_RUN.md`. The detailed operator runbook remains in `docs/RUNBOOK.md`.
+
 ## Configuration and secrets
 
 ### Files and secret stores
@@ -765,6 +767,8 @@ Before production rollout, confirm:
 - Rollback path is known and documented.
 - Backup/export plan is verified before handling production data.
 
+Use `docs/PRODUCTION_DRY_RUN.md` for the Phase 17 deployment rehearsal checklist.
+
 ## Known limitations
 
 Current limitations are intentional and should not be treated as bugs unless a scoped phase changes the expected behavior.
@@ -813,6 +817,7 @@ These rules apply to both human contributors and AI coding agents working in thi
 
 ## Additional documentation
 
+- Production dry-run checklist: `docs/PRODUCTION_DRY_RUN.md`
 - Operational runbook: `docs/RUNBOOK.md`
 - Implementation plan: `docs/IMPLEMENTATION_PLAN.md`
 - Phase task docs: `docs/tasks/`
