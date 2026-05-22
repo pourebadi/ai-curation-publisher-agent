@@ -5,15 +5,32 @@
     "declaration": true,
     "declarationMap": true,
     "outDir": "dist",
-    "types": ["@cloudflare/workers-types"],
+    "types": [
+      "@cloudflare/workers-types"
+    ],
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
-    { "path": "../../packages/ai" },
-    { "path": "../../packages/core" },
-    { "path": "../../packages/db" },
-    { "path": "../../packages/providers" },
-    { "path": "../../packages/telegram" }
+    {
+      "path": "../../packages/ai"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/providers"
+    },
+    {
+      "path": "../../packages/telegram"
+    },
+    {
+      "path": "../../packages/wordpress"
+    }
   ]
 }

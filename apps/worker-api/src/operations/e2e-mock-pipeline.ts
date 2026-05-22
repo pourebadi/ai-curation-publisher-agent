@@ -65,7 +65,7 @@ export async function runE2EMockPipeline(): Promise<E2EMockPipelineResult> {
     return {
       ok: false,
       sourceId: source.id,
-      providerUsed: ingestion.providerUsed,
+      ...(ingestion.providerUsed === undefined ? {} : { providerUsed: ingestion.providerUsed }),
       normalizedCount: ingestion.normalizedCount,
       queuedCount: 0,
       duplicateCount: 0,
@@ -91,7 +91,7 @@ export async function runE2EMockPipeline(): Promise<E2EMockPipelineResult> {
     return {
       ok: false,
       sourceId: source.id,
-      providerUsed: ingestion.providerUsed,
+      ...(ingestion.providerUsed === undefined ? {} : { providerUsed: ingestion.providerUsed }),
       normalizedCount: ingestion.normalizedCount,
       queuedCount: ingestResult.outcome === "queued" ? 1 : 0,
       duplicateCount: ingestResult.outcome === "duplicate" ? 1 : 0,
@@ -120,12 +120,13 @@ export async function runE2EMockPipeline(): Promise<E2EMockPipelineResult> {
   transitionItem(item, "ai_processed");
 
   const telegramClient = new MockTelegramClient();
+  const originalTextExcerpt = createOriginalTextExcerpt(item.post.text);
   const reviewDraft = buildTelegramAiReviewDraft({
     itemId: item.id,
     status: item.status,
     sourceUrl: item.post.canonicalUrl,
     aiOutput: aiOutput.output,
-    originalTextExcerpt: createOriginalTextExcerpt(item.post.text),
+    ...(originalTextExcerpt === undefined ? {} : { originalTextExcerpt }),
     provider: item.post.provider,
     platform: item.post.platform,
     sourceType: item.post.sourceType
@@ -188,7 +189,7 @@ export async function runE2EMockPipeline(): Promise<E2EMockPipelineResult> {
     ok: errors.length === 0,
     sourceId: source.id,
     itemId: item.id,
-    providerUsed: ingestion.providerUsed,
+    ...(ingestion.providerUsed === undefined ? {} : { providerUsed: ingestion.providerUsed }),
     normalizedCount: ingestion.normalizedCount,
     queuedCount: 1,
     duplicateCount: 0,
