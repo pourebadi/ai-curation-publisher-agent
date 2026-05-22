@@ -1,5 +1,5 @@
 import type { Platform } from "@curator/core";
-import { createProviderAvailability, type ProviderAvailability } from "../provider-status";
+import { createProviderAvailability, type ProviderAvailability, type ProviderAvailabilityStatus } from "../provider-status";
 
 export type ProvidersMode = "mock" | "mixed" | "real";
 
@@ -11,6 +11,8 @@ export type ProviderRuntimeEnv = {
   APIFY_TOKEN?: string;
   GETXAPI_KEY?: string;
   FIRECRAWL_API_KEY?: string;
+  FIRECRAWL_BASE_URL?: string;
+  FIRECRAWL_TIMEOUT_MS?: string;
 };
 
 export type RealProviderConfig = {
@@ -21,13 +23,18 @@ export type RealProviderConfig = {
   credentialEnvName: "APIFY_TOKEN" | "GETXAPI_KEY" | "FIRECRAWL_API_KEY";
 };
 
+export type FirecrawlProviderConfig = RealProviderConfig & {
+  baseUrl: string;
+  timeoutMs: number;
+};
+
 export type ProviderRuntimeConfig = {
   mode: ProvidersMode;
   mockProvidersEnabled: boolean;
   realProviders: {
     apifyInstagram: RealProviderConfig;
     getxapiX: RealProviderConfig;
-    firecrawlWeb: RealProviderConfig;
+    firecrawlWeb: FirecrawlProviderConfig;
   };
 };
 
@@ -36,7 +43,15 @@ export type ProviderConfigSummary = {
   enabledProviderIds: string[];
   disabledProviderIds: string[];
   missingCredentialProviderIds: string[];
+  firecrawl: {
+    enabled: boolean;
+    configured: boolean;
+    status: ProviderAvailabilityStatus;
+  };
 };
+
+export const DEFAULT_FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v1/scrape";
+export const DEFAULT_FIRECRAWL_TIMEOUT_MS = 10_000;
 
 export function readProviderRuntimeConfig(env: ProviderRuntimeEnv = {}): ProviderRuntimeConfig {
   const mode = normalizeProvidersMode(env.PROVIDERS_MODE);
@@ -64,7 +79,9 @@ export function readProviderRuntimeConfig(env: ProviderRuntimeEnv = {}): Provide
         platform: "web",
         enabled: realProviderEnabled(mode, env.ENABLE_FIRECRAWL_PROVIDER),
         credentialConfigured: hasValue(env.FIRECRAWL_API_KEY),
-        credentialEnvName: "FIRECRAWL_API_KEY"
+        credentialEnvName: "FIRECRAWL_API_KEY",
+        baseUrl: normalizeUrl(env.FIRECRAWL_BASE_URL) ?? DEFAULT_FIRECRAWL_BASE_URL,
+        timeoutMs: normalizeTimeoutMs(env.FIRECRAWL_TIMEOUT_MS)
       }
     }
   };
@@ -72,6 +89,7 @@ export function readProviderRuntimeConfig(env: ProviderRuntimeEnv = {}): Provide
 
 export function summarizeProviderConfig(config: ProviderRuntimeConfig): ProviderConfigSummary {
   const availability = providerAvailabilityList(config);
+  const firecrawl = availability.find((entry) => entry.providerId === "firecrawl");
 
   return {
     providersMode: config.mode,
@@ -79,7 +97,12 @@ export function summarizeProviderConfig(config: ProviderRuntimeConfig): Provider
     disabledProviderIds: availability.filter((entry) => entry.status === "disabled").map((entry) => entry.providerId),
     missingCredentialProviderIds: availability
       .filter((entry) => entry.status === "missing_credentials")
-      .map((entry) => entry.providerId)
+      .map((entry) => entry.providerId),
+    firecrawl: {
+      enabled: firecrawl?.enabled ?? false,
+      configured: firecrawl?.credentialConfigured ?? false,
+      status: firecrawl?.status ?? "disabled"
+    }
   };
 }
 
@@ -107,6 +130,27 @@ function realProviderEnabled(mode: ProvidersMode, value: string | undefined): bo
   }
 
   return value === "true";
+}
+
+function normalizeUrl(value: string | undefined): string | undefined {
+  if (!hasValue(value)) {
+    return undefined;
+  }
+
+  return value.trim();
+}
+
+function normalizeTimeoutMs(value: string | undefined): number {
+  if (!hasValue(value)) {
+    return DEFAULT_FIRECRAWL_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_FIRECRAWL_TIMEOUT_MS;
+  }
+
+  return parsed;
 }
 
 function hasValue(value: string | undefined): boolean {
