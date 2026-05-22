@@ -2,7 +2,7 @@
 
 Use this checklist for controlled Cloudflare deployment dry runs.
 
-The baseline dry run is mock-first. Phase 18 adds a separate, explicit Firecrawl/Web sandbox check for one direct URL. Phase 19 adds a separate, explicit Telegram review-channel dry run. Phase 20 adds a separate, explicit WordPress draft dry run. All real-service checks are opt-in and should be disabled after verification.
+The baseline dry run is mock-first. Phase 18 adds a separate, explicit Firecrawl/Web sandbox check for one direct URL. Phase 19 adds a separate, explicit Telegram review-channel dry run. Phase 20 adds a separate, explicit WordPress draft dry run. Phase 21 adds scheduler safeguards and a manual scheduler dry-run route. All real-service checks are opt-in and should be disabled after verification.
 
 ## Scope
 
@@ -15,6 +15,7 @@ This checklist verifies:
 - protected internal route usage
 - mock source polling
 - mock end-to-end pipeline
+- manual scheduler dry-run
 - optional Firecrawl/Web sandbox fetch
 - optional Telegram review-channel dry run
 - optional WordPress draft dry run
@@ -27,7 +28,7 @@ This checklist does not enable:
 - real final Telegram channel publishing
 - public WordPress publishing
 - real media download or processing
-- production scheduler rollout
+- production scheduler side effects
 - dashboard or monitoring integration
 
 ## Pre-flight checks
@@ -43,7 +44,8 @@ This checklist does not enable:
 - [ ] Real providers remain disabled for the baseline dry run.
 - [ ] Real Telegram review mode remains disabled for the baseline dry run.
 - [ ] Real WordPress dry-run mode remains disabled for the baseline dry run.
-- [ ] Scheduler behavior is understood and remains mock-safe.
+- [ ] Scheduler remains disabled for the baseline dry run.
+- [ ] Scheduler dry-run behavior remains enabled.
 
 ## Cloudflare resources
 
@@ -60,6 +62,15 @@ This checklist does not enable:
 - [ ] GitHub Actions secret `CLOUDFLARE_ACCOUNT_ID` is set.
 - [ ] No runtime secret values are committed to the repository.
 - [ ] `.env.example` remains sanitized with empty values only.
+
+For scheduler safeguards:
+
+- [ ] Scheduler enabled flag remains disabled for baseline deploy.
+- [ ] Scheduler dry-run flag remains enabled.
+- [ ] Scheduler real-provider access remains disabled.
+- [ ] Scheduler publishing access remains disabled.
+- [ ] Source and item limits are conservative.
+- [ ] AI, provider, and publish quotas are conservative.
 
 For the optional Phase 18 Firecrawl sandbox only:
 
@@ -118,6 +129,9 @@ curl -fsS "$WORKER_BASE_URL/ready"
 - [ ] `/status` passes.
 - [ ] `/ready` passes.
 - [ ] `/status` and `/ready` do not expose secret values.
+- [ ] `/status` reports scheduler disabled by default.
+- [ ] `/status` reports scheduler dry-run behavior by default.
+- [ ] `/status` reports real provider and publishing access disabled by default.
 
 ## Protected internal route checks
 
@@ -128,6 +142,13 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
   -H "content-type: application/json" \
   -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
   -d '{"options":{"limit":1}}'
+```
+
+```bash
+curl -fsS -X POST "$WORKER_BASE_URL/internal/scheduler/run" \
+  -H "content-type: application/json" \
+  -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
+  -d '{"dryRun":true,"maxSources":1,"maxItems":1}'
 ```
 
 ```bash
@@ -143,6 +164,9 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/publish/telegram" \
 ```
 
 - [ ] Mock internal poll passes.
+- [ ] Manual scheduler dry-run passes.
+- [ ] Manual scheduler response reports mock-safe behavior.
+- [ ] Manual scheduler response reports no publishing side effects.
 - [ ] Mock E2E smoke pipeline passes.
 - [ ] Internal publish route returns a structured result.
 - [ ] Missing or invalid internal secret returns `401`.
@@ -228,6 +252,10 @@ Disable real WordPress dry-run mode immediately after the dry run and delete tes
 - [ ] Production readiness returns `503` when `INTERNAL_API_SECRET` is missing.
 - [ ] Production readiness returns `503` when required Telegram review/final chat config is missing.
 - [ ] Missing provider credentials are acceptable when real providers are disabled.
+- [ ] Scheduler disabled is the safe default.
+- [ ] Scheduler enabled without dry-run should produce warnings.
+- [ ] Scheduler real-provider access should remain disabled unless a later scoped phase enables it.
+- [ ] Scheduler publishing access should remain disabled unless a later scoped phase enables it.
 - [ ] Firecrawl enabled without credentials is treated as missing credentials and must not crash.
 - [ ] Telegram real review enabled without bot token or review chat is treated as incomplete config and must not crash.
 - [ ] WordPress real dry-run enabled without base URL, username, or application password is treated as incomplete config and must not crash.
@@ -242,6 +270,16 @@ Disable real WordPress dry-run mode immediately after the dry run and delete tes
 - [ ] GetXAPI/X remains disabled.
 - [ ] No browser scraping call is expected.
 - [ ] Scheduled behavior remains mock-safe.
+
+## Scheduler safety
+
+- [ ] Scheduler enabled flag remains disabled for baseline operation.
+- [ ] Scheduler dry-run flag remains enabled.
+- [ ] Real provider scheduler access remains disabled.
+- [ ] Publishing scheduler access remains disabled.
+- [ ] Source and item limits are conservative.
+- [ ] AI and publish quotas remain at zero unless a later scoped phase changes them.
+- [ ] Cloudflare cron execution returns skipped results until the scheduler is intentionally enabled.
 
 ## Telegram safety
 
@@ -265,6 +303,7 @@ Disable real WordPress dry-run mode immediately after the dry run and delete tes
 - [ ] Operator knows how to redeploy a previous commit or revert the PR.
 - [ ] Operator knows how to disable scheduled triggers if a future phase enables them.
 - [ ] Operator knows how to return provider mode to mock.
+- [ ] Operator knows how to disable scheduler immediately.
 - [ ] Operator knows how to disable Firecrawl immediately.
 - [ ] Operator knows how to disable real Telegram review mode immediately.
 - [ ] Operator knows how to disable real WordPress dry-run mode immediately.
@@ -278,6 +317,7 @@ Disable real WordPress dry-run mode immediately after the dry run and delete tes
 - [ ] `/status` passed.
 - [ ] `/ready` passed.
 - [ ] Protected mock internal poll passed.
+- [ ] Protected manual scheduler dry-run passed.
 - [ ] Protected mock E2E pipeline passed.
 - [ ] Optional Firecrawl sandbox fetch passed, if intentionally run.
 - [ ] Optional Telegram review-channel dry run passed, if intentionally run.
@@ -285,8 +325,9 @@ Disable real WordPress dry-run mode immediately after the dry run and delete tes
 - [ ] Logs reviewed.
 - [ ] No secrets exposed.
 - [ ] Unwanted real providers remain disabled.
+- [ ] Scheduler remains disabled or dry-run/mock-safe.
 - [ ] Real Telegram review mode is disabled after the check.
 - [ ] Real WordPress dry-run mode is disabled after the check.
 - [ ] Rollback path confirmed.
 
-Record dry-run notes in the PR or release checklist, including the Worker URL, commit SHA, migration outcome, smoke-test outcome, Firecrawl sandbox outcome if run, Telegram review dry-run outcome if run, WordPress dry-run outcome if run, and any follow-up actions. Do not record secret values.
+Record dry-run notes in the PR or release checklist, including the Worker URL, commit SHA, migration outcome, smoke-test outcome, scheduler dry-run outcome, Firecrawl sandbox outcome if run, Telegram review dry-run outcome if run, WordPress dry-run outcome if run, and any follow-up actions. Do not record secret values.
