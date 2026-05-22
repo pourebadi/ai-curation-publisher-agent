@@ -66,6 +66,8 @@ export function createProvidersFromConfig(options: ProviderFactoryOptions = {}):
     if (firecrawl && config.realProviders.firecrawlWeb.enabled) {
       providers.push(new FirecrawlWebProvider({
         availability: firecrawl,
+        baseUrl: config.realProviders.firecrawlWeb.baseUrl,
+        timeoutMs: config.realProviders.firecrawlWeb.timeoutMs,
         ...realProviderOptions,
         ...(env.FIRECRAWL_API_KEY === undefined ? {} : { apiKey: env.FIRECRAWL_API_KEY })
       }));
