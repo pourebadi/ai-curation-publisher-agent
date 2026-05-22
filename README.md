@@ -8,9 +8,9 @@ The project is intentionally implemented phase by phase. Keep future work scoped
 
 ## Operational status
 
-This branch implements **Phase 12: Cloudflare deployment wiring, scheduled jobs, GitHub Actions workflows, smoke tests, and operational runbook documentation**.
+This branch implements **Phase 15: end-to-end mock pipeline smoke scenario**.
 
-Phase 12 keeps mock/local mode as the default for tests and smoke checks. It does not add real provider API calls, real provider secrets, real media downloads, or real Telegram/WordPress credentials.
+Phase 15 keeps mock/local mode as the default. It does not add real provider API calls, real Telegram Bot API calls, real WordPress API calls, real media downloads, or real credentials.
 
 ## Repository structure
 
@@ -77,6 +77,7 @@ Local operational routes:
 GET  /health
 GET  /status
 POST /internal/poll
+POST /internal/e2e/mock-pipeline
 POST /internal/publish/telegram
 POST /telegram/webhook
 ```
@@ -87,6 +88,12 @@ Trigger a mock poll locally:
 curl -fsS -X POST http://localhost:8787/internal/poll \
   -H 'content-type: application/json' \
   -d '{"sources":[{"id":"source_instagram_demo","platform":"instagram","sourceType":"profile","value":"demo_profile","providerPriority":["mock_instagram"]}],"options":{"limit":1}}'
+```
+
+Run the end-to-end mock pipeline smoke scenario:
+
+```bash
+WORKER_BASE_URL=http://localhost:8787 pnpm worker:e2e:mock
 ```
 
 ## Deploy
@@ -119,12 +126,13 @@ Use the manual GitHub Actions workflow **Worker Smoke Test**, or run:
 
 ```bash
 WORKER_BASE_URL=https://your-worker.example pnpm worker:smoke
+WORKER_BASE_URL=https://your-worker.example pnpm worker:e2e:mock
 ```
 
-The smoke workflow checks `/health`, `/status`, and can optionally call `/internal/poll` with mock providers.
+The smoke workflow checks `/health`, `/status`, and can optionally call `/internal/poll` with mock providers. The E2E mock route is manual/internal and exercises the mock pipeline without real external services.
 
 ## Secrets policy
 
 Never commit real secrets, API keys, tokens, passwords, database IDs for private infrastructure, webhook secrets, or provider credentials. Use Cloudflare secrets and GitHub Actions secrets. `.env.example` must remain sanitized with empty values only.
 
-Detailed deployment, rollback, migration, and recovery steps are in `docs/RUNBOOK.md`.
+Detailed deployment, rollback, migration, and recovery steps are in `docs/RUNBOOK.md`. 
