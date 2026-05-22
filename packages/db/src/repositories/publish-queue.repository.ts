@@ -55,6 +55,7 @@ export class PublishQueueRepository {
 
     const now = new Date().toISOString();
     const id = createPublishQueueId(input.itemId, input.target);
+    const status: PublishQueueStatus = input.scheduledFor === undefined ? "pending" : "scheduled";
 
     await this.db.prepare(
       "INSERT INTO publish_queue (id, item_id, target, status, scheduled_for, attempt_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
@@ -62,8 +63,8 @@ export class PublishQueueRepository {
       id,
       input.itemId,
       input.target,
+      status,
       input.scheduledFor === undefined ? null : input.scheduledFor,
-      input.scheduledFor === undefined ? "pending" : "scheduled",
       0,
       now,
       now
@@ -73,7 +74,7 @@ export class PublishQueueRepository {
       id,
       itemId: input.itemId,
       target: input.target,
-      status: input.scheduledFor === undefined ? "pending" : "scheduled",
+      status,
       ...(input.scheduledFor === undefined ? {} : { scheduledFor: input.scheduledFor }),
       attemptCount: 0,
       createdAt: now,
