@@ -1,5 +1,6 @@
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
+import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalPoll } from "./routes/internal-poll";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleStatus } from "./routes/status";
@@ -21,6 +22,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/internal/poll") {
       return handleInternalPoll(request, env);
+    }
+
+    if (url.pathname === "/internal/e2e/mock-pipeline") {
+      return handleInternalE2EMockPipeline(request);
     }
 
     if (url.pathname === "/internal/publish/telegram") {
