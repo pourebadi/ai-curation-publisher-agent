@@ -86,6 +86,10 @@ export class SourceIngestionService {
 }
 
 async function fetchFromProvider(provider: ProviderAdapter, source: Source, options: ProviderFetchOptions) {
+  if (!provider.supportedSourceTypes.includes(source.sourceType)) {
+    throw new UnsupportedSourceTypeError(provider.id, source.sourceType);
+  }
+
   if ((source.sourceType === "direct_url" || source.sourceType === "web_url") && provider.fetchByDirectUrl) {
     return provider.fetchByDirectUrl(source.value, options);
   }
