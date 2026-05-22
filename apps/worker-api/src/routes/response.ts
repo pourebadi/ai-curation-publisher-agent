@@ -46,7 +46,7 @@ export function tooManyRequests(message: string, retryAfterSeconds: number | und
     error: "rate_limited",
     message,
     ...(request === undefined ? {} : { request }),
-    headers: retryAfterSeconds === undefined ? undefined : { "retry-after": String(retryAfterSeconds) }
+    ...(retryAfterSeconds === undefined ? {} : { headers: { "retry-after": String(retryAfterSeconds) } })
   });
 }
 
