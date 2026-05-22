@@ -77,16 +77,21 @@ describe("SourceIngestionService", () => {
     expect(result.posts[0]?.sourceType).toBe("web_url");
   });
 
-  it("falls back after provider failure", async () => {
+  it("falls back after provider failure and records metadata", async () => {
     const registry = new ProviderRegistry();
     registry.register(new MockInstagramProvider({ scenario: "failure" }));
-    registry.register(new MockInstagramProvider({ id: "mock_instagram_backup" } as ConstructorParameters<typeof MockInstagramProvider>[0]));
+    registry.register(new MockInstagramProvider({ id: "mock_instagram_backup" }));
     const service = new SourceIngestionService(registry);
 
     const result = await service.ingestSource(makeSource({ providerPriority: ["mock_instagram", "mock_instagram_backup"] }));
 
     expect(result.providerUsed).toBe("mock_instagram_backup");
+    expect(result.selectedFallbackProviderId).toBe("mock_instagram_backup");
     expect(result.providerAttempts.map((attempt) => attempt.status)).toEqual(["failed", "success"]);
+    expect(result.providerAttempts[0]).toMatchObject({
+      providerId: "mock_instagram",
+      failureCategory: "unknown_error"
+    });
     expect(result.failedCount).toBe(0);
     expect(result.normalizedCount).toBe(2);
   });
@@ -101,6 +106,7 @@ describe("SourceIngestionService", () => {
     expect(result.providerUsed).toBeUndefined();
     expect(result.posts).toEqual([]);
     expect(result.providerAttempts[0]?.status).toBe("unsupported");
+    expect(result.providerAttempts[0]?.failureCategory).toBe("unsupported_source_type");
     expect(result.failedCount).toBe(1);
   });
 
