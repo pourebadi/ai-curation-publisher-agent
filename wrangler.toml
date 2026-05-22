@@ -1,17 +1,29 @@
 name = "ai-curation-publisher-agent"
 main = "apps/worker-api/src/index.ts"
-compatibility_date = "2025-01-01"
+compatibility_date = "2026-05-01"
 workers_dev = true
 
 [vars]
 ENVIRONMENT = "local"
 LOG_LEVEL = "debug"
 
+# Local/mock-safe D1 binding. Replace database_id through Cloudflare configuration
+# or environment-specific Wrangler config before production deployment.
 [[d1_databases]]
 binding = "DB"
 database_name = "curator_mvp"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "packages/db/migrations"
 
+# Optional future bindings, intentionally commented until real Cloudflare resources exist.
+# [[queues.producers]]
+# binding = "PUBLISH_QUEUE"
+# queue = "ai-curation-publisher-agent-publish"
+#
+# [[r2_buckets]]
+# binding = "MEDIA_BUCKET"
+# bucket_name = "ai-curation-publisher-agent-media"
+
 [triggers]
+# Mock-safe scheduled poller. It uses mock providers by default and does not call external APIs.
 crons = ["*/30 * * * *"]
