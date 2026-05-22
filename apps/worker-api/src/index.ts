@@ -5,6 +5,7 @@ import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sand
 import { handleInternalPoll } from "./routes/internal-poll";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
+import { handleInternalWordPressDryRun } from "./routes/internal-wordpress-dry-run";
 import { handleReady } from "./routes/ready";
 import { handleStatus } from "./routes/status";
 import { handleTelegramWebhook } from "./routes/telegram-webhook";
@@ -37,6 +38,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/internal/telegram/review-dry-run") {
       return handleInternalTelegramReviewDryRun(request, env);
+    }
+
+    if (url.pathname === "/internal/wordpress/dry-run") {
+      return handleInternalWordPressDryRun(request, env);
     }
 
     if (url.pathname === "/internal/e2e/mock-pipeline") {
