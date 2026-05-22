@@ -1,7 +1,7 @@
-import { runMockPollOperation, type OperationalPollResult } from "../operations/mock-poll";
+import { runScheduledPollOperation, type ScheduledPollOperationResult } from "../operations/scheduled-poll";
 import type { Env } from "../types";
 
-export type ScheduledPollResult = OperationalPollResult & {
+export type ScheduledPollResult = ScheduledPollOperationResult & {
   scheduledTime: number;
   cron?: string;
 };
@@ -11,9 +11,9 @@ export async function runScheduledPoll(input: {
   cron?: string;
   env: Env;
 }): Promise<ScheduledPollResult> {
-  const result = await runMockPollOperation({
-    env: input.env,
-    options: { limit: 2 }
+  const result = await runScheduledPollOperation(input.env, {
+    mode: "scheduled",
+    respectEnabled: true
   });
 
   return {
@@ -31,12 +31,19 @@ export async function handleScheduledPoll(controller: ScheduledController, env: 
   });
 
   console.log("Scheduled poll completed", {
-    mockMode: result.mockMode,
+    ok: result.ok,
+    skipped: result.skipped,
+    reason: result.reason,
+    dryRun: result.dryRun,
+    schedulerEnabled: result.schedulerEnabled,
+    providersMode: result.providersMode,
+    realProvidersAllowed: result.realProvidersAllowed,
+    publishingAllowed: result.publishingAllowed,
     totalSources: result.totalSources,
-    successfulSources: result.successfulSources,
-    failedSources: result.failedSources,
     totalReturned: result.totalReturned,
     totalQueued: result.totalQueued,
+    totalDuplicates: result.totalDuplicates,
+    totalInvalid: result.totalInvalid,
     totalErrors: result.totalErrors,
     scheduledTime: result.scheduledTime,
     cron: result.cron

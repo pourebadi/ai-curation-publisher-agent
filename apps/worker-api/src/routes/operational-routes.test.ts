@@ -467,11 +467,15 @@ describe("operational worker routes", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.mockMode).toBe(true);
+    expect(result.skipped).toBe(true);
+    expect(result.dryRun).toBe(true);
+    expect(result.schedulerEnabled).toBe(false);
+    expect(result.realProvidersAllowed).toBe(false);
+    expect(result.publishingAllowed).toBe(false);
     expect(result.scheduledTime).toBe(1_700_000_000_000);
     expect(result.cron).toBe("*/30 * * * *");
-    expect(result.totalSources).toBe(3);
-    expect(result.totalReturned).toBe(3);
+    expect(result.totalSources).toBe(0);
+    expect(result.totalReturned).toBe(0);
   });
 
   it("returns 405 for invalid methods", async () => {
