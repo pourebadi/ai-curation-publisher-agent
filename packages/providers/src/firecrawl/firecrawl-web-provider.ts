@@ -10,6 +10,7 @@ export type FirecrawlWebProviderOptions = {
   availability: ProviderAvailability;
   apiKey?: string;
   baseUrl?: string;
+  timeoutMs?: number;
   httpClient?: ProviderHttpClient;
   now?: () => Date;
 };
@@ -23,13 +24,15 @@ export class FirecrawlWebProvider implements ProviderAdapter {
   private readonly availability: ProviderAvailability;
   private readonly apiKey: string | undefined;
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
   private readonly httpClient: ProviderHttpClient | undefined;
   private readonly now: () => Date;
 
   constructor(options: FirecrawlWebProviderOptions) {
     this.availability = options.availability;
     this.apiKey = options.apiKey;
-    this.baseUrl = options.baseUrl ?? "https://api.firecrawl.local/scrape";
+    this.baseUrl = options.baseUrl ?? "https://api.firecrawl.dev/v1/scrape";
+    this.timeoutMs = options.timeoutMs ?? 10_000;
     this.httpClient = options.httpClient;
     this.now = options.now ?? (() => new Date(0));
   }
@@ -65,12 +68,18 @@ export class FirecrawlWebProvider implements ProviderAdapter {
     }
 
     const response = await this.httpClient.postJson<unknown>(this.baseUrl, {
-      sourceType,
       url: value,
-      limit: options.limit ?? options.backfillLimit ?? 10
+      formats: ["markdown"],
+      onlyMainContent: true,
+      waitFor: 0,
+      timeout: this.timeoutMs,
+      metadata: {
+        sourceType,
+        requestedLimit: options.limit ?? options.backfillLimit ?? 1
+      }
     }, {
       headers: this.apiKey === undefined ? {} : { authorization: `Bearer ${this.apiKey}` },
-      timeoutMs: 10_000
+      timeoutMs: this.timeoutMs
     });
 
     if (!response.ok) {

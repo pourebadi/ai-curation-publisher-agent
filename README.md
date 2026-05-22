@@ -4,7 +4,9 @@ Incremental, provider-agnostic social content curator and publisher for Telegram
 
 This repository implements a staged content pipeline that can ingest public social or web content, normalize provider-specific payloads into a shared model, deduplicate and validate items before expensive processing, generate AI-assisted outputs, route content through Telegram review, queue approved content for publishing, and prepare Telegram and WordPress publishing payloads through mock-safe abstractions.
 
-The project has been built incrementally through Phases 1-16. It is intentionally mock-first: the architecture is shaped for production integrations, but real providers, real Telegram sending, real WordPress publishing, and real media processing are not enabled by default.
+The project has been built incrementally through Phases 1-18. It is intentionally mock-first: the architecture is shaped for production integrations, but real providers, real Telegram sending, real WordPress publishing, and real media processing are not enabled by default.
+
+Phase 18 adds an opt-in Firecrawl/Web sandbox route for one manual direct URL fetch. It is inspect-only and does not enqueue items, trigger AI, publish to Telegram, publish to WordPress, or process media.
 
 ## Table of contents
 
@@ -48,6 +50,7 @@ At a high level, the pipeline supports:
 11. Prepare and publish WordPress content through a WordPress client abstraction, using mock clients by default.
 12. Represent and prepare image, video, thumbnail, and carousel media through a provider-agnostic media abstraction.
 13. Run a mock end-to-end smoke scenario that exercises the full pipeline without external services.
+14. Optionally run an inspect-only Firecrawl/Web sandbox fetch for one direct URL when explicitly enabled.
 
 The repository is suitable for development, architecture validation, local smoke testing, and future staged production rollout. It is not yet configured for live provider scraping or real external publishing by default.
 
@@ -72,11 +75,12 @@ The repository is suitable for development, architecture validation, local smoke
 | Media preparation abstraction | Implemented with media asset types, mock media processor, preparation service, and media asset repository support. |
 | Provider adapters and mock ingestion | Implemented with provider adapter interfaces, mock Instagram/X/Web providers, registry, source ingestion service, and provider metadata. |
 | Poller orchestration | Implemented with source poller and batch poller services using mock providers by default. |
-| Worker operational routes | Implemented for health, readiness, status, Telegram webhook, internal poll, internal Telegram publish, and internal E2E mock pipeline. |
+| Worker operational routes | Implemented for health, readiness, status, Telegram webhook, internal poll, internal Telegram publish, internal E2E mock pipeline, and Firecrawl sandbox fetch. |
 | Cloudflare/GitHub workflow support | Implemented with Wrangler config, CI workflow, deploy workflow, smoke workflow, D1 migration workflow, and backup/export workflow stub. |
 | Real provider stubs behind feature flags | Implemented for Apify-style Instagram, GetXAPI-style X/Twitter, and Firecrawl-style Web providers. |
 | Sandbox provider HTTP/mapping/error foundations | Implemented with provider HTTP client abstraction, fetch-based client, mock HTTP client, response mappers, provider errors, and failover metadata. |
 | E2E mock smoke pipeline | Implemented as a Worker operation and internal route that exercises mock source polling through mock Telegram and WordPress publishing. |
+| Firecrawl/Web sandbox provider | Implemented as an opt-in direct URL sandbox provider and inspect-only internal route. |
 | Production readiness hardening | Implemented with internal route protection, readiness checks, safe config summary, safe logger redaction, consistent error responses, and rate-limit guard foundations. |
 
 ### Mock or stubbed by default
@@ -93,7 +97,7 @@ The repository is suitable for development, architecture validation, local smoke
 
 | Area | Status |
 | --- | --- |
-| Live provider rollout | Not enabled. Real provider stubs exist but remain opt-in and disabled by default. |
+| Live provider rollout | Not enabled. Firecrawl has an opt-in manual sandbox route, but automatic real provider polling remains disabled by default. |
 | Real credential setup | Not committed and not required for tests. Must be configured through Cloudflare/GitHub secrets in a future rollout. |
 | Real Cloudflare production deployment smoke run | Workflow support exists, but production deployment validation is still a separate operational step. |
 | Monitoring and alerting | Not integrated yet. |
@@ -227,6 +231,20 @@ Source definition
 
 The mock provider flow is used by local operations, tests, scheduled-safe polling, and smoke scenarios. It allows the architecture to be exercised without real third-party APIs.
 
+### Firecrawl/Web sandbox flow
+
+```text
+Internal operator request
+-> POST /internal/providers/firecrawl/sandbox-fetch
+-> internal route protection
+-> Firecrawl provider availability/config check
+-> ProviderHttpClient request when explicitly enabled
+-> Firecrawl response mapper
+-> NormalizedPost response for inspection
+```
+
+This route is inspect-only. It does not enqueue items, call the ingest gate, trigger AI, create Telegram review messages, publish to Telegram, publish to WordPress, or process media.
+
 ### E2E mock smoke flow
 
 ```text
@@ -335,7 +353,9 @@ Mock providers are the default for tests, local smoke runs, and scheduled-safe o
 
 ### Real provider stubs
 
-Real provider stubs exist for future rollout, but they are disabled by default. When explicitly enabled and configured, they can use the injected provider HTTP client and response mappers. Tests must use mock HTTP clients and must not perform external network calls.
+Real provider stubs exist for future rollout, but they are disabled by default. Firecrawl/Web has one explicit sandbox route for a single direct URL when enabled. Instagram and X/Twitter real provider activation remains out of scope for Phase 18.
+
+When explicitly enabled and configured, real provider stubs can use the injected provider HTTP client and response mappers. Tests must use mock HTTP clients and must not perform external network calls.
 
 ### Provider configuration
 
@@ -346,6 +366,8 @@ PROVIDERS_MODE
 ENABLE_APIFY_PROVIDER
 ENABLE_GETXAPI_PROVIDER
 ENABLE_FIRECRAWL_PROVIDER
+FIRECRAWL_BASE_URL
+FIRECRAWL_TIMEOUT_MS
 APIFY_TOKEN
 GETXAPI_KEY
 FIRECRAWL_API_KEY
@@ -355,6 +377,7 @@ Expected behavior:
 
 - mock mode is the default
 - real provider stubs are disabled by default
+- Firecrawl must be explicitly enabled before the sandbox route can call the provider
 - missing credentials produce typed unavailable states instead of crashing the app
 - disabled providers are skipped for normal polling
 - provider failure can trigger fallback
@@ -488,6 +511,7 @@ The Worker entrypoint is `apps/worker-api/src/index.ts`.
 | `/status` | GET | Operational module status and safe config summaries. Does not expose secret values. |
 | `/telegram/webhook` | POST | Telegram webhook for manual ingest and review callbacks. |
 | `/internal/poll` | POST | Runs mock-safe source polling through provider orchestration. |
+| `/internal/providers/firecrawl/sandbox-fetch` | POST | Opt-in inspect-only Firecrawl/Web direct URL sandbox fetch. |
 | `/internal/publish/telegram` | POST | Attempts to publish the next eligible Telegram queue item through the mock-safe publishing abstraction. |
 | `/internal/e2e/mock-pipeline` | POST | Runs the full mock E2E smoke scenario. |
 
@@ -497,6 +521,7 @@ Internal routes are protected when `INTERNAL_API_SECRET` is configured:
 
 ```text
 POST /internal/poll
+POST /internal/providers/firecrawl/sandbox-fetch
 POST /internal/publish/telegram
 POST /internal/e2e/mock-pipeline
 ```
@@ -609,6 +634,7 @@ Expected test coverage includes:
 - callback routing tests
 - provider registry, mock provider, mapper, and failover tests
 - poller and batch poller tests
+- Firecrawl sandbox provider and route tests with mock HTTP client
 - AI output tests with mock provider
 - WordPress post builder/client/service tests with mock client
 - media processor/preparation tests with mock processor
@@ -730,6 +756,8 @@ PROVIDERS_MODE
 ENABLE_APIFY_PROVIDER
 ENABLE_GETXAPI_PROVIDER
 ENABLE_FIRECRAWL_PROVIDER
+FIRECRAWL_BASE_URL
+FIRECRAWL_TIMEOUT_MS
 APIFY_TOKEN
 GETXAPI_KEY
 FIRECRAWL_API_KEY
@@ -763,18 +791,20 @@ Before production rollout, confirm:
 - `/status` returns safe operational status without secrets.
 - Mock E2E smoke pipeline passes.
 - Real providers remain disabled until an explicit rollout phase enables them.
+- Firecrawl sandbox route is disabled unless explicitly needed for a manual direct URL test.
 - Logs do not expose raw secret values.
 - Rollback path is known and documented.
 - Backup/export plan is verified before handling production data.
 
-Use `docs/PRODUCTION_DRY_RUN.md` for the Phase 17 deployment rehearsal checklist.
+Use `docs/PRODUCTION_DRY_RUN.md` for the Phase 17 deployment rehearsal checklist and optional Phase 18 Firecrawl sandbox checks.
 
 ## Known limitations
 
 Current limitations are intentional and should not be treated as bugs unless a scoped phase changes the expected behavior.
 
 - Real social providers are disabled by default.
-- No live production scraping is enabled by default.
+- Firecrawl/Web is available only through an explicit, manual, inspect-only sandbox route when enabled.
+- No live production scrape automation is enabled by default.
 - No real media download or ffmpeg/yt-dlp processing is enabled.
 - No real Telegram production bot sending is enabled by default in tests or smoke paths.
 - No real WordPress production publishing is enabled by default in tests or smoke paths.

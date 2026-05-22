@@ -233,7 +233,9 @@ describe("operational worker routes", () => {
     });
     expect(JSON.stringify(body)).not.toContain("review-chat");
     expect(JSON.stringify(body)).not.toContain("final-chat");
-    expect(JSON.stringify(body)).not.toContain("configured");
+    expect(JSON.stringify(body)).not.toContain("secret-value");
+    expect(JSON.stringify(body)).not.toContain("test-token");
+    expect(JSON.stringify(body)).not.toContain("test-password");
   });
 
   it("POST /internal/poll remains accessible without secret in local mode", async () => {

@@ -4,7 +4,7 @@ This runbook covers operational setup, deployment, smoke testing, readiness chec
 
 Mock/local mode is the default for tests and operational smoke checks. Do not introduce real provider calls or real credentials while following this runbook.
 
-For the first controlled Cloudflare deployment dry run, use `docs/PRODUCTION_DRY_RUN.md` as the operator checklist. It covers Cloudflare account setup, Wrangler authentication, D1 database creation, remote migrations, runtime secret configuration, GitHub Actions secrets, manual deployment, protected internal route checks, readiness interpretation, log inspection, rollback planning, and the specific guardrails that keep real providers disabled during the dry run.
+For the first controlled Cloudflare deployment dry run, use `docs/PRODUCTION_DRY_RUN.md` as the operator checklist. It covers Cloudflare account setup, Wrangler authentication, D1 database creation, remote migrations, runtime secret configuration, GitHub Actions secrets, manual deployment, protected internal route checks, readiness interpretation, log inspection, rollback planning, and the specific guardrails that keep real providers disabled during the dry run. Phase 18 adds an optional Firecrawl/Web sandbox checklist for a single inspect-only direct URL fetch.
 
 ---
 
@@ -104,6 +104,7 @@ GET  /health
 GET  /ready
 GET  /status
 POST /internal/poll
+POST /internal/providers/firecrawl/sandbox-fetch
 POST /internal/e2e/mock-pipeline
 POST /internal/publish/telegram
 POST /telegram/webhook
@@ -117,6 +118,7 @@ Internal routes are protected when `INTERNAL_API_SECRET` is configured:
 
 ```text
 POST /internal/poll
+POST /internal/providers/firecrawl/sandbox-fetch
 POST /internal/e2e/mock-pipeline
 POST /internal/publish/telegram
 ```
@@ -454,7 +456,74 @@ Record the dry-run result without secret values. Include commit SHA, migration o
 
 ---
 
-## 18. Backup and export
+## 18. Phase 18 Firecrawl/Web sandbox fetch
+
+Phase 18 enables one real provider path for a controlled sandbox check: Firecrawl/Web direct URL fetch. This path is explicit, manual, and inspect-only.
+
+The sandbox route is:
+
+```text
+POST /internal/providers/firecrawl/sandbox-fetch
+```
+
+The route:
+
+- requires internal route protection when configured
+- requires Firecrawl to be explicitly enabled
+- requires Firecrawl credentials to be configured at runtime
+- accepts one direct web URL
+- returns provider status and normalized post data
+- does not call the ingest gate
+- does not enqueue items
+- does not trigger AI
+- does not create Telegram review messages
+- does not publish to Telegram
+- does not publish to WordPress
+- does not download or process media
+
+Runtime names used by the sandbox are:
+
+```text
+PROVIDERS_MODE
+ENABLE_FIRECRAWL_PROVIDER
+FIRECRAWL_API_KEY
+FIRECRAWL_BASE_URL
+FIRECRAWL_TIMEOUT_MS
+```
+
+Keep mock mode as the default. Enable Firecrawl only for the sandbox fetch, then disable it immediately after the check.
+
+Operational sequence:
+
+1. Confirm baseline mock smoke checks pass.
+2. Configure the Firecrawl runtime secret in Cloudflare.
+3. Set provider mode intentionally for a sandbox check.
+4. Enable only the Firecrawl provider flag.
+5. Keep Apify/Instagram and GetXAPI/X flags disabled.
+6. Deploy or update runtime configuration.
+7. Call the protected sandbox route with one direct URL.
+8. Confirm the response includes normalized web post data.
+9. Confirm no downstream queue, AI, Telegram, WordPress, or media side effects occurred.
+10. Disable Firecrawl and return provider mode to the mock-safe setting.
+
+Failure interpretation:
+
+- `disabled` means Firecrawl is not enabled, which is the safe default.
+- `missing_credentials` means Firecrawl was enabled without runtime credentials.
+- `unsupported_source_type` means the request is outside the direct web URL sandbox scope.
+- `http_error`, `timeout`, `network_error`, or `invalid_response` should be treated as sandbox provider failures, not downstream pipeline failures.
+
+Rollback steps:
+
+- disable the Firecrawl provider flag
+- return provider mode to mock
+- remove the runtime Firecrawl credential if the sandbox is complete
+- redeploy or refresh runtime configuration if needed
+- confirm `/status` and `/ready` no longer report Firecrawl as enabled
+
+---
+
+## 19. Backup and export
 
 The `Backup D1 Stub` workflow is intentionally a documented stub. Verify the current Cloudflare-supported D1 export command before enabling automated backups.
 
@@ -474,7 +543,7 @@ Before enabling real backups:
 
 ---
 
-## 19. Rollback
+## 20. Rollback
 
 Rollback options:
 
@@ -493,7 +562,7 @@ Rollback checklist:
 
 ---
 
-## 20. Failure recovery
+## 21. Failure recovery
 
 ### Worker deploy failure
 
@@ -519,19 +588,29 @@ Rollback checklist:
 6. Confirm `/internal/poll` and `/internal/e2e/mock-pipeline` are not blocked by routing rules.
 7. If `INTERNAL_API_SECRET` is configured, confirm the request includes the internal route header.
 
+### Firecrawl sandbox failure
+
+1. Confirm baseline mock smoke checks still pass.
+2. Confirm Firecrawl is intentionally enabled.
+3. Confirm the Firecrawl credential is configured by presence, not by printing its value.
+4. Confirm Apify/Instagram and GetXAPI/X remain disabled.
+5. Inspect the typed provider error category.
+6. Disable Firecrawl after the sandbox check or after any failure.
+
 ### Provider failure
 
 Provider smoke tests should use mocks by default. If a real provider is being called during tests, treat that as a bug and disable the real call path.
 
 ---
 
-## 21. Operational routes reference
+## 22. Operational routes reference
 
 ```text
 GET  /health
 GET  /ready
 GET  /status
 POST /internal/poll
+POST /internal/providers/firecrawl/sandbox-fetch
 POST /internal/e2e/mock-pipeline
 POST /internal/publish/telegram
 POST /telegram/webhook
@@ -541,18 +620,19 @@ No route should expose secrets. `/status` and `/ready` may expose whether a conf
 
 ---
 
-## 22. Future phases
+## 23. Future phases
 
-Do not add these in the deployment dry-run phase:
+Do not add these in the Firecrawl sandbox phase:
 
-- real provider rollout
-- real Apify/GetXAPI/HikerAPI/Firecrawl calls
+- real Apify/Instagram activation
+- real GetXAPI/X activation
+- automatic real provider polling
 - real Telegram Bot API calls
 - real WordPress API calls
 - real media download jobs
 - dashboard
 - paid service integrations
 - Durable Objects or KV rate limiting
-- Phase 18 behavior
+- Phase 19 behavior
 
 Add those only in their own scoped phases with tests and rollback notes.

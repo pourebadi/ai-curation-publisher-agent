@@ -1,8 +1,8 @@
 # Production Deployment Dry-Run Checklist
 
-Use this checklist for the first controlled Cloudflare deployment dry run.
+Use this checklist for controlled Cloudflare deployment dry runs.
 
-This dry run is mock-first. It is intended to prove that the Worker can be deployed, configured, migrated, checked, smoked, observed, and rolled back without enabling real providers or real production publishing.
+The baseline dry run is mock-first. Phase 18 adds a separate, explicit Firecrawl/Web sandbox check for one direct URL. The Firecrawl check is opt-in, inspect-only, and does not enqueue downstream work.
 
 ## Scope
 
@@ -15,11 +15,13 @@ This checklist verifies:
 - protected internal route usage
 - mock source polling
 - mock end-to-end pipeline
+- optional Firecrawl/Web sandbox fetch
 - rollback readiness
 
 This checklist does not enable:
 
-- real Apify, GetXAPI, HikerAPI, or Firecrawl calls
+- real Apify, GetXAPI, or HikerAPI calls
+- automatic real provider polling
 - real Telegram Bot API publishing
 - real WordPress REST API publishing
 - real media download or processing
@@ -36,7 +38,7 @@ This checklist does not enable:
 - [ ] Wrangler authentication is available to the operator or GitHub Actions.
 - [ ] `wrangler.toml` has been reviewed.
 - [ ] `wrangler.toml` does not contain real secrets.
-- [ ] Real providers remain disabled.
+- [ ] Real providers remain disabled for the baseline dry run.
 - [ ] Scheduler behavior is understood and remains mock-safe.
 
 ## Cloudflare resources
@@ -52,10 +54,17 @@ This checklist does not enable:
 - [ ] `INTERNAL_API_SECRET` is set as a Cloudflare Worker secret for deployed internal routes.
 - [ ] GitHub Actions secret `CLOUDFLARE_API_TOKEN` is set.
 - [ ] GitHub Actions secret `CLOUDFLARE_ACCOUNT_ID` is set.
-- [ ] No real provider credentials are required for this dry run.
-- [ ] Provider mode remains mock or otherwise does not select real providers.
 - [ ] No runtime secret values are committed to the repository.
 - [ ] `.env.example` remains sanitized with empty values only.
+
+For the optional Phase 18 Firecrawl sandbox only:
+
+- [ ] `FIRECRAWL_API_KEY` is configured as a Cloudflare Worker secret.
+- [ ] `PROVIDERS_MODE` is intentionally set to allow mixed provider mode for the sandbox check.
+- [ ] `ENABLE_FIRECRAWL_PROVIDER` is intentionally enabled for the sandbox check.
+- [ ] `FIRECRAWL_BASE_URL` is reviewed only if overriding the default endpoint.
+- [ ] `FIRECRAWL_TIMEOUT_MS` is reviewed only if overriding the default timeout.
+- [ ] Apify/Instagram and GetXAPI/X real provider flags remain disabled.
 
 ## Migrations
 
@@ -90,7 +99,7 @@ curl -fsS "$WORKER_BASE_URL/ready"
 
 ## Protected internal route checks
 
-When `INTERNAL_API_SECRET` is configured, internal routes require the `x-internal-api-secret` header.
+When `INTERNAL_API_SECRET` is configured, internal routes require the configured internal route header.
 
 ```bash
 curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
@@ -117,21 +126,47 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/publish/telegram" \
 - [ ] Missing or invalid internal secret returns `401`.
 - [ ] Internal route responses do not expose secret values.
 
+## Optional Firecrawl sandbox fetch
+
+Use this only after the baseline mock dry run passes and Firecrawl has been intentionally enabled for sandbox testing.
+
+```bash
+curl -fsS -X POST "$WORKER_BASE_URL/internal/providers/firecrawl/sandbox-fetch" \
+  -H "content-type: application/json" \
+  -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
+  -d '{"url":"https://example.com/article"}'
+```
+
+Expected behavior:
+
+- [ ] The route is inspect-only.
+- [ ] The response includes provider status and normalized post data.
+- [ ] No item is enqueued.
+- [ ] No AI processing is triggered.
+- [ ] No Telegram publishing is triggered.
+- [ ] No WordPress publishing is triggered.
+- [ ] No media download is triggered.
+- [ ] The response does not expose secret values.
+
+Disable Firecrawl immediately after the sandbox check by removing or disabling the Firecrawl enable flag and returning provider mode to the mock-safe configuration.
+
 ## Readiness interpretation
 
 - [ ] Local/mock readiness can return ready with warnings for optional production config.
 - [ ] Production readiness returns `503` when `INTERNAL_API_SECRET` is missing.
 - [ ] Production readiness returns `503` when required Telegram review/final chat config is missing.
 - [ ] Missing provider credentials are acceptable when real providers are disabled.
+- [ ] Firecrawl enabled without credentials is treated as missing credentials and must not crash.
 - [ ] Real provider flags without credentials are treated as warnings or errors safely.
 - [ ] No token, password, API key, authorization, or internal secret values appear in readiness output.
 
 ## Provider safety
 
-- [ ] `PROVIDERS_MODE` does not force real provider usage for this dry run.
-- [ ] Real provider enable flags remain unset or disabled.
-- [ ] No Apify, GetXAPI, HikerAPI, Firecrawl, or browser scraping call is expected.
-- [ ] Smoke tests use mock providers only.
+- [ ] `PROVIDERS_MODE` does not force real provider usage for the baseline dry run.
+- [ ] Firecrawl is enabled only for the explicit sandbox fetch.
+- [ ] Apify/Instagram remains disabled.
+- [ ] GetXAPI/X remains disabled.
+- [ ] No browser scraping call is expected.
 - [ ] Scheduled behavior remains mock-safe.
 
 ## Rollback readiness
@@ -140,7 +175,7 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/publish/telegram" \
 - [ ] Operator knows how to redeploy a previous commit or revert the PR.
 - [ ] Operator knows how to disable scheduled triggers if a future phase enables them.
 - [ ] Operator knows how to return provider mode to mock.
-- [ ] Operator knows how to disable real provider feature flags if they are accidentally configured.
+- [ ] Operator knows how to disable Firecrawl immediately.
 - [ ] D1 rollback is treated as conservative and manual; no automated destructive rollback is assumed.
 
 ## Dry-run completion
@@ -152,9 +187,10 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/publish/telegram" \
 - [ ] `/ready` passed.
 - [ ] Protected mock internal poll passed.
 - [ ] Protected mock E2E pipeline passed.
+- [ ] Optional Firecrawl sandbox fetch passed, if intentionally run.
 - [ ] Logs reviewed.
 - [ ] No secrets exposed.
-- [ ] Real providers remain disabled.
+- [ ] Unwanted real providers remain disabled.
 - [ ] Rollback path confirmed.
 
-Record dry-run notes in the PR or release checklist, including the Worker URL, commit SHA, migration outcome, smoke-test outcome, and any follow-up actions. Do not record secret values.
+Record dry-run notes in the PR or release checklist, including the Worker URL, commit SHA, migration outcome, smoke-test outcome, Firecrawl sandbox outcome if run, and any follow-up actions. Do not record secret values.
