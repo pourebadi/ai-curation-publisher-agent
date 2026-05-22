@@ -1,4 +1,5 @@
 import { readProviderRuntimeConfig, summarizeProviderConfig, type ProviderConfigSummary } from "@curator/providers";
+import { readSchedulerSettings, type SchedulerSettings } from "./operations/scheduled-poll";
 import type { Env } from "./types";
 
 export type WorkerOperationalConfig = {
@@ -20,6 +21,15 @@ export type WorkerOperationalConfig = {
     realDryRunEnabled: boolean;
     defaultStatus: string;
   };
+  scheduler: {
+    enabled: boolean;
+    dryRun: boolean;
+    realProvidersAllowed: boolean;
+    publishingAllowed: boolean;
+    maxSourcesPerRun: number;
+    maxItemsPerRun: number;
+  };
+  quotas: SchedulerSettings["quotas"];
   providers: ProviderConfigSummary;
   readiness: SafeConfigSummary;
 };
@@ -37,6 +47,15 @@ export type SafeConfigSummary = {
   hasWordPressCredentials: boolean;
   wordpressRealDryRunEnabled: boolean;
   wordpressDefaultStatus: string;
+  scheduler: {
+    enabled: boolean;
+    dryRun: boolean;
+    realProvidersAllowed: boolean;
+    publishingAllowed: boolean;
+    maxSourcesPerRun: number;
+    maxItemsPerRun: number;
+  };
+  quotas: SchedulerSettings["quotas"];
   hasProviderCredentials: {
     apify: boolean;
     getxapi: boolean;
@@ -74,6 +93,8 @@ export function readOperationalConfig(env: Env): WorkerOperationalConfig {
       realDryRunEnabled: safeSummary.wordpressRealDryRunEnabled,
       defaultStatus: safeSummary.wordpressDefaultStatus
     },
+    scheduler: safeSummary.scheduler,
+    quotas: safeSummary.quotas,
     providers: summarizeProviderConfig(providerConfig),
     readiness: safeSummary
   };
@@ -130,6 +151,18 @@ export function validateRuntimeConfig(env: Env): ConfigValidationResult {
     }
   }
 
+  if (summary.scheduler.enabled && !summary.scheduler.dryRun) {
+    warnings.push("Scheduler is enabled outside dry-run mode. Phase 21 still prevents publishing side effects.");
+  }
+
+  if (summary.scheduler.realProvidersAllowed) {
+    warnings.push("Scheduler real provider access is allowed by config, but Phase 21 keeps scheduler polling mock-safe.");
+  }
+
+  if (summary.scheduler.publishingAllowed) {
+    warnings.push("Scheduler publishing is allowed by config, but Phase 21 does not trigger publishing.");
+  }
+
   if (summary.providersMode !== "mock" && !Object.values(summary.hasProviderCredentials).some(Boolean)) {
     const message = "Provider mode is not mock, but no provider credentials are configured.";
     if (production) {
@@ -149,6 +182,7 @@ export function validateRuntimeConfig(env: Env): ConfigValidationResult {
 
 export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
   const providerConfig = readProviderRuntimeConfig(env);
+  const schedulerSettings = readSchedulerSettings(env);
   const hasWordPressBaseUrl = hasValue(env.WORDPRESS_BASE_URL);
   const hasWordPressCredentials = hasValue(env.WORDPRESS_USERNAME) && hasValue(env.WORDPRESS_APPLICATION_PASSWORD);
 
@@ -165,6 +199,15 @@ export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
     hasWordPressCredentials,
     wordpressRealDryRunEnabled: env.WORDPRESS_REAL_DRY_RUN_ENABLED === "true",
     wordpressDefaultStatus: normalizeWordPressStatus(env.WORDPRESS_DEFAULT_STATUS),
+    scheduler: {
+      enabled: schedulerSettings.schedulerEnabled,
+      dryRun: schedulerSettings.dryRun,
+      realProvidersAllowed: schedulerSettings.realProvidersAllowed,
+      publishingAllowed: schedulerSettings.publishingAllowed,
+      maxSourcesPerRun: schedulerSettings.maxSources,
+      maxItemsPerRun: schedulerSettings.maxItems
+    },
+    quotas: schedulerSettings.quotas,
     hasProviderCredentials: {
       apify: hasValue(env.APIFY_TOKEN),
       getxapi: hasValue(env.GETXAPI_KEY),
