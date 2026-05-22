@@ -1,0 +1,63 @@
+import type { ProviderAdapter } from "./provider-adapter";
+import { providerAvailabilityList, readProviderRuntimeConfig, summarizeProviderConfig, type ProviderConfigSummary, type ProviderRuntimeConfig, type ProviderRuntimeEnv } from "./config/provider-config";
+import { ApifyInstagramProvider } from "./apify/apify-instagram-provider";
+import { FirecrawlWebProvider } from "./firecrawl/firecrawl-web-provider";
+import { GetXapiXProvider } from "./getxapi/getxapi-x-provider";
+import type { ProviderHttpClient } from "./http/provider-http-client";
+import { MockInstagramProvider } from "./mock/mock-instagram-provider";
+import { MockWebProvider } from "./mock/mock-web-provider";
+import { MockXProvider } from "./mock/mock-x-provider";
+import type { ProviderAvailability } from "./provider-status";
+
+export type ProviderFactoryOptions = {
+  env?: ProviderRuntimeEnv;
+  config?: ProviderRuntimeConfig;
+  httpClient?: ProviderHttpClient;
+  now?: () => Date;
+};
+
+export type ProviderFactoryResult = {
+  providers: ProviderAdapter[];
+  availability: ProviderAvailability[];
+  summary: ProviderConfigSummary;
+};
+
+export function createProvidersFromConfig(options: ProviderFactoryOptions = {}): ProviderFactoryResult {
+  const config = options.config ?? readProviderRuntimeConfig(options.env ?? {});
+  const availability = providerAvailabilityList(config);
+  const providers: ProviderAdapter[] = [];
+
+  if (config.mockProvidersEnabled) {
+    providers.push(
+      new MockInstagramProvider({ now: options.now }),
+      new MockXProvider({ now: options.now }),
+      new MockWebProvider({ now: options.now })
+    );
+  }
+
+  const byId = new Map(availability.map((entry) => [entry.providerId, entry]));
+
+  if (config.mode !== "mock") {
+    const apify = byId.get("apify_instagram");
+    const getxapi = byId.get("getxapi");
+    const firecrawl = byId.get("firecrawl");
+
+    if (apify && config.realProviders.apifyInstagram.enabled) {
+      providers.push(new ApifyInstagramProvider({ availability: apify, httpClient: options.httpClient, now: options.now }));
+    }
+
+    if (getxapi && config.realProviders.getxapiX.enabled) {
+      providers.push(new GetXapiXProvider({ availability: getxapi, httpClient: options.httpClient, now: options.now }));
+    }
+
+    if (firecrawl && config.realProviders.firecrawlWeb.enabled) {
+      providers.push(new FirecrawlWebProvider({ availability: firecrawl, httpClient: options.httpClient, now: options.now }));
+    }
+  }
+
+  return {
+    providers,
+    availability,
+    summary: summarizeProviderConfig(config)
+  };
+}
