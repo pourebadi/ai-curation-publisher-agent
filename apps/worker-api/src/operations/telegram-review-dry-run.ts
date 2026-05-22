@@ -16,7 +16,7 @@ export type TelegramReviewDryRunResult = {
   tokenConfigured: boolean;
   realReviewEnabled: boolean;
   telegramMessageId?: string;
-  error?: "disabled" | "missing_config" | "telegram_api_error" | "network_error" | "invalid_response" | "unknown_error";
+  error?: "disabled" | "missing_config" | "missing_credentials" | "telegram_api_error" | "network_error" | "invalid_response" | "unknown_error";
   message?: string;
 };
 
