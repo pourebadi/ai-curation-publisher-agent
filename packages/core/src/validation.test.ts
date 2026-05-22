@@ -23,6 +23,21 @@ function makePost(overrides: Partial<NormalizedPost> = {}): NormalizedPost {
   };
 }
 
+type OptionalNormalizedPostKey = "sourcePostId" | "text";
+
+function makePostWithout(
+  omittedKeys: OptionalNormalizedPostKey[],
+  overrides: Partial<NormalizedPost> = {}
+): NormalizedPost {
+  const post = makePost(overrides);
+
+  for (const key of omittedKeys) {
+    delete post[key];
+  }
+
+  return post;
+}
+
 describe("validateNormalizedPost", () => {
   it("accepts a valid manual text post", () => {
     expect(validateNormalizedPost(makePost()).valid).toBe(true);
@@ -51,7 +66,7 @@ describe("validateNormalizedPost", () => {
   });
 
   it("requires source post ID or fallback identity", () => {
-    const post = makePost({ sourcePostId: undefined, text: undefined, links: [], media: [] });
+    const post = makePostWithout(["sourcePostId", "text"], { links: [], media: [] });
     const result = validateNormalizedPost(post);
 
     expect(hasSourceIdentity(post)).toBe(false);
@@ -60,11 +75,9 @@ describe("validateNormalizedPost", () => {
   });
 
   it("allows fallback identity from text, link, or media", () => {
-    expect(hasSourceIdentity(makePost({ sourcePostId: undefined, text: "fallback", links: [], media: [] }))).toBe(true);
-    expect(hasSourceIdentity(makePost({ sourcePostId: undefined, text: undefined, links: ["https://source.local"], media: [] }))).toBe(true);
-    expect(hasSourceIdentity(makePost({
-      sourcePostId: undefined,
-      text: undefined,
+    expect(hasSourceIdentity(makePostWithout(["sourcePostId"], { text: "fallback", links: [], media: [] }))).toBe(true);
+    expect(hasSourceIdentity(makePostWithout(["sourcePostId", "text"], { links: ["https://source.local"], media: [] }))).toBe(true);
+    expect(hasSourceIdentity(makePostWithout(["sourcePostId", "text"], {
       links: [],
       media: [{ kind: "image", sourceUrl: "https://source.local/image.png" }]
     }))).toBe(true);
