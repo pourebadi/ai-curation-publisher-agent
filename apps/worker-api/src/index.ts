@@ -1,6 +1,7 @@
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
+import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalPoll } from "./routes/internal-poll";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleReady } from "./routes/ready";
@@ -27,6 +28,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/internal/poll") {
       return handleInternalPoll(request, env);
+    }
+
+    if (url.pathname === "/internal/providers/firecrawl/sandbox-fetch") {
+      return handleInternalFirecrawlSandbox(request, env);
     }
 
     if (url.pathname === "/internal/e2e/mock-pipeline") {
