@@ -1,9 +1,23 @@
 import type { TelegramAiOutput } from "@curator/core";
-import type { TelegramClient } from "@curator/telegram";
 import { ItemsRepository } from "../repositories/items.repository";
 import { OutputsRepository } from "../repositories/outputs.repository";
 import { PublishQueueRepository, type PublishQueueRecord } from "../repositories/publish-queue.repository";
 import { PublishQueueService } from "./publish-queue.service";
+
+export type FinalTelegramMessageInput = {
+  chatId: string;
+  text: string;
+};
+
+export type FinalTelegramMessage = {
+  chatId: string;
+  messageId: string;
+  text: string;
+};
+
+export interface TelegramFinalPublisher {
+  publishFinalMessage(input: FinalTelegramMessageInput): Promise<FinalTelegramMessage>;
+}
 
 export type PublishNextTelegramInput = {
   finalChatId: string;
@@ -34,20 +48,20 @@ export class PublishingService {
     private readonly queueService: PublishQueueService,
     private readonly outputsRepository: OutputsRepository,
     private readonly itemsRepository: ItemsRepository,
-    private readonly telegramClient: TelegramClient
+    private readonly telegramPublisher: TelegramFinalPublisher
   ) {}
 
   static fromRepositories(input: {
     queueRepository: PublishQueueRepository;
     outputsRepository: OutputsRepository;
     itemsRepository: ItemsRepository;
-    telegramClient: TelegramClient;
+    telegramPublisher: TelegramFinalPublisher;
   }): PublishingService {
     return new PublishingService(
       new PublishQueueService(input.queueRepository, input.itemsRepository),
       input.outputsRepository,
       input.itemsRepository,
-      input.telegramClient
+      input.telegramPublisher
     );
   }
 
@@ -59,7 +73,7 @@ export class PublishingService {
 
     try {
       const finalText = await this.buildFinalTelegramMessage(queueItem.itemId);
-      const message = await this.telegramClient.publishFinalMessage({
+      const message = await this.telegramPublisher.publishFinalMessage({
         chatId: input.finalChatId,
         text: finalText
       });
