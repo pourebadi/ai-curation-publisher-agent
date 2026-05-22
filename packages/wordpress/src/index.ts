@@ -1,2 +1,4 @@
-export type WordPressPhaseOneStub = { id: "phase1-wordpress-stub"; restPublishingEnabled: false };
-export function createWordPressPhaseOneStub(): WordPressPhaseOneStub { return { id: "phase1-wordpress-stub", restPublishingEnabled: false }; }
+export * from "./client";
+export * from "./post-builder";
+export * from "./wordpress-output";
+export * from "./wordpress-publishing.service";
