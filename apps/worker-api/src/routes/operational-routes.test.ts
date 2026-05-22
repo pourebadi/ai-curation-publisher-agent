@@ -111,12 +111,18 @@ function makeEnv(db = new FakeDb()): Env {
   };
 }
 
-async function fetchWorker(request: Request, env = makeEnv()): Promise<Response> {
+async function fetchWorker(request: globalThis.Request, env = makeEnv()): Promise<Response> {
   if (!worker.fetch) {
     throw new Error("Worker fetch handler is not defined");
   }
 
-  return worker.fetch(request, env, {} as ExecutionContext);
+  const workerFetch = worker.fetch as unknown as (
+    request: globalThis.Request,
+    env: Env,
+    ctx: ExecutionContext
+  ) => Promise<Response>;
+
+  return workerFetch(request, env, {} as ExecutionContext);
 }
 
 async function json(response: Response): Promise<Record<string, unknown>> {
