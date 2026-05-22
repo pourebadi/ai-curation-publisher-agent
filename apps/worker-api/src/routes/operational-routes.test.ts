@@ -178,8 +178,8 @@ describe("operational worker routes", () => {
   it("GET /ready returns 503 for production missing required config", async () => {
     const response = await fetchWorker(new Request("https://worker.local/ready"), makeEnv(new FakeDb(), {
       ENVIRONMENT: "production",
-      TELEGRAM_REVIEW_CHAT_ID: undefined,
-      TELEGRAM_FINAL_CHAT_ID: undefined
+      TELEGRAM_REVIEW_CHAT_ID: "",
+      TELEGRAM_FINAL_CHAT_ID: ""
     }));
     const body = await json(response);
 
