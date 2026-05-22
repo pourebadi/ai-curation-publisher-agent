@@ -14,6 +14,10 @@ class FakeStatement implements D1PreparedStatementLike {
   }
 
   async first<T = unknown>(): Promise<T | null> {
+    if (this.query.includes("COUNT(*) AS count")) {
+      return { count: 0 } as T;
+    }
+
     if (this.query.includes("FROM publish_queue")) {
       const target = String(this.values[0]);
       return (this.db.publishQueue.find((row) => row.target === target && (row.status === "pending" || row.status === "scheduled")) as T | undefined) ?? null;
@@ -26,10 +30,6 @@ class FakeStatement implements D1PreparedStatementLike {
     if (this.query.includes("FROM items")) {
       const itemId = String(this.values[0]);
       return (this.db.items.get(itemId) as T | undefined) ?? null;
-    }
-
-    if (this.query.includes("COUNT(*) AS count")) {
-      return { count: 0 } as T;
     }
 
     return null;
@@ -111,13 +111,21 @@ function makeEnv(db = new FakeDb()): Env {
   };
 }
 
+async function fetchWorker(request: Request, env = makeEnv()): Promise<Response> {
+  if (!worker.fetch) {
+    throw new Error("Worker fetch handler is not defined");
+  }
+
+  return worker.fetch(request, env, {} as ExecutionContext);
+}
+
 async function json(response: Response): Promise<Record<string, unknown>> {
   return response.json() as Promise<Record<string, unknown>>;
 }
 
 describe("operational worker routes", () => {
   it("GET /health returns ok", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/health"), makeEnv(), {} as ExecutionContext);
+    const response = await fetchWorker(new Request("https://worker.local/health"));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -128,7 +136,7 @@ describe("operational worker routes", () => {
   });
 
   it("GET /status returns operational module status without secrets", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/status"), makeEnv(), {} as ExecutionContext);
+    const response = await fetchWorker(new Request("https://worker.local/status"));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -148,7 +156,7 @@ describe("operational worker routes", () => {
   });
 
   it("POST /internal/poll with a mock source returns poll metadata", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/internal/poll", {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -163,7 +171,7 @@ describe("operational worker routes", () => {
         ],
         options: { limit: 1 }
       })
-    }), makeEnv(), {} as ExecutionContext);
+    }));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -176,11 +184,11 @@ describe("operational worker routes", () => {
   });
 
   it("POST /internal/poll uses default mock sources", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/internal/poll", {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({})
-    }), makeEnv(), {} as ExecutionContext);
+    }));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -190,7 +198,7 @@ describe("operational worker routes", () => {
   });
 
   it("POST /internal/poll handles provider failure without crashing", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/internal/poll", {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -211,7 +219,7 @@ describe("operational worker routes", () => {
           }
         ]
       })
-    }), makeEnv(), {} as ExecutionContext);
+    }));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -223,11 +231,11 @@ describe("operational worker routes", () => {
   });
 
   it("POST /internal/publish/telegram returns structured no-item result", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/internal/publish/telegram", {
+    const response = await fetchWorker(new Request("https://worker.local/internal/publish/telegram", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({})
-    }), makeEnv(), {} as ExecutionContext);
+    }));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -252,11 +260,11 @@ describe("operational worker routes", () => {
       updated_at: new Date(0).toISOString()
     });
 
-    const response = await worker.fetch(new Request("https://worker.local/internal/publish/telegram", {
+    const response = await fetchWorker(new Request("https://worker.local/internal/publish/telegram", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ publishNow: true })
-    }), makeEnv(db), {} as ExecutionContext);
+    }), makeEnv(db));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -267,7 +275,7 @@ describe("operational worker routes", () => {
   });
 
   it("returns 405 for invalid methods", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/internal/poll", { method: "GET" }), makeEnv(), {} as ExecutionContext);
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", { method: "GET" }));
     const body = await json(response);
 
     expect(response.status).toBe(405);
@@ -275,11 +283,11 @@ describe("operational worker routes", () => {
   });
 
   it("returns 400 for malformed JSON", async () => {
-    const response = await worker.fetch(new Request("https://worker.local/internal/poll", {
+    const response = await fetchWorker(new Request("https://worker.local/internal/poll", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{"
-    }), makeEnv(), {} as ExecutionContext);
+    }));
     const body = await json(response);
 
     expect(response.status).toBe(400);
