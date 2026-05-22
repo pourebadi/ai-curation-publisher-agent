@@ -133,7 +133,7 @@ function realProviderEnabled(mode: ProvidersMode, value: string | undefined): bo
 }
 
 function normalizeUrl(value: string | undefined): string | undefined {
-  if (!hasValue(value)) {
+  if (typeof value !== "string" || value.trim().length === 0) {
     return undefined;
   }
 
@@ -141,7 +141,7 @@ function normalizeUrl(value: string | undefined): string | undefined {
 }
 
 function normalizeTimeoutMs(value: string | undefined): number {
-  if (!hasValue(value)) {
+  if (typeof value !== "string" || value.trim().length === 0) {
     return DEFAULT_FIRECRAWL_TIMEOUT_MS;
   }
 

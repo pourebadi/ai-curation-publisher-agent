@@ -53,14 +53,16 @@ export async function runFirecrawlSandboxFetch(options: FirecrawlSandboxOptions)
     };
   }
 
-  const provider = new FirecrawlWebProvider({
+  const providerOptions = {
     availability,
     baseUrl: firecrawlConfig.baseUrl,
     timeoutMs: firecrawlConfig.timeoutMs,
-    apiKey: options.env.FIRECRAWL_API_KEY,
     httpClient: options.httpClient ?? new FetchProviderHttpClient({ defaultTimeoutMs: firecrawlConfig.timeoutMs }),
+    ...(options.env.FIRECRAWL_API_KEY === undefined ? {} : { apiKey: options.env.FIRECRAWL_API_KEY }),
     ...(options.now === undefined ? {} : { now: options.now })
-  });
+  };
+
+  const provider = new FirecrawlWebProvider(providerOptions);
 
   try {
     const result = await provider.fetchByDirectUrl(options.input.url, { limit: options.input.limit ?? 1 });
