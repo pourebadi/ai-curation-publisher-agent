@@ -228,3 +228,6 @@ export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): 
     reply_markup: buildReviewInlineKeyboard(input.itemId)
   };
 }
+
+export * from "./client";
+export * from "./review-message";

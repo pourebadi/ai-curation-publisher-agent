@@ -7,7 +7,14 @@ export type ReviewCallbackResult = {
   action: TelegramReviewAction;
   routed: true;
   resultingStatus: "sent_to_review" | "approved" | "cancelled";
-  message: string;
+  statusResponse: {
+    itemId: string;
+    action: TelegramReviewAction;
+    status: "sent_to_review" | "approved" | "cancelled";
+    message: string;
+    finalPublishingTriggered: false;
+    editStubbed: boolean;
+  };
 };
 
 export async function handleReviewCallback(parsed: ParsedTelegramCallback, db: D1DatabaseLike): Promise<ReviewCallbackResult> {
@@ -21,7 +28,8 @@ export async function handleReviewCallback(parsed: ParsedTelegramCallback, db: D
     action: parsed.action,
     payload: {
       callbackId: parsed.callback.id,
-      messageId: parsed.callback.message?.message_id
+      messageId: parsed.callback.message?.message_id,
+      finalPublishingTriggered: false
     }
   });
 
@@ -34,7 +42,14 @@ export async function handleReviewCallback(parsed: ParsedTelegramCallback, db: D
     action: parsed.action,
     routed: true,
     resultingStatus,
-    message: createCallbackMessage(parsed.action)
+    statusResponse: {
+      itemId: parsed.itemId,
+      action: parsed.action,
+      status: resultingStatus,
+      message: createCallbackMessage(parsed.action),
+      finalPublishingTriggered: false,
+      editStubbed: parsed.action === "edit"
+    }
   };
 }
 
@@ -53,12 +68,12 @@ function resolveResultingStatus(action: TelegramReviewAction): ReviewCallbackRes
 function createCallbackMessage(action: TelegramReviewAction): string {
   switch (action) {
     case "edit":
-      return "Edit flow is acknowledged and remains stubbed for Phase 2.";
+      return "Edit action acknowledged. Editing remains stubbed for Phase 5.";
     case "send":
-      return "Send action acknowledged. Final publishing is stubbed for Phase 2.";
+      return "Send action approved the item. Final publishing is not triggered in Phase 5.";
     case "cancel":
-      return "Cancel action acknowledged.";
+      return "Cancel action cancelled the item.";
     case "status":
-      return "Status action acknowledged.";
+      return "Status action returned current review routing state.";
   }
 }

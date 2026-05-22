@@ -1,7 +1,15 @@
+import { AIOutputService } from "@curator/ai";
 import { IngestGateService, ReviewMessagesRepository, SourcesRepository } from "@curator/db";
-import type { ItemStatus, NormalizedPost, ValidationIssue } from "@curator/core";
-import { buildTelegramReviewDraft, type ParsedManualTelegramMessage, type TelegramReviewDraft } from "@curator/telegram";
 import type { CostControlDecision, D1DatabaseLike } from "@curator/db";
+import type { ItemStatus, NormalizedPost, ValidationIssue } from "@curator/core";
+import {
+  buildTelegramAiReviewDraft,
+  createOriginalTextExcerpt,
+  MockTelegramClient,
+  type ParsedManualTelegramMessage,
+  type TelegramClient,
+  type TelegramReviewDraft
+} from "@curator/telegram";
 
 export type ManualIngestResult = {
   itemId: string;
@@ -17,6 +25,8 @@ export type ManualIngestResult = {
 
 export type ManualIngestOptions = {
   reviewChatId?: string;
+  aiOutputService?: AIOutputService;
+  telegramClient?: TelegramClient;
 };
 
 export async function handleManualIngest(
@@ -27,6 +37,8 @@ export async function handleManualIngest(
   const sourcesRepository = new SourcesRepository(db);
   const ingestGateService = new IngestGateService(db);
   const reviewMessagesRepository = new ReviewMessagesRepository(db);
+  const aiOutputService = options.aiOutputService ?? new AIOutputService();
+  const telegramClient = options.telegramClient ?? new MockTelegramClient();
 
   const sourcePostId = createManualSourcePostId(parsed);
   const canonicalUrl = parsed.urls[0] ?? `telegram://manual/${parsed.message.chat.id}/${parsed.message.message_id}`;
@@ -61,20 +73,33 @@ export async function handleManualIngest(
   }
 
   const item = gateResult.item;
-  const reviewDraft = buildTelegramReviewDraft({
+  const aiResult = await aiOutputService.generateTelegramOutput({
     itemId: item.id,
-    caption: parsed.text,
-    sourceUrl: canonicalUrl,
+    post,
+    sourceAttributionText: `Source: ${canonicalUrl}`
+  });
+  const originalTextExcerpt = createOriginalTextExcerpt(parsed.text);
+  const reviewDraft = buildTelegramAiReviewDraft({
+    itemId: item.id,
     status: item.status,
-    links: parsed.urls
+    sourceUrl: canonicalUrl,
+    aiOutput: aiResult.output,
+    ...(originalTextExcerpt === undefined ? {} : { originalTextExcerpt }),
+    provider: post.provider,
+    platform: post.platform,
+    sourceType: post.sourceType
   });
 
   const reviewChatId = options.reviewChatId ?? String(parsed.message.chat.id);
-  const reviewMessageId = `mock_review_${parsed.message.message_id}`;
+  const sentReviewMessage = await telegramClient.sendReviewMessage({
+    chatId: reviewChatId,
+    text: reviewDraft.text,
+    replyMarkup: reviewDraft.reply_markup
+  });
   await reviewMessagesRepository.createReviewMessage({
     itemId: item.id,
-    telegramChatId: reviewChatId,
-    telegramMessageId: reviewMessageId,
+    telegramChatId: sentReviewMessage.chatId,
+    telegramMessageId: sentReviewMessage.messageId,
     reviewStatus: "sent"
   });
 
@@ -84,8 +109,8 @@ export async function handleManualIngest(
     lifecycleStatus: gateResult.status,
     validationIssues: gateResult.validationIssues,
     costControl: gateResult.costControl,
-    reviewChatId,
-    reviewMessageId,
+    reviewChatId: sentReviewMessage.chatId,
+    reviewMessageId: sentReviewMessage.messageId,
     reviewDraft
   };
 }
