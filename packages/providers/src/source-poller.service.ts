@@ -130,13 +130,11 @@ export class SourcePollerService {
 
   private resolveProviders(source: Source, override?: string[]): SocialProvider[] {
     const priority = override ?? source.providerPriority;
-    const prioritized = priority
-      .map((providerId) => this.providers.find((provider) => provider.id === providerId))
-      .filter((provider): provider is SocialProvider => provider !== undefined)
-      .filter((provider) => provider.platform === source.platform || provider.platform === "manual");
-
-    if (prioritized.length > 0) {
-      return prioritized;
+    if (priority.length > 0) {
+      return priority
+        .map((providerId) => this.providers.find((provider) => provider.id === providerId))
+        .filter((provider): provider is SocialProvider => provider !== undefined)
+        .filter((provider) => provider.platform === source.platform || provider.platform === "manual");
     }
 
     return this.providers.filter((provider) => provider.platform === source.platform || provider.platform === "manual");
