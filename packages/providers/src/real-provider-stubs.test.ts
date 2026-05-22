@@ -86,4 +86,73 @@ describe("real provider stubs", () => {
     await expect(provider.fetchByDirectUrl("https://source.local/article")).rejects.toMatchObject({ category: "provider_error" });
     expect(httpClient.requests).toHaveLength(2);
   });
+
+  it("configured Firecrawl sandbox provider maps fake response to normalized posts", async () => {
+    const httpClient = new MockProviderHttpClient([
+      {
+        method: "POST",
+        url: "https://firecrawl.sandbox.local/scrape",
+        response: {
+          data: {
+            url: "https://source.local/article",
+            title: "Sandbox article",
+            markdown: "Sandbox article body",
+            metadata: { author: "editor" }
+          }
+        }
+      }
+    ]);
+    const provider = new FirecrawlWebProvider({
+      availability: createProviderAvailability({
+        providerId: "firecrawl",
+        platform: "web",
+        enabled: true,
+        credentialConfigured: true,
+        missingCredentialName: "FIRECRAWL_API_KEY"
+      }),
+      apiKey: "in-memory-key",
+      baseUrl: "https://firecrawl.sandbox.local/scrape",
+      timeoutMs: 1234,
+      httpClient
+    });
+
+    const response = await provider.fetchByDirectUrl("https://source.local/article", { limit: 1 });
+
+    expect(response.posts).toHaveLength(1);
+    expect(response.posts[0]).toMatchObject({
+      provider: "firecrawl",
+      platform: "web",
+      canonicalUrl: "https://source.local/article",
+      authorHandle: "editor"
+    });
+    expect(response.posts[0]?.text).toContain("Sandbox article");
+    expect(httpClient.requests).toHaveLength(1);
+    expect(httpClient.requests[0]).toMatchObject({
+      method: "POST",
+      url: "https://firecrawl.sandbox.local/scrape",
+      options: {
+        headers: { authorization: "Bearer in-memory-key" },
+        timeoutMs: 1234
+      }
+    });
+  });
+
+  it("unsupported Firecrawl source type returns a typed error before HTTP", async () => {
+    const httpClient = new MockProviderHttpClient();
+    const provider = new FirecrawlWebProvider({
+      availability: createProviderAvailability({
+        providerId: "firecrawl",
+        platform: "web",
+        enabled: true,
+        credentialConfigured: true,
+        missingCredentialName: "FIRECRAWL_API_KEY"
+      }),
+      httpClient
+    });
+
+    await expect(provider.fetchRecentPosts(makeSource({ platform: "web", sourceType: "profile" }))).rejects.toMatchObject({
+      name: "UnsupportedSourceTypeError"
+    });
+    expect(httpClient.requests).toEqual([]);
+  });
 });
