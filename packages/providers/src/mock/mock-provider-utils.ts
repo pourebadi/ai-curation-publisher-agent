@@ -67,12 +67,16 @@ export async function fetchMockRecentPosts(input: {
   }
 
   const posts = input.scenario === "empty" ? [] : createScenarioPosts(input.provider.id, input.source, input.scenario);
+  const limitOptions: ProviderFetchOptions = {
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
+    ...(input.backfillLimit === undefined ? {} : { backfillLimit: input.backfillLimit })
+  };
 
   return {
     providerId: input.provider.id,
     platform: input.provider.platform,
     sourceType: input.source.sourceType,
-    posts: applyProviderLimit(posts, { limit: input.limit, backfillLimit: input.backfillLimit }),
+    posts: applyProviderLimit(posts, limitOptions),
     fetchedAt: input.now().toISOString(),
     ...(posts.length === 0 ? {} : { nextCursor: `${input.provider.id}-cursor-001` })
   };
