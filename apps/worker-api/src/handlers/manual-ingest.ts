@@ -1,14 +1,18 @@
-import { ItemsRepository, ReviewMessagesRepository, SourcesRepository } from "@curator/db";
-import type { NormalizedPost } from "@curator/core";
+import { IngestGateService, ReviewMessagesRepository, SourcesRepository } from "@curator/db";
+import type { ItemStatus, NormalizedPost, ValidationIssue } from "@curator/core";
 import { buildTelegramReviewDraft, type ParsedManualTelegramMessage, type TelegramReviewDraft } from "@curator/telegram";
-import type { D1DatabaseLike } from "@curator/db";
+import type { CostControlDecision, D1DatabaseLike } from "@curator/db";
 
 export type ManualIngestResult = {
   itemId: string;
-  status: "created" | "duplicate";
-  reviewMessageId: string;
-  reviewChatId: string;
-  reviewDraft: TelegramReviewDraft;
+  status: "created" | "duplicate" | "invalid";
+  lifecycleStatus: ItemStatus;
+  validationIssues: ValidationIssue[];
+  costControl: CostControlDecision;
+  duplicateOfItemId?: string;
+  reviewMessageId?: string;
+  reviewChatId?: string;
+  reviewDraft?: TelegramReviewDraft;
 };
 
 export type ManualIngestOptions = {
@@ -21,27 +25,42 @@ export async function handleManualIngest(
   options: ManualIngestOptions = {}
 ): Promise<ManualIngestResult> {
   const sourcesRepository = new SourcesRepository(db);
-  const itemsRepository = new ItemsRepository(db);
+  const ingestGateService = new IngestGateService(db);
   const reviewMessagesRepository = new ReviewMessagesRepository(db);
 
   const sourcePostId = createManualSourcePostId(parsed);
   const canonicalUrl = parsed.urls[0] ?? `telegram://manual/${parsed.message.chat.id}/${parsed.message.message_id}`;
-
-  const existingBySourcePostId = await itemsRepository.findBySourcePostId(sourcePostId);
-  const existingByCanonicalUrl = existingBySourcePostId ?? await itemsRepository.findByCanonicalUrl(canonicalUrl);
-  const existingItem = existingByCanonicalUrl ?? (
-    parsed.urls.length === 0 ? await itemsRepository.findByNormalizedText(parsed.text) : null
-  );
+  const post = createManualNormalizedPost(parsed, sourcePostId, canonicalUrl);
 
   await sourcesRepository.ensureManualTelegramSource();
 
-  const post = createManualNormalizedPost(parsed, sourcePostId, canonicalUrl);
-  const item = existingItem ?? await itemsRepository.createFromNormalizedPost({
+  const gateResult = await ingestGateService.process({
     sourceId: "manual_telegram",
-    status: "sent_to_review",
     post
   });
 
+  if (gateResult.outcome === "duplicate") {
+    return {
+      itemId: gateResult.existingItemId ?? `duplicate_${sourcePostId}`,
+      status: "duplicate",
+      lifecycleStatus: gateResult.status,
+      validationIssues: gateResult.validationIssues,
+      costControl: gateResult.costControl,
+      ...(gateResult.existingItemId === undefined ? {} : { duplicateOfItemId: gateResult.existingItemId })
+    };
+  }
+
+  if (gateResult.outcome === "invalid") {
+    return {
+      itemId: `invalid_${sourcePostId}`,
+      status: "invalid",
+      lifecycleStatus: gateResult.status,
+      validationIssues: gateResult.validationIssues,
+      costControl: gateResult.costControl
+    };
+  }
+
+  const item = gateResult.item;
   const reviewDraft = buildTelegramReviewDraft({
     itemId: item.id,
     caption: parsed.text,
@@ -61,7 +80,10 @@ export async function handleManualIngest(
 
   return {
     itemId: item.id,
-    status: existingItem ? "duplicate" : "created",
+    status: "created",
+    lifecycleStatus: gateResult.status,
+    validationIssues: gateResult.validationIssues,
+    costControl: gateResult.costControl,
     reviewChatId,
     reviewMessageId,
     reviewDraft
