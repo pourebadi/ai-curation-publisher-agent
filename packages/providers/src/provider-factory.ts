@@ -26,12 +26,16 @@ export function createProvidersFromConfig(options: ProviderFactoryOptions = {}):
   const config = options.config ?? readProviderRuntimeConfig(options.env ?? {});
   const availability = providerAvailabilityList(config);
   const providers: ProviderAdapter[] = [];
+  const timingOptions = options.now === undefined ? {} : { now: options.now };
+  const realProviderOptions = options.httpClient === undefined
+    ? timingOptions
+    : { ...timingOptions, httpClient: options.httpClient };
 
   if (config.mockProvidersEnabled) {
     providers.push(
-      new MockInstagramProvider({ now: options.now }),
-      new MockXProvider({ now: options.now }),
-      new MockWebProvider({ now: options.now })
+      new MockInstagramProvider(timingOptions),
+      new MockXProvider(timingOptions),
+      new MockWebProvider(timingOptions)
     );
   }
 
@@ -43,15 +47,15 @@ export function createProvidersFromConfig(options: ProviderFactoryOptions = {}):
     const firecrawl = byId.get("firecrawl");
 
     if (apify && config.realProviders.apifyInstagram.enabled) {
-      providers.push(new ApifyInstagramProvider({ availability: apify, httpClient: options.httpClient, now: options.now }));
+      providers.push(new ApifyInstagramProvider({ availability: apify, ...realProviderOptions }));
     }
 
     if (getxapi && config.realProviders.getxapiX.enabled) {
-      providers.push(new GetXapiXProvider({ availability: getxapi, httpClient: options.httpClient, now: options.now }));
+      providers.push(new GetXapiXProvider({ availability: getxapi, ...realProviderOptions }));
     }
 
     if (firecrawl && config.realProviders.firecrawlWeb.enabled) {
-      providers.push(new FirecrawlWebProvider({ availability: firecrawl, httpClient: options.httpClient, now: options.now }));
+      providers.push(new FirecrawlWebProvider({ availability: firecrawl, ...realProviderOptions }));
     }
   }
 
