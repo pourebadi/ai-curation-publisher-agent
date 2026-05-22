@@ -13,6 +13,11 @@ export type EditReviewMessageInput = {
   replyMarkup?: TelegramInlineKeyboardMarkup;
 };
 
+export type PublishFinalMessageInput = {
+  chatId: string;
+  text: string;
+};
+
 export type AnswerCallbackQueryInput = {
   callbackQueryId: string;
   text: string;
@@ -28,12 +33,14 @@ export type TelegramClientMessage = {
 export interface TelegramClient {
   sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage>;
   editReviewMessage(input: EditReviewMessageInput): Promise<TelegramClientMessage>;
+  publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage>;
   answerCallbackQuery(input: AnswerCallbackQueryInput): Promise<void>;
 }
 
 export class MockTelegramClient implements TelegramClient {
   readonly sentReviewMessages: TelegramClientMessage[] = [];
   readonly editedReviewMessages: TelegramClientMessage[] = [];
+  readonly publishedFinalMessages: TelegramClientMessage[] = [];
   readonly answeredCallbacks: AnswerCallbackQueryInput[] = [];
 
   constructor(private nextMessageNumber = 1) {}
@@ -58,6 +65,17 @@ export class MockTelegramClient implements TelegramClient {
       ...(input.replyMarkup === undefined ? {} : { replyMarkup: input.replyMarkup })
     };
     this.editedReviewMessages.push(message);
+    return message;
+  }
+
+  async publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage> {
+    const message: TelegramClientMessage = {
+      chatId: input.chatId,
+      messageId: `mock_telegram_final_${this.nextMessageNumber}`,
+      text: input.text
+    };
+    this.nextMessageNumber += 1;
+    this.publishedFinalMessages.push(message);
     return message;
   }
 
