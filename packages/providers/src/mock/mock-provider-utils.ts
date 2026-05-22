@@ -1,10 +1,11 @@
 import type { NormalizedPost, Platform, Source, SourceType } from "@curator/core";
-import type { ProviderAdapter, ProviderFetchResponse } from "../provider-adapter";
+import type { ProviderAdapter, ProviderFetchOptions, ProviderFetchResponse } from "../provider-adapter";
 import { applyProviderLimit, assertSourceTypeSupported } from "../provider-adapter";
 
 export type MockProviderScenario = "normal" | "duplicates" | "empty" | "failure";
 
 export type MockProviderOptions = {
+  id?: string;
   scenario?: MockProviderScenario;
   now?: () => Date;
 };
