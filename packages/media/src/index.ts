@@ -1,2 +1,4 @@
-export type MediaPhaseOneStub = { id: "phase1-media-stub"; realMediaProcessingEnabled: false };
-export function createMediaPhaseOneStub(): MediaPhaseOneStub { return { id: "phase1-media-stub", realMediaProcessingEnabled: false }; }
+export * from "./types";
+export * from "./processor";
+export * from "./mock-media-processor";
+export * from "./media-preparation.service";
