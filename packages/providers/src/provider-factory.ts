@@ -23,7 +23,8 @@ export type ProviderFactoryResult = {
 };
 
 export function createProvidersFromConfig(options: ProviderFactoryOptions = {}): ProviderFactoryResult {
-  const config = options.config ?? readProviderRuntimeConfig(options.env ?? {});
+  const env = options.env ?? {};
+  const config = options.config ?? readProviderRuntimeConfig(env);
   const availability = providerAvailabilityList(config);
   const providers: ProviderAdapter[] = [];
   const timingOptions = options.now === undefined ? {} : { now: options.now };
@@ -47,15 +48,27 @@ export function createProvidersFromConfig(options: ProviderFactoryOptions = {}):
     const firecrawl = byId.get("firecrawl");
 
     if (apify && config.realProviders.apifyInstagram.enabled) {
-      providers.push(new ApifyInstagramProvider({ availability: apify, ...realProviderOptions }));
+      providers.push(new ApifyInstagramProvider({
+        availability: apify,
+        ...realProviderOptions,
+        ...(env.APIFY_TOKEN === undefined ? {} : { apiKey: env.APIFY_TOKEN })
+      }));
     }
 
     if (getxapi && config.realProviders.getxapiX.enabled) {
-      providers.push(new GetXapiXProvider({ availability: getxapi, ...realProviderOptions }));
+      providers.push(new GetXapiXProvider({
+        availability: getxapi,
+        ...realProviderOptions,
+        ...(env.GETXAPI_KEY === undefined ? {} : { apiKey: env.GETXAPI_KEY })
+      }));
     }
 
     if (firecrawl && config.realProviders.firecrawlWeb.enabled) {
-      providers.push(new FirecrawlWebProvider({ availability: firecrawl, ...realProviderOptions }));
+      providers.push(new FirecrawlWebProvider({
+        availability: firecrawl,
+        ...realProviderOptions,
+        ...(env.FIRECRAWL_API_KEY === undefined ? {} : { apiKey: env.FIRECRAWL_API_KEY })
+      }));
     }
   }
 
