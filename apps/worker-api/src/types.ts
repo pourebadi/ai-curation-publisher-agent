@@ -7,6 +7,13 @@ export interface Env {
   TELEGRAM_REVIEW_CHAT_ID?: string;
   TELEGRAM_FINAL_CHAT_ID?: string;
   TELEGRAM_ALLOWED_REVIEWER_IDS?: string;
+  PROVIDERS_MODE?: string;
+  ENABLE_APIFY_PROVIDER?: string;
+  ENABLE_GETXAPI_PROVIDER?: string;
+  ENABLE_FIRECRAWL_PROVIDER?: string;
+  APIFY_TOKEN?: string;
+  GETXAPI_KEY?: string;
+  FIRECRAWL_API_KEY?: string;
 }
 
 export type JsonResponseBody = Record<string, unknown> | unknown[];
