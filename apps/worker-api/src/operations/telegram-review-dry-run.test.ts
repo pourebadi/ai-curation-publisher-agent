@@ -38,7 +38,7 @@ describe("runTelegramReviewDryRun", () => {
     const client = new MockTelegramClient();
 
     const result = await runTelegramReviewDryRun({
-      env: makeEnv({ TELEGRAM_BOT_TOKEN: undefined }),
+      env: makeEnv({}),
       input: {
         text: "Review dry-run text",
         sourceUrl: "https://example.com/post"
@@ -63,9 +63,7 @@ describe("runTelegramReviewDryRun", () => {
   it("returns missing config when real review is enabled without token", async () => {
     const result = await runTelegramReviewDryRun({
       env: makeEnv({
-        TELEGRAM_REAL_REVIEW_ENABLED: "true",
-        TELEGRAM_BOT_TOKEN: undefined
-      }),
+        TELEGRAM_REAL_REVIEW_ENABLED: "true"}),
       input: { text: "Review dry-run text" },
       client: new MockTelegramClient()
     });
@@ -86,7 +84,7 @@ describe("runTelegramReviewDryRun", () => {
       env: makeEnv({
         TELEGRAM_REAL_REVIEW_ENABLED: "true",
         TELEGRAM_BOT_TOKEN: "configured-token",
-        TELEGRAM_REVIEW_CHAT_ID: undefined
+        TELEGRAM_REVIEW_CHAT_ID: ""
       }),
       input: { text: "Review dry-run text" },
       client: new MockTelegramClient()

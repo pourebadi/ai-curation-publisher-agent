@@ -84,7 +84,7 @@ describe("handleInternalTelegramReviewDryRun", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text: "Review dry-run text", sourceUrl: "https://example.com/post" })
       }),
-      makeEnv({ TELEGRAM_BOT_TOKEN: undefined }),
+      makeEnv({}),
       undefined,
       client
     );
@@ -113,7 +113,7 @@ describe("handleInternalTelegramReviewDryRun", () => {
       }),
       makeEnv({
         TELEGRAM_REAL_REVIEW_ENABLED: "true",
-        TELEGRAM_BOT_TOKEN: undefined,
+        
         TELEGRAM_REVIEW_CHAT_ID: "review-chat"
       }),
       undefined,

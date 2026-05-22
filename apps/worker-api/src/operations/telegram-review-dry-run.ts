@@ -66,7 +66,9 @@ export async function runTelegramReviewDryRun(options: TelegramReviewDryRunOptio
     };
   }
 
-  const client = options.client ?? new RealTelegramClient({ botToken: options.env.TELEGRAM_BOT_TOKEN });
+  const client = options.client ?? new RealTelegramClient({
+    ...(options.env.TELEGRAM_BOT_TOKEN === undefined ? {} : { botToken: options.env.TELEGRAM_BOT_TOKEN })
+  });
 
   try {
     const message = await client.sendReviewMessage({
