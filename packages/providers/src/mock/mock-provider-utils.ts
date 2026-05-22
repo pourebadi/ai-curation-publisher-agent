@@ -116,8 +116,9 @@ export async function fetchMockDirectUrl(input: {
 
 function createScenarioPosts(providerId: string, source: Source, scenario: MockProviderScenario): NormalizedPost[] {
   const first = createMockPost({ providerId, platform: source.platform, sourceType: source.sourceType, sourceValue: source.value, index: 1 });
+  const firstRawPayload = typeof first.rawPayload === "object" && first.rawPayload !== null ? first.rawPayload : {};
   const second = scenario === "duplicates"
-    ? { ...first, rawPayload: { ...first.rawPayload, duplicate: true } }
+    ? { ...first, rawPayload: { ...firstRawPayload, duplicate: true } }
     : createMockPost({ providerId, platform: source.platform, sourceType: source.sourceType, sourceValue: source.value, index: 2 });
 
   return [first, second];
