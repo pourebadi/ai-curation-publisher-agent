@@ -31,6 +31,13 @@ export function handleStatus(request: Request, env: Env): Response {
       botTokenConfigured: config.telegram.botTokenConfigured,
       realReviewEnabled: config.telegram.realReviewEnabled
     },
+    wordpress: {
+      configured: config.wordpress.configured,
+      baseUrlConfigured: config.wordpress.baseUrlConfigured,
+      credentialsConfigured: config.wordpress.credentialsConfigured,
+      realDryRunEnabled: config.wordpress.realDryRunEnabled,
+      defaultStatus: config.wordpress.defaultStatus
+    },
     timestamp: timestamp()
   });
 }
