@@ -2,7 +2,7 @@
 
 Use this checklist for controlled Cloudflare deployment dry runs.
 
-The baseline dry run is mock-first. Phase 18 adds a separate, explicit Firecrawl/Web sandbox check for one direct URL. Phase 19 adds a separate, explicit Telegram review-channel dry run. Both are opt-in and should be disabled after verification.
+The baseline dry run is mock-first. Phase 18 adds a separate, explicit Firecrawl/Web sandbox check for one direct URL. Phase 19 adds a separate, explicit Telegram review-channel dry run. Phase 20 adds a separate, explicit WordPress draft dry run. All real-service checks are opt-in and should be disabled after verification.
 
 ## Scope
 
@@ -17,6 +17,7 @@ This checklist verifies:
 - mock end-to-end pipeline
 - optional Firecrawl/Web sandbox fetch
 - optional Telegram review-channel dry run
+- optional WordPress draft dry run
 - rollback readiness
 
 This checklist does not enable:
@@ -24,7 +25,7 @@ This checklist does not enable:
 - real Apify, GetXAPI, or HikerAPI calls
 - automatic real provider polling
 - real final Telegram channel publishing
-- real WordPress REST API publishing
+- public WordPress publishing
 - real media download or processing
 - production scheduler rollout
 - dashboard or monitoring integration
@@ -41,6 +42,7 @@ This checklist does not enable:
 - [ ] `wrangler.toml` does not contain real secrets.
 - [ ] Real providers remain disabled for the baseline dry run.
 - [ ] Real Telegram review mode remains disabled for the baseline dry run.
+- [ ] Real WordPress dry-run mode remains disabled for the baseline dry run.
 - [ ] Scheduler behavior is understood and remains mock-safe.
 
 ## Cloudflare resources
@@ -76,6 +78,15 @@ For the optional Phase 19 Telegram review-channel dry run only:
 - [ ] `TELEGRAM_REAL_REVIEW_ENABLED` is intentionally enabled for the dry run.
 - [ ] `TELEGRAM_FINAL_CHAT_ID` is not used for real final publishing in this phase.
 - [ ] Real final Telegram publishing remains disabled.
+
+For the optional Phase 20 WordPress draft dry run only:
+
+- [ ] `WORDPRESS_BASE_URL` is configured in the runtime environment.
+- [ ] `WORDPRESS_USERNAME` is configured in the runtime environment.
+- [ ] `WORDPRESS_APPLICATION_PASSWORD` is configured as a Cloudflare Worker secret.
+- [ ] `WORDPRESS_DEFAULT_STATUS` is reviewed and should remain `draft` for this dry run.
+- [ ] `WORDPRESS_REAL_DRY_RUN_ENABLED` is intentionally enabled for the dry run.
+- [ ] Public WordPress publishing remains disabled.
 
 ## Migrations
 
@@ -186,6 +197,31 @@ Expected behavior:
 
 Disable real Telegram review mode immediately after the dry run.
 
+## Optional WordPress draft dry run
+
+Use this only after the baseline mock dry run passes and real WordPress dry-run mode has been intentionally enabled.
+
+```bash
+curl -fsS -X POST "$WORKER_BASE_URL/internal/wordpress/dry-run" \
+  -H "content-type: application/json" \
+  -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
+  -d '{"title":"Dry-run post title","content":"Dry-run post content","sourceUrl":"https://example.com/source"}'
+```
+
+Expected behavior:
+
+- [ ] The response reports `mode` as `real` when real dry-run mode is enabled and configured.
+- [ ] The response reports `draftRequested` as `true`.
+- [ ] The response reports `statusRequested` as `draft`.
+- [ ] A draft appears in WordPress admin.
+- [ ] No public WordPress post is created.
+- [ ] No Telegram publishing is triggered.
+- [ ] No provider polling is triggered.
+- [ ] No media upload or download is triggered.
+- [ ] The response does not expose username, application password, internal secret, or raw credential values.
+
+Disable real WordPress dry-run mode immediately after the dry run and delete test drafts if they should not remain in WordPress.
+
 ## Readiness interpretation
 
 - [ ] Local/mock readiness can return ready with warnings for optional production config.
@@ -194,8 +230,9 @@ Disable real Telegram review mode immediately after the dry run.
 - [ ] Missing provider credentials are acceptable when real providers are disabled.
 - [ ] Firecrawl enabled without credentials is treated as missing credentials and must not crash.
 - [ ] Telegram real review enabled without bot token or review chat is treated as incomplete config and must not crash.
+- [ ] WordPress real dry-run enabled without base URL, username, or application password is treated as incomplete config and must not crash.
 - [ ] Real provider flags without credentials are treated as warnings or errors safely.
-- [ ] No token, password, API key, authorization, chat id, webhook secret, or internal secret values appear in readiness output.
+- [ ] No token, password, API key, authorization, chat id, webhook secret, username, base URL, or internal secret values appear in readiness output.
 
 ## Provider safety
 
@@ -210,9 +247,17 @@ Disable real Telegram review mode immediately after the dry run.
 
 - [ ] Real review mode is enabled only for the explicit review-channel dry run.
 - [ ] Final Telegram publishing remains mock-safe.
-- [ ] WordPress publishing remains mock-safe.
+- [ ] WordPress publishing remains mock-safe unless intentionally running the WordPress draft dry run.
 - [ ] No provider changes are part of the Telegram dry run.
 - [ ] Callback testing does not bypass approval or final publishing controls.
+
+## WordPress safety
+
+- [ ] Real WordPress dry-run mode is enabled only for the explicit draft dry run.
+- [ ] Draft creation is the only real WordPress action allowed in this phase.
+- [ ] Public publishing remains disabled.
+- [ ] Media upload remains disabled.
+- [ ] No provider, Telegram, or scheduler changes are part of the WordPress dry run.
 
 ## Rollback readiness
 
@@ -222,6 +267,7 @@ Disable real Telegram review mode immediately after the dry run.
 - [ ] Operator knows how to return provider mode to mock.
 - [ ] Operator knows how to disable Firecrawl immediately.
 - [ ] Operator knows how to disable real Telegram review mode immediately.
+- [ ] Operator knows how to disable real WordPress dry-run mode immediately.
 - [ ] D1 rollback is treated as conservative and manual; no automated destructive rollback is assumed.
 
 ## Dry-run completion
@@ -235,10 +281,12 @@ Disable real Telegram review mode immediately after the dry run.
 - [ ] Protected mock E2E pipeline passed.
 - [ ] Optional Firecrawl sandbox fetch passed, if intentionally run.
 - [ ] Optional Telegram review-channel dry run passed, if intentionally run.
+- [ ] Optional WordPress draft dry run passed, if intentionally run.
 - [ ] Logs reviewed.
 - [ ] No secrets exposed.
 - [ ] Unwanted real providers remain disabled.
 - [ ] Real Telegram review mode is disabled after the check.
+- [ ] Real WordPress dry-run mode is disabled after the check.
 - [ ] Rollback path confirmed.
 
-Record dry-run notes in the PR or release checklist, including the Worker URL, commit SHA, migration outcome, smoke-test outcome, Firecrawl sandbox outcome if run, Telegram review dry-run outcome if run, and any follow-up actions. Do not record secret values.
+Record dry-run notes in the PR or release checklist, including the Worker URL, commit SHA, migration outcome, smoke-test outcome, Firecrawl sandbox outcome if run, Telegram review dry-run outcome if run, WordPress dry-run outcome if run, and any follow-up actions. Do not record secret values.

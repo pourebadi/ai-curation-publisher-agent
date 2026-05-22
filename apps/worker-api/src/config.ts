@@ -13,6 +13,13 @@ export type WorkerOperationalConfig = {
     botTokenConfigured: boolean;
     realReviewEnabled: boolean;
   };
+  wordpress: {
+    configured: boolean;
+    baseUrlConfigured: boolean;
+    credentialsConfigured: boolean;
+    realDryRunEnabled: boolean;
+    defaultStatus: string;
+  };
   providers: ProviderConfigSummary;
   readiness: SafeConfigSummary;
 };
@@ -26,6 +33,10 @@ export type SafeConfigSummary = {
   hasTelegramBotToken: boolean;
   telegramRealReviewEnabled: boolean;
   hasWordPressConfig: boolean;
+  hasWordPressBaseUrl: boolean;
+  hasWordPressCredentials: boolean;
+  wordpressRealDryRunEnabled: boolean;
+  wordpressDefaultStatus: string;
   hasProviderCredentials: {
     apify: boolean;
     getxapi: boolean;
@@ -42,6 +53,7 @@ export type ConfigValidationResult = {
 
 export function readOperationalConfig(env: Env): WorkerOperationalConfig {
   const providerConfig = readProviderRuntimeConfig(env);
+  const safeSummary = buildSafeConfigSummary(env);
 
   return {
     serviceName: "ai-curation-publisher-agent",
@@ -55,8 +67,15 @@ export function readOperationalConfig(env: Env): WorkerOperationalConfig {
       botTokenConfigured: hasValue(env.TELEGRAM_BOT_TOKEN),
       realReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true"
     },
+    wordpress: {
+      configured: safeSummary.hasWordPressConfig,
+      baseUrlConfigured: safeSummary.hasWordPressBaseUrl,
+      credentialsConfigured: safeSummary.hasWordPressCredentials,
+      realDryRunEnabled: safeSummary.wordpressRealDryRunEnabled,
+      defaultStatus: safeSummary.wordpressDefaultStatus
+    },
     providers: summarizeProviderConfig(providerConfig),
-    readiness: buildSafeConfigSummary(env)
+    readiness: safeSummary
   };
 }
 
@@ -102,6 +121,15 @@ export function validateRuntimeConfig(env: Env): ConfigValidationResult {
     }
   }
 
+  if (summary.wordpressRealDryRunEnabled && !summary.hasWordPressConfig) {
+    const message = "WordPress real dry-run is enabled but WordPress configuration is incomplete.";
+    if (production) {
+      errors.push(message);
+    } else {
+      warnings.push(message);
+    }
+  }
+
   if (summary.providersMode !== "mock" && !Object.values(summary.hasProviderCredentials).some(Boolean)) {
     const message = "Provider mode is not mock, but no provider credentials are configured.";
     if (production) {
@@ -121,6 +149,8 @@ export function validateRuntimeConfig(env: Env): ConfigValidationResult {
 
 export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
   const providerConfig = readProviderRuntimeConfig(env);
+  const hasWordPressBaseUrl = hasValue(env.WORDPRESS_BASE_URL);
+  const hasWordPressCredentials = hasValue(env.WORDPRESS_USERNAME) && hasValue(env.WORDPRESS_APPLICATION_PASSWORD);
 
   return {
     environment: env.ENVIRONMENT ?? "unknown",
@@ -130,13 +160,21 @@ export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
     hasTelegramConfig: hasValue(env.TELEGRAM_REVIEW_CHAT_ID) && hasValue(env.TELEGRAM_FINAL_CHAT_ID),
     hasTelegramBotToken: hasValue(env.TELEGRAM_BOT_TOKEN),
     telegramRealReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true",
-    hasWordPressConfig: hasValue(env.WORDPRESS_BASE_URL) && hasValue(env.WORDPRESS_USERNAME) && hasValue(env.WORDPRESS_APPLICATION_PASSWORD),
+    hasWordPressConfig: hasWordPressBaseUrl && hasWordPressCredentials,
+    hasWordPressBaseUrl,
+    hasWordPressCredentials,
+    wordpressRealDryRunEnabled: env.WORDPRESS_REAL_DRY_RUN_ENABLED === "true",
+    wordpressDefaultStatus: normalizeWordPressStatus(env.WORDPRESS_DEFAULT_STATUS),
     hasProviderCredentials: {
       apify: hasValue(env.APIFY_TOKEN),
       getxapi: hasValue(env.GETXAPI_KEY),
       firecrawl: hasValue(env.FIRECRAWL_API_KEY)
     }
   };
+}
+
+function normalizeWordPressStatus(value: string | undefined): string {
+  return value === "pending" || value === "private" || value === "publish" ? value : "draft";
 }
 
 function hasValue(value: string | undefined): boolean {
