@@ -22,8 +22,8 @@ export async function handleInternalPoll(request: Request, env: Env): Promise<Re
   try {
     const result = await runMockPollOperation({
       env,
-      sources: parsed.value.sources,
-      options: parsed.value.options
+      ...(parsed.value.sources === undefined ? {} : { sources: parsed.value.sources }),
+      ...(parsed.value.options === undefined ? {} : { options: parsed.value.options })
     });
 
     return jsonResponse(result);
