@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canTransitionItemStatus, isItemStatus, isTerminalItemStatus } from "./lifecycle";
+import {
+  assertItemStatusTransition,
+  canEnterCostlyProcessing,
+  canTransitionItemStatus,
+  isItemStatus,
+  isTerminalItemStatus
+} from "./lifecycle";
 
 describe("item lifecycle", () => {
   it("allows expected forward transitions", () => {
@@ -17,5 +23,21 @@ describe("item lifecycle", () => {
     expect(isItemStatus("sent_to_review")).toBe(true);
     expect(isItemStatus("made_up_status")).toBe(false);
     expect(isTerminalItemStatus("cancelled")).toBe(true);
+  });
+
+  it("throws for invalid transitions", () => {
+    expect(() => assertItemStatusTransition("discovered", "queued_for_ai")).toThrow(
+      "Invalid item lifecycle transition"
+    );
+    expect(() => assertItemStatusTransition("discovered", "normalized")).not.toThrow();
+  });
+
+  it("allows costly processing only for queued_for_ai", () => {
+    expect(canEnterCostlyProcessing("queued_for_ai")).toBe(true);
+    expect(canEnterCostlyProcessing("discovered")).toBe(false);
+    expect(canEnterCostlyProcessing("normalized")).toBe(false);
+    expect(canEnterCostlyProcessing("validated")).toBe(false);
+    expect(canEnterCostlyProcessing("duplicate_skipped")).toBe(false);
+    expect(canEnterCostlyProcessing("invalid")).toBe(false);
   });
 });
