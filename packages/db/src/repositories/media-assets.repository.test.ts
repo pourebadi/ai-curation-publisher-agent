@@ -116,8 +116,7 @@ describe("MediaAssetsRepository", () => {
         status: "ready",
         sourceUrl: "https://source.local/image.png",
         canonicalUrl: "https://source.local/image.png",
-        storageKey: "mock-media/item_local/image.png",
-        sizeBytes: 2048,
+          sizeBytes: 2048,
         mimeType: "image/png",
         width: 1200,
         height: 800
@@ -142,7 +141,6 @@ describe("MediaAssetsRepository", () => {
       kind: "image",
       status: "ready",
       sourceUrl: "https://source.local/image.png",
-      storageKey: "mock-media/item_local/image.png",
       sizeBytes: 2048,
       mimeType: "image/png",
       width: 1200,
