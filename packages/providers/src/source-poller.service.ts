@@ -56,7 +56,7 @@ export type SourcePollerOptions = {
 
 export class SourcePollerService {
   private readonly providers: SocialProvider[];
-  private readonly ingestGate?: PollIngestGate;
+  private readonly ingestGate: PollIngestGate | undefined;
   private readonly now: () => Date;
 
   constructor(options: SourcePollerOptions) {
