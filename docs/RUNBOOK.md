@@ -4,6 +4,8 @@ This runbook covers operational setup, deployment, smoke testing, readiness chec
 
 Mock/local mode is the default for tests and operational smoke checks. Do not introduce real provider calls or real credentials while following this runbook.
 
+For the first controlled Cloudflare deployment dry run, use `docs/PRODUCTION_DRY_RUN.md` as the operator checklist. It covers Cloudflare account setup, Wrangler authentication, D1 database creation, remote migrations, runtime secret configuration, GitHub Actions secrets, manual deployment, protected internal route checks, readiness interpretation, log inspection, rollback planning, and the specific guardrails that keep real providers disabled during the dry run.
+
 ---
 
 ## 1. Safety rules
@@ -127,22 +129,10 @@ Local/mock behavior:
 Production behavior:
 
 - configure `INTERNAL_API_SECRET` as a Cloudflare Worker secret
-- send the header with every internal route request
+- send the configured internal route header with every internal route request
+- keep the value out of commits, screenshots, logs, and issue comments
 
-```bash
-pnpm exec wrangler secret put INTERNAL_API_SECRET --config wrangler.toml
-```
-
-Example internal request:
-
-```bash
-curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
-  -H "content-type: application/json" \
-  -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
-  -d '{"options":{"limit":1}}'
-```
-
-Do not log, print, commit, or paste the secret value.
+Detailed command examples are in `docs/PRODUCTION_DRY_RUN.md`.
 
 ---
 
@@ -162,12 +152,6 @@ Production mode returns `503` when required production config is missing. Expect
 - Telegram review/final chat IDs configured
 - provider mode and provider credentials are consistent
 - WordPress config is summarized without exposing values
-
-Run locally or against a deployed Worker:
-
-```bash
-curl -fsS "$WORKER_BASE_URL/ready"
-```
 
 Readiness responses must not expose token, secret, password, API key, or authorization values.
 
@@ -228,7 +212,7 @@ Manual deploy from GitHub Actions:
 1. Open **Actions**.
 2. Select **Deploy Cloudflare Worker**.
 3. Run the workflow manually.
-4. Confirm lint, typecheck, and tests pass before `wrangler deploy` runs.
+4. Confirm lint, typecheck, and tests pass before deployment runs.
 
 Local deploy:
 
@@ -293,19 +277,7 @@ WORKER_BASE_URL=http://localhost:8787 pnpm worker:smoke
 WORKER_BASE_URL=http://localhost:8787 pnpm worker:e2e:mock
 ```
 
-Manual route checks:
-
-```bash
-curl -fsS "$WORKER_BASE_URL/health"
-curl -fsS "$WORKER_BASE_URL/ready"
-curl -fsS "$WORKER_BASE_URL/status"
-curl -fsS -X POST "$WORKER_BASE_URL/internal/poll" \
-  -H 'content-type: application/json' \
-  -d '{"sources":[{"id":"source_instagram_demo","platform":"instagram","sourceType":"profile","value":"demo_profile","providerPriority":["mock_instagram"]}],"options":{"limit":1}}'
-curl -fsS -X POST "$WORKER_BASE_URL/internal/e2e/mock-pipeline"
-```
-
-When `INTERNAL_API_SECRET` is configured, include `x-internal-api-secret` on internal route checks.
+When `INTERNAL_API_SECRET` is configured, include the internal route header on internal route checks.
 
 Expected `/internal/poll` behavior:
 
@@ -365,13 +337,7 @@ Use this before enabling real providers or deployment changes.
 
 ## 14. Trigger mock publish
 
-Trigger the Telegram publish route:
-
-```bash
-curl -fsS -X POST "$WORKER_BASE_URL/internal/publish/telegram" \
-  -H 'content-type: application/json' \
-  -d '{"publishNow":true}'
-```
+Trigger the Telegram publish route through the internal publish endpoint.
 
 Expected outcomes:
 
@@ -420,16 +386,75 @@ Before production rollout:
 - `/health` returns `200`
 - `/ready` returns `200`
 - `INTERNAL_API_SECRET` is configured as a Cloudflare secret
-- internal route calls include `x-internal-api-secret`
+- internal route calls include the configured internal route header
 - D1 migrations have been applied
 - Cloudflare Worker logs do not contain secrets
 - real providers remain disabled unless a scoped rollout phase enables them
 - mock E2E pipeline succeeds
 - rollback path is known
 
+Use `docs/PRODUCTION_DRY_RUN.md` as the concise Phase 17 deployment dry-run checklist.
+
 ---
 
-## 17. Backup and export
+## 17. Phase 17 Cloudflare deployment dry run
+
+Phase 17 is a controlled deployment rehearsal. It should validate Cloudflare deployment, remote D1 migrations, secret presence, operational routes, protected internal routes, mock smoke checks, logs, and rollback readiness without enabling real providers or real production publishing.
+
+Primary checklist:
+
+```text
+docs/PRODUCTION_DRY_RUN.md
+```
+
+Dry-run prerequisites:
+
+- GitHub `main` is green.
+- `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass.
+- Cloudflare account is selected.
+- Wrangler authentication is available to the operator or GitHub Actions.
+- Remote D1 database exists and is bound as `DB`.
+- `wrangler.toml` has been reviewed.
+- No real secret values are present in repository files.
+- Real provider flags remain unset or disabled.
+- Scheduler behavior remains mock-safe.
+
+Dry-run sequence:
+
+1. Confirm or create the remote D1 database.
+2. Apply remote D1 migrations.
+3. Configure Cloudflare Worker runtime secrets.
+4. Configure GitHub Actions deployment secrets.
+5. Run manual deployment through GitHub Actions or Wrangler.
+6. Check `/health`, `/status`, and `/ready`.
+7. Run protected mock internal poll.
+8. Run protected mock E2E pipeline.
+9. Inspect Worker logs.
+10. Confirm rollback path.
+
+Readiness interpretation:
+
+- local/mock readiness may pass with warnings
+- production readiness should fail when required internal or Telegram config is missing
+- missing provider credentials are acceptable when real providers are disabled
+- real providers enabled without credentials should be treated as unsafe configuration
+- readiness and status responses must never expose raw secret values
+
+Rollback options:
+
+- redeploy a previous known-good Worker version from Cloudflare if available
+- revert the PR and redeploy
+- redeploy a known-good commit with Wrangler
+- disable scheduled triggers if a future phase enables non-mock scheduled behavior
+- switch provider mode back to mock
+- unset or disable real provider feature flags if they were accidentally configured
+- treat D1 rollback as conservative and manual
+
+Record the dry-run result without secret values. Include commit SHA, migration outcome, route checks, mock E2E result, log review result, rollback confirmation, and follow-up actions.
+
+---
+
+## 18. Backup and export
 
 The `Backup D1 Stub` workflow is intentionally a documented stub. Verify the current Cloudflare-supported D1 export command before enabling automated backups.
 
@@ -449,7 +474,7 @@ Before enabling real backups:
 
 ---
 
-## 18. Rollback
+## 19. Rollback
 
 Rollback options:
 
@@ -468,7 +493,7 @@ Rollback checklist:
 
 ---
 
-## 19. Failure recovery
+## 20. Failure recovery
 
 ### Worker deploy failure
 
@@ -492,7 +517,7 @@ Rollback checklist:
 4. Check Worker logs.
 5. Confirm the Worker URL input is correct.
 6. Confirm `/internal/poll` and `/internal/e2e/mock-pipeline` are not blocked by routing rules.
-7. If `INTERNAL_API_SECRET` is configured, confirm the request includes `x-internal-api-secret`.
+7. If `INTERNAL_API_SECRET` is configured, confirm the request includes the internal route header.
 
 ### Provider failure
 
@@ -500,7 +525,7 @@ Provider smoke tests should use mocks by default. If a real provider is being ca
 
 ---
 
-## 20. Operational routes reference
+## 21. Operational routes reference
 
 ```text
 GET  /health
@@ -516,9 +541,9 @@ No route should expose secrets. `/status` and `/ready` may expose whether a conf
 
 ---
 
-## 21. Future phases
+## 22. Future phases
 
-Do not add these in the production hardening phase:
+Do not add these in the deployment dry-run phase:
 
 - real provider rollout
 - real Apify/GetXAPI/HikerAPI/Firecrawl calls
@@ -528,6 +553,6 @@ Do not add these in the production hardening phase:
 - dashboard
 - paid service integrations
 - Durable Objects or KV rate limiting
-- Phase 17 behavior
+- Phase 18 behavior
 
 Add those only in their own scoped phases with tests and rollback notes.
