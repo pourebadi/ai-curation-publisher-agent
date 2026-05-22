@@ -102,13 +102,14 @@ class FakeDb implements D1DatabaseLike {
   }
 }
 
-function makeEnv(db = new FakeDb()): Env {
+function makeEnv(db = new FakeDb(), overrides: Partial<Env> = {}): Env {
   return {
     DB: db as unknown as D1Database,
     ENVIRONMENT: "test",
     LOG_LEVEL: "debug",
     TELEGRAM_REVIEW_CHAT_ID: "review-chat",
-    TELEGRAM_FINAL_CHAT_ID: "final-chat"
+    TELEGRAM_FINAL_CHAT_ID: "final-chat",
+    ...overrides
   };
 }
 
@@ -143,7 +144,11 @@ describe("operational worker routes", () => {
   });
 
   it("GET /status returns operational module status without secrets", async () => {
-    const response = await fetchWorker(new Request("https://worker.local/status"));
+    const response = await fetchWorker(new Request("https://worker.local/status"), makeEnv(new FakeDb(), {
+      PROVIDERS_MODE: "mixed",
+      ENABLE_APIFY_PROVIDER: "true",
+      APIFY_TOKEN: "configured"
+    }));
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -158,8 +163,15 @@ describe("operational worker routes", () => {
       wordpress: true,
       publishing: true
     });
+    expect(body.providers).toMatchObject({
+      providersMode: "mixed",
+      enabledProviderIds: ["apify_instagram"],
+      disabledProviderIds: ["getxapi", "firecrawl"],
+      missingCredentialProviderIds: []
+    });
     expect(JSON.stringify(body)).not.toContain("review-chat");
     expect(JSON.stringify(body)).not.toContain("final-chat");
+    expect(JSON.stringify(body)).not.toContain("configured");
   });
 
   it("POST /internal/poll with a mock source returns poll metadata", async () => {
