@@ -29,7 +29,7 @@ export class AIOutputService {
   async generateTelegramOutput(input: GenerateTelegramOutputInput): Promise<GenerateTelegramOutputResult> {
     const renderedPrompt = renderTelegramPrompt({
       post: input.post,
-      sourceAttributionText: input.sourceAttributionText
+      ...(input.sourceAttributionText === undefined ? {} : { sourceAttributionText: input.sourceAttributionText })
     }, input.prompt);
 
     const providerResponse = await this.provider.generate({

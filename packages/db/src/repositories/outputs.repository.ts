@@ -1,4 +1,4 @@
-import type { GeneratedOutput, OutputStatus, OutputTarget } from "@curator/core";
+import type { GeneratedOutput, OutputStatus, OutputTarget, TelegramAiOutput, WordPressAiOutput } from "@curator/core";
 import type { D1DatabaseLike } from "../client";
 
 export type SaveGeneratedOutputInput<TOutput = unknown> = {
@@ -88,7 +88,7 @@ export class OutputsRepository {
 }
 
 function toGeneratedOutput(row: OutputRow): GeneratedOutput {
-  const parsed = JSON.parse(row.output_json) as { data?: unknown };
+  const parsed = JSON.parse(row.output_json) as { data?: TelegramAiOutput | WordPressAiOutput };
 
   return {
     id: row.id,
@@ -96,7 +96,7 @@ function toGeneratedOutput(row: OutputRow): GeneratedOutput {
     target: row.target,
     promptVersion: row.prompt_version,
     status: row.status,
-    output: parsed.data ?? parsed,
+    output: parsed.data ?? (parsed as TelegramAiOutput | WordPressAiOutput),
     ...((row.input_tokens === null && row.output_tokens === null && row.estimated_cost_usd === null) ? {} : {
       tokenUsage: {
         inputTokens: row.input_tokens ?? 0,
