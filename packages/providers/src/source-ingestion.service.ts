@@ -1,6 +1,7 @@
 import type { NormalizedPost, ProviderId, Source } from "@curator/core";
 import type { ProviderAdapter, ProviderFetchOptions } from "./provider-adapter";
 import { UnsupportedSourceTypeError } from "./provider-adapter";
+import { classifyProviderError, type ProviderErrorCategory } from "./provider-errors";
 import { ProviderRegistry } from "./provider-registry";
 
 export type SourceIngestionOptions = ProviderFetchOptions & {
@@ -12,11 +13,13 @@ export type ProviderAttempt = {
   status: "success" | "failed" | "unsupported";
   returnedCount: number;
   error?: string;
+  failureCategory?: ProviderErrorCategory;
 };
 
 export type SourceIngestionResult = {
   sourceId: string;
   providerUsed?: string;
+  selectedFallbackProviderId?: string;
   providerAttempts: ProviderAttempt[];
   posts: NormalizedPost[];
   returnedCount: number;
@@ -56,6 +59,7 @@ export class SourceIngestionService {
         return {
           sourceId: source.id,
           providerUsed: provider.id,
+          ...(providerAttempts.length > 1 ? { selectedFallbackProviderId: provider.id } : {}),
           providerAttempts,
           posts: response.posts,
           returnedCount: response.posts.length,
@@ -64,11 +68,13 @@ export class SourceIngestionService {
         };
       } catch (error) {
         const unsupported = error instanceof UnsupportedSourceTypeError;
+        const providerError = classifyProviderError(error);
         providerAttempts.push({
           providerId: provider.id,
           status: unsupported ? "unsupported" : "failed",
           returnedCount: 0,
-          error: error instanceof Error ? error.message : "Unknown provider failure"
+          error: providerError.message,
+          failureCategory: unsupported ? "unsupported_source_type" : providerError.category
         });
       }
     }
