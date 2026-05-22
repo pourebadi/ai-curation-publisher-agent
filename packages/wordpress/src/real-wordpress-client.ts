@@ -144,12 +144,7 @@ function toWordPressRestPostPayload(input: WordPressPostInput, status: WordPress
 }
 
 function buildBasicAuth(username: string, applicationPassword: string): string {
-  const raw = `${username}:${applicationPassword}`;
-  if (typeof btoa === "function") {
-    return btoa(raw);
-  }
-
-  return Buffer.from(raw, "utf8").toString("base64");
+  return btoa(`${username}:${applicationPassword}`);
 }
 
 function parseWordPressPostResult(payload: WordPressRestPost, fallbackStatus: WordPressPostStatus): WordPressPostResult {
