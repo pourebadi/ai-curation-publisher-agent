@@ -4,7 +4,8 @@ import { ApifyInstagramProvider } from "./apify/apify-instagram-provider";
 import { FirecrawlWebProvider } from "./firecrawl/firecrawl-web-provider";
 import { GetXapiXProvider } from "./getxapi/getxapi-x-provider";
 import { MockProviderHttpClient } from "./http/mock-provider-http-client";
-import { createProviderAvailability, ProviderUnavailableError } from "./provider-status";
+import { ProviderError } from "./provider-errors";
+import { createProviderAvailability } from "./provider-status";
 
 function makeSource(overrides: Partial<Source> = {}): Source {
   return {
@@ -64,7 +65,7 @@ describe("real provider stubs", () => {
     expect(httpClient.requests).toEqual([]);
   });
 
-  it("configured stubs report health but do not implement real fetching", async () => {
+  it("configured sandbox provider reports health and fails safely when mock HTTP response is absent", async () => {
     const httpClient = new MockProviderHttpClient();
     const provider = new FirecrawlWebProvider({
       availability: createProviderAvailability({
@@ -81,8 +82,8 @@ describe("real provider stubs", () => {
     expect(health.ok).toBe(true);
     expect(health.providerId).toBe("firecrawl");
 
-    await expect(provider.fetchByDirectUrl("https://source.local/article")).rejects.toBeInstanceOf(ProviderUnavailableError);
-    await expect(provider.fetchByDirectUrl("https://source.local/article")).rejects.toMatchObject({ status: "misconfigured" });
-    expect(httpClient.requests).toEqual([]);
+    await expect(provider.fetchByDirectUrl("https://source.local/article")).rejects.toBeInstanceOf(ProviderError);
+    await expect(provider.fetchByDirectUrl("https://source.local/article")).rejects.toMatchObject({ category: "provider_error" });
+    expect(httpClient.requests).toHaveLength(2);
   });
 });
