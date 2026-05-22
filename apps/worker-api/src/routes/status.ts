@@ -24,6 +24,7 @@ export function handleStatus(request: Request, env: Env): Response {
       wordpress: true,
       publishing: true
     },
+    providers: config.providers,
     telegram: {
       reviewChatConfigured: config.telegram.reviewChatConfigured,
       finalChatConfigured: config.telegram.finalChatConfigured
