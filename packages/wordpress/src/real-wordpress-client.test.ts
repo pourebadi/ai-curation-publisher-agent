@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { RealWordPressClient, WordPressClientError } from "./real-wordpress-client";
 
+const localAuthValue = "local-auth-value";
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -20,7 +22,7 @@ describe("RealWordPressClient", () => {
     const client = new RealWordPressClient({
       baseUrl: "https://wordpress.local/",
       username: "editor",
-      applicationPassword: "application-password",
+      applicationPassword: localAuthValue,
       fetchImpl
     });
 
@@ -50,7 +52,7 @@ describe("RealWordPressClient", () => {
       status: "draft"
     });
     expect(String((init?.headers as Record<string, string>).authorization)).toMatch(/^Basic /);
-    expect(String((init?.headers as Record<string, string>).authorization)).not.toContain("application-password");
+    expect(String((init?.headers as Record<string, string>).authorization)).not.toContain(localAuthValue);
   });
 
   it("defaults to draft status", async () => {
@@ -62,7 +64,7 @@ describe("RealWordPressClient", () => {
     const client = new RealWordPressClient({
       baseUrl: "https://wordpress.local",
       username: "editor",
-      applicationPassword: "application-password",
+      applicationPassword: localAuthValue,
       fetchImpl
     });
 
@@ -96,7 +98,7 @@ describe("RealWordPressClient", () => {
     const client = new RealWordPressClient({
       baseUrl: "https://wordpress.local",
       username: "editor",
-      applicationPassword: "application-password",
+      applicationPassword: localAuthValue,
       fetchImpl
     });
 
@@ -117,8 +119,8 @@ describe("RealWordPressClient", () => {
         category: "unauthorized",
         message: "WordPress REST API rejected authentication or authorization."
       });
-      expect(JSON.stringify(error)).not.toContain("application-password");
-      expect(String((error as Error).message)).not.toContain("application-password");
+      expect(JSON.stringify(error)).not.toContain(localAuthValue);
+      expect(String((error as Error).message)).not.toContain(localAuthValue);
     }
   });
 
@@ -127,7 +129,7 @@ describe("RealWordPressClient", () => {
     const client = new RealWordPressClient({
       baseUrl: "https://wordpress.local",
       username: "editor",
-      applicationPassword: "application-password",
+      applicationPassword: localAuthValue,
       fetchImpl
     });
 
@@ -145,7 +147,7 @@ describe("RealWordPressClient", () => {
     const client = new RealWordPressClient({
       baseUrl: "https://wordpress.local",
       username: "editor",
-      applicationPassword: "application-password",
+      applicationPassword: localAuthValue,
       fetchImpl
     });
 
