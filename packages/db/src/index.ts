@@ -4,4 +4,6 @@ export * from "./repositories/sources.repository";
 export * from "./repositories/outputs.repository";
 export * from "./repositories/review-messages.repository";
 export * from "./repositories/review-actions.repository";
+export * from "./repositories/dedupe-keys.repository";
+export * from "./services/dedupe.service";
 export * from "./services/lifecycle.service";
