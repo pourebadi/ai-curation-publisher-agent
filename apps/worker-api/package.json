@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@curator/ai": "workspace:*",
     "@curator/core": "workspace:*",
     "@curator/db": "workspace:*",
     "@curator/providers": "workspace:*",
