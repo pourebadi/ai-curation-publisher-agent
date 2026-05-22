@@ -3,6 +3,7 @@ import { handleHealth } from "./routes/health";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalPoll } from "./routes/internal-poll";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
+import { handleReady } from "./routes/ready";
 import { handleStatus } from "./routes/status";
 import { handleTelegramWebhook } from "./routes/telegram-webhook";
 import { handleScheduledPoll } from "./scheduled/poller";
@@ -16,6 +17,10 @@ const worker: ExportedHandler<Env> = {
       return handleHealth(request, env);
     }
 
+    if (url.pathname === "/ready") {
+      return handleReady(request, env);
+    }
+
     if (url.pathname === "/status") {
       return handleStatus(request, env);
     }
@@ -25,7 +30,7 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (url.pathname === "/internal/e2e/mock-pipeline") {
-      return handleInternalE2EMockPipeline(request);
+      return handleInternalE2EMockPipeline(request, env);
     }
 
     if (url.pathname === "/internal/publish/telegram") {
