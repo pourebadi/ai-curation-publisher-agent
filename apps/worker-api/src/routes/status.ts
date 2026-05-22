@@ -38,6 +38,8 @@ export function handleStatus(request: Request, env: Env): Response {
       realDryRunEnabled: config.wordpress.realDryRunEnabled,
       defaultStatus: config.wordpress.defaultStatus
     },
+    scheduler: config.scheduler,
+    quotas: config.quotas,
     timestamp: timestamp()
   });
 }
