@@ -65,7 +65,7 @@ class FakeStatement implements D1PreparedStatementLike {
       const start = String(this.values[1]);
       const end = String(this.values[2]);
       const count = this.db.publishQueue.filter((row) => row.target === target && row.status === "published" && row.updated_at >= start && row.updated_at < end).length;
-      return ({ count } as T) ?? null;
+      return { count } as T;
     }
 
     if (this.query.includes("FROM outputs")) {
@@ -221,6 +221,32 @@ function makeServices(db = new FakeDb(), publisher = new FakeTelegramPublisher()
   return { db, queueService, outputsRepository, publishingService, publisher };
 }
 
+
+
+function firstItem(db: FakeDb): Item {
+  const item = db.items[0];
+  if (!item) {
+    throw new Error("Expected an item.");
+  }
+  return item;
+}
+
+function firstPublishQueueRow(db: FakeDb): PublishQueueRow {
+  const row = db.publishQueue[0];
+  if (!row) {
+    throw new Error("Expected a publish queue row.");
+  }
+  return row;
+}
+
+function firstPublishedMessage(publisher: FakeTelegramPublisher): FinalTelegramMessageInput {
+  const message = publisher.published[0];
+  if (!message) {
+    throw new Error("Expected a published Telegram message.");
+  }
+  return message;
+}
+
 describe("PublishQueueService", () => {
   it("enqueues an approved item and prevents duplicate enqueue", async () => {
     const { db, queueService } = makeServices();
@@ -232,7 +258,7 @@ describe("PublishQueueService", () => {
     expect(second.alreadyQueued).toBe(true);
     expect(first.queueItem.id).toBe(second.queueItem.id);
     expect(db.publishQueue).toHaveLength(1);
-    expect(db.items[0].status).toBe("queued_for_publish");
+    expect(firstItem(db).status).toBe("queued_for_publish");
   });
 
   it("prevents publishing outside allowed hours", async () => {
@@ -280,10 +306,10 @@ describe("PublishingService", () => {
 
     expect(result.outcome).toBe("published");
     expect(publisher.published).toHaveLength(1);
-    expect(publisher.published[0]?.text).toContain("کپشن نهایی");
-    expect(db.publishQueue[0].status).toBe("published");
-    expect(db.publishQueue[0].final_message_id).toBe("final-message-local");
-    expect(db.items[0].status).toBe("published_telegram");
+    expect(firstPublishedMessage(publisher).text).toContain("کپشن نهایی");
+    expect(firstPublishQueueRow(db).status).toBe("published");
+    expect(firstPublishQueueRow(db).final_message_id).toBe("final-message-local");
+    expect(firstItem(db).status).toBe("published_telegram");
   });
 
   it("marks the queue item as failed when final Telegram publishing fails", async () => {
@@ -300,7 +326,7 @@ describe("PublishingService", () => {
     });
 
     expect(result.outcome).toBe("failed");
-    expect(db.publishQueue[0].status).toBe("failed");
-    expect(db.publishQueue[0].last_error).toBe("telegram publish failed");
+    expect(firstPublishQueueRow(db).status).toBe("failed");
+    expect(firstPublishQueueRow(db).last_error).toBe("telegram publish failed");
   });
 });
