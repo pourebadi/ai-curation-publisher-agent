@@ -73,7 +73,7 @@ describe("runWordPressDryRun", () => {
     const result = await runWordPressDryRun({
       env: makeEnv(configuredWordPressEnv({
         WORDPRESS_REAL_DRY_RUN_ENABLED: "true",
-        WORDPRESS_BASE_URL: undefined
+        WORDPRESS_BASE_URL: ""
       })),
       input: { title: "Dry-run title", content: "Dry-run content" },
       client: new MockWordPressClient()

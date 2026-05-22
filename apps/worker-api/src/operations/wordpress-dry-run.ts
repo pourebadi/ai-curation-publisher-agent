@@ -89,9 +89,9 @@ export async function runWordPressDryRun(options: WordPressDryRunOptions): Promi
   }
 
   const client = options.client ?? new RealWordPressClient({
-    baseUrl: options.env.WORDPRESS_BASE_URL,
-    username: options.env.WORDPRESS_USERNAME,
-    applicationPassword: options.env.WORDPRESS_APPLICATION_PASSWORD
+    ...(options.env.WORDPRESS_BASE_URL === undefined ? {} : { baseUrl: options.env.WORDPRESS_BASE_URL }),
+    ...(options.env.WORDPRESS_USERNAME === undefined ? {} : { username: options.env.WORDPRESS_USERNAME }),
+    ...(options.env.WORDPRESS_APPLICATION_PASSWORD === undefined ? {} : { applicationPassword: options.env.WORDPRESS_APPLICATION_PASSWORD })
   });
 
   try {
