@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import worker from "../index";
+import { runScheduledPoll } from "../scheduled/poller";
 import type { D1DatabaseLike, D1PreparedStatementLike, D1Result, D1RunResult, D1Value } from "@curator/db";
 import type { Env } from "../types";
 
@@ -278,6 +279,21 @@ describe("operational worker routes", () => {
     expect(body.outcome).toBe("published");
     expect(body.itemId).toBe("item_local");
     expect(body.finalMessageId).toBe("mock_telegram_final_1");
+  });
+
+  it("scheduled poll operation returns mock-safe result", async () => {
+    const result = await runScheduledPoll({
+      scheduledTime: 1_700_000_000_000,
+      cron: "*/30 * * * *",
+      env: makeEnv()
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.mockMode).toBe(true);
+    expect(result.scheduledTime).toBe(1_700_000_000_000);
+    expect(result.cron).toBe("*/30 * * * *");
+    expect(result.totalSources).toBe(3);
+    expect(result.totalReturned).toBe(3);
   });
 
   it("returns 405 for invalid methods", async () => {
