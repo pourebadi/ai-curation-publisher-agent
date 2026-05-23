@@ -6,9 +6,7 @@ This repository implements a staged content pipeline that can ingest public soci
 
 The project is intentionally mock-first. Real providers, real final Telegram publishing, real WordPress publishing, scheduler side effects, and real media processing are not enabled by default.
 
-Phase 21 adds scheduler and production-operations safeguards. The scheduler remains disabled by default, manual scheduler runs stay mock-safe, and publishing/provider side effects remain blocked unless a later scoped phase explicitly changes that behavior. See `docs/SCHEDULER_OPERATIONS.md` for operator guidance.
-
-Phase 22 adds a controlled real integrations pilot route for sequential, explicit opt-in checks of Firecrawl, Telegram review, and WordPress draft readiness. It is not a launch path and does not enable scheduler, final Telegram publishing, public WordPress publishing, or automatic provider rollout. See `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md`.
+Phase 23 finalizes the MVP readiness package. It adds final status and launch checklist docs without changing runtime behavior. Start with `docs/MVP_STATUS.md` and `docs/MVP_LAUNCH_CHECKLIST.md` before any operator launch decision.
 
 ## What this system does
 
@@ -27,46 +25,37 @@ The pipeline supports:
 11. Scheduler safeguards with disabled-by-default cron behavior and manual dry-run controls.
 12. Controlled real integrations pilot orchestration for explicit dry-run checks.
 
-## Current status
+## MVP status
+
+The MVP is ready for controlled operator verification, not unattended production automation.
 
 Implemented:
 
-- pnpm workspace scaffold
-- core models
-- dedupe helpers
-- validation helpers
-- lifecycle guards
-- D1 repositories and services
+- core lifecycle, dedupe, validation, and ingest gates
 - manual Telegram ingest
+- AI output abstraction
 - Telegram review flow
-- AI output pipeline with mock provider support
 - publishing queue abstractions
-- final Telegram publishing abstraction
-- WordPress publishing abstraction
+- Telegram and WordPress publishing abstractions
 - media preparation abstraction
-- mock provider adapters and source ingestion
-- poller orchestration
-- Worker operational routes
-- Cloudflare/GitHub workflow support
-- real provider stubs behind feature flags
-- Firecrawl/Web sandbox route as explicit opt-in only
-- Telegram review-channel dry-run as explicit opt-in only
-- WordPress draft dry-run as explicit opt-in only
-- controlled real integrations pilot route as explicit opt-in only
-- E2E mock smoke pipeline
-- production readiness hardening
-- scheduler and quota/cost-control foundations
+- provider adapters and mock ingestion
+- Firecrawl, Telegram review, and WordPress draft dry-run paths
+- controlled real integrations pilot route
+- Cloudflare Worker operational routes
+- scheduler safeguards and quota foundations
+- deployment, dry-run, and launch readiness documentation
 
-Mock or disabled by default:
+Disabled or mock-safe by default:
 
 - real social providers
-- real final Telegram publishing
-- real WordPress publishing
-- real media download or upload
+- final Telegram publishing
+- public WordPress publishing
+- media download/upload
 - scheduler side effects
-- production monitoring or alerting
-- durable distributed rate limiting
+- external monitoring/alerting
 - dashboard
+
+For the detailed matrix, see `docs/MVP_STATUS.md`.
 
 ## Architecture overview
 
@@ -142,16 +131,6 @@ mock source poll
 -> mock WordPress publish
 ```
 
-Scheduler safeguard flow:
-
-```text
-Cloudflare scheduled handler
--> scheduler config check
--> skip if disabled
--> mock-safe poll when explicitly enabled
--> no publishing side effects in Phase 21
-```
-
 Controlled real integrations pilot flow:
 
 ```text
@@ -163,12 +142,6 @@ POST /internal/pilot/real-integrations
 -> no scheduler activation
 -> no final Telegram publishing
 -> no public WordPress publishing
-```
-
-Manual scheduler dry-run route:
-
-```text
-POST /internal/scheduler/run
 ```
 
 ## Worker routes
@@ -191,89 +164,16 @@ POST /internal/scheduler/run
 
 Internal routes are protected when `INTERNAL_API_SECRET` is configured. The request must include `x-internal-api-secret` with the configured runtime value. Do not commit or log that value.
 
-## Scheduler and quota safeguards
-
-Phase 21 adds scheduler runtime safeguards and lightweight quota foundations.
-
-Safe defaults:
-
-- scheduler disabled
-- dry-run enabled
-- mock providers only
-- real providers not allowed
-- publishing not allowed
-- conservative source/item limits
-- AI and publish quotas default to zero
-
-Runtime names documented for operators:
-
-```text
-SCHEDULER_ENABLED
-SCHEDULER_DRY_RUN
-SCHEDULER_MAX_SOURCES_PER_RUN
-SCHEDULER_MAX_ITEMS_PER_RUN
-SCHEDULER_ALLOW_REAL_PROVIDERS
-SCHEDULER_ALLOW_PUBLISHING
-MAX_AI_ITEMS_PER_RUN
-MAX_PROVIDER_ITEMS_PER_RUN
-MAX_PUBLISH_ITEMS_PER_RUN
-```
-
-The scheduled handler returns/logs a skipped result when scheduler is disabled. Manual scheduler dry-runs can be triggered through `/internal/scheduler/run` and remain mock-safe.
-
-See `docs/SCHEDULER_OPERATIONS.md` for the operator guide.
-
-## Controlled real integrations pilot
-
-Phase 22 adds a single internal pilot route:
-
-```text
-POST /internal/pilot/real-integrations
-```
-
-Default `{}` request behavior returns readiness/config summary only. Each integration step must be explicitly requested with a run flag.
-
-The pilot can coordinate:
-
-- Firecrawl sandbox fetch
-- Telegram review dry-run
-- WordPress draft dry-run
-
-It never launches scheduler behavior, final Telegram publishing, public WordPress publishing, media processing, or automatic provider rollout.
-
-See `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md` for the operator checklist.
-
-## Local development
-
-Requirements:
-
-- Node.js 22+
-- pnpm 9+
-- Wrangler through project dependencies
-
-Install:
+## Key commands
 
 ```bash
-corepack enable
-corepack prepare pnpm@9.15.4 --activate
-pnpm install
-```
-
-Local D1 migrations:
-
-```bash
-pnpm d1:migrate:local
-```
-
-Run the Worker locally:
-
-```bash
+pnpm lint
+pnpm typecheck
+pnpm test
 pnpm worker:dev
-```
-
-Smoke commands:
-
-```bash
+pnpm worker:deploy
+pnpm d1:migrate:local
+pnpm d1:migrate:remote
 WORKER_BASE_URL=http://localhost:8787 pnpm worker:health
 WORKER_BASE_URL=http://localhost:8787 pnpm worker:smoke
 WORKER_BASE_URL=http://localhost:8787 pnpm worker:e2e:mock
@@ -295,91 +195,52 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/pilot/real-integrations" \
   -d '{}'
 ```
 
-If `INTERNAL_API_SECRET` is configured, include the internal route header using a value from your local shell or secret store.
+If the internal route secret is configured, include the internal route header from your shell or secret store.
 
-## Testing
+## Important docs
 
-Run:
+- `docs/MVP_STATUS.md` - final MVP implementation and limitation matrix
+- `docs/MVP_LAUNCH_CHECKLIST.md` - go/no-go checklist
+- `docs/RUNBOOK.md` - operational runbook
+- `docs/PRODUCTION_DRY_RUN.md` - Cloudflare deployment dry-run checklist
+- `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md` - pilot workflow for Firecrawl, Telegram review, and WordPress draft checks
+- `docs/SCHEDULER_OPERATIONS.md` - scheduler and quota safeguard guide
+- `docs/TELEGRAM_REVIEW_DRY_RUN.md` - Telegram review dry-run guide
+- `docs/WORDPRESS_DRY_RUN.md` - WordPress draft dry-run guide
 
-```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-```
+## Safe defaults
 
-Testing rules:
+- mock mode is the default
+- scheduler is disabled by default
+- real providers are disabled by default
+- final Telegram publishing is disabled by default
+- public WordPress publishing is disabled by default
+- media download/upload is disabled by default
+- tests must not make real external calls
+- `.env.example` must contain empty values only
 
-- No real external network calls in tests.
-- No real provider credentials in tests.
-- No real Telegram Bot API calls in tests.
-- No real WordPress API calls in tests.
-- No real media downloads or ffmpeg/yt-dlp execution in tests.
-- Use mock providers, mock HTTP clients, mock Telegram clients, mock WordPress clients, and mock media processors.
+## Launch readiness
 
-## Deployment and operations
-
-Detailed operator guides:
-
-- `docs/PRODUCTION_DRY_RUN.md`
-- `docs/SCHEDULER_OPERATIONS.md`
-- `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md`
-- `docs/FIRECRAWL_SANDBOX.md` if present in the branch history
-- `docs/TELEGRAM_REVIEW_DRY_RUN.md`
-- `docs/WORDPRESS_DRY_RUN.md`
-- `docs/RUNBOOK.md`
-
-Before deployment:
+Before any MVP launch decision:
 
 1. Run `pnpm lint`.
 2. Run `pnpm typecheck`.
 3. Run `pnpm test`.
-4. Apply required D1 migrations.
-5. Configure Cloudflare/GitHub secrets outside the repository.
-6. Confirm `/health`, `/status`, and `/ready`.
-7. Run mock smoke checks.
-8. Run manual scheduler dry-run.
+4. Run local Worker smoke checks.
+5. Apply intended D1 migrations.
+6. Deploy manually.
+7. Confirm `/health`, `/status`, and `/ready`.
+8. Run mock E2E smoke.
 9. Run controlled pilot readiness-only check.
-10. Confirm rollback steps.
-
-## Configuration and secrets
-
-`.env.example` must stay sanitized with empty values only. Do not commit real values or credential-looking placeholders.
-
-Use these storage locations:
-
-- `.dev.vars` for local-only runtime values
-- Cloudflare Worker secrets for deployed runtime secrets
-- GitHub Actions secrets for deployment credentials
-
-Never commit real values for tokens, secrets, passwords, API keys, webhook secrets, internal API secrets, provider credentials, WordPress application passwords, or private infrastructure identifiers.
-
-## Production readiness checklist
-
-Before production rollout, confirm:
-
-- remote D1 database exists
-- migrations have been applied
-- Cloudflare Worker deployment target is configured
-- Cloudflare runtime secrets are set outside the repository
-- GitHub Actions secrets are set outside the repository
-- `INTERNAL_API_SECRET` is configured for deployed internal routes
-- `/health`, `/status`, and `/ready` pass
-- mock E2E smoke pipeline passes
-- manual scheduler dry-run passes
-- controlled pilot readiness-only check passes
-- real providers remain disabled until a scoped rollout enables them
-- scheduler remains disabled or dry-run/mock-safe
-- publishing remains disabled by default
-- logs do not expose raw secret values
-- rollback path is known
+10. Complete `docs/MVP_LAUNCH_CHECKLIST.md`.
 
 ## Known limitations
 
-- Real providers are disabled by default.
+- Real providers are opt-in and not default.
 - Firecrawl/Web is available only through an explicit inspect-only sandbox route when enabled.
 - Controlled real integrations pilot steps are explicit opt-in only.
 - Real final Telegram publishing is not enabled by default.
-- Real WordPress publishing is not enabled by default.
+- Public WordPress publishing is not enabled by default.
 - Scheduler side effects are not enabled by default.
 - No real media download or upload pipeline is active.
 - No dashboard is implemented.
