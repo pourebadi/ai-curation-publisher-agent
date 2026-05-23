@@ -279,7 +279,7 @@ function SummaryCard({ title, value, ok }: { title: string; value: string; ok?: 
   return <div className={`summaryCard ${ok === true ? "goodBorder" : ok === false ? "badBorder" : ""}`}><span>{title}</span><strong>{value}</strong></div>;
 }
 
-function JsonPanel({ title, result }: { title: string; result?: ApiResult }): JSX.Element {
+function JsonPanel({ title, result }: { title: string; result: ApiResult | undefined }): JSX.Element {
   return <div className="subcard"><h3>{title}</h3><p className={result?.ok === true ? "okText" : "badText"}>{result === undefined ? "Not loaded" : result.ok ? "ok" : result.message}</p><details><summary>View raw JSON</summary><pre>{JSON.stringify(result, null, 2)}</pre></details></div>;
 }
 
