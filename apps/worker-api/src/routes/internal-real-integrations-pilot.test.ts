@@ -166,7 +166,8 @@ describe("handleInternalRealIntegrationsPilot", () => {
     expect(wordpressClient.createdPosts[0]?.status).toBe("draft");
     expect(JSON.stringify(body)).not.toContain(hiddenInternalValue);
     expect(JSON.stringify(body)).not.toContain(hiddenRuntimeValue);
-    expect(JSON.stringify(body)).not.toContain("wordpress.local");
     expect(JSON.stringify(body)).not.toContain("editor");
+    expect(JSON.stringify(body)).not.toContain("application-password");
+    expect(JSON.stringify(body)).not.toContain("wordpress-password");
   });
 });
