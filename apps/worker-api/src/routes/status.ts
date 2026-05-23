@@ -9,6 +9,9 @@ export function handleStatus(request: Request, env: Env): Response {
   }
 
   const config = readOperationalConfig(env);
+  const pilotReady = config.readiness.hasProviderCredentials.firecrawl
+    || (config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken)
+    || config.readiness.hasWordPressConfig;
 
   return jsonResponse({
     ok: true,
@@ -37,6 +40,16 @@ export function handleStatus(request: Request, env: Env): Response {
       credentialsConfigured: config.wordpress.credentialsConfigured,
       realDryRunEnabled: config.wordpress.realDryRunEnabled,
       defaultStatus: config.wordpress.defaultStatus
+    },
+    pilot: {
+      ready: pilotReady,
+      firecrawlConfigured: config.readiness.hasProviderCredentials.firecrawl,
+      telegramReviewConfigured: config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken,
+      telegramRealReviewEnabled: config.readiness.telegramRealReviewEnabled,
+      wordpressConfigured: config.readiness.hasWordPressConfig,
+      wordpressRealDryRunEnabled: config.readiness.wordpressRealDryRunEnabled,
+      schedulerEnabled: config.readiness.scheduler.enabled,
+      schedulerDryRun: config.readiness.scheduler.dryRun
     },
     scheduler: config.scheduler,
     quotas: config.quotas,

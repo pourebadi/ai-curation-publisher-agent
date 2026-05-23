@@ -3,6 +3,7 @@ import { handleHealth } from "./routes/health";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalPoll } from "./routes/internal-poll";
+import { handleInternalRealIntegrationsPilot } from "./routes/internal-real-integrations-pilot";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleInternalSchedulerRun } from "./routes/internal-scheduler-run";
 import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
@@ -35,6 +36,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/internal/scheduler/run") {
       return handleInternalSchedulerRun(request, env);
+    }
+
+    if (url.pathname === "/internal/pilot/real-integrations") {
+      return handleInternalRealIntegrationsPilot(request, env);
     }
 
     if (url.pathname === "/internal/providers/firecrawl/sandbox-fetch") {

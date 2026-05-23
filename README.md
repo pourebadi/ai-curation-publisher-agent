@@ -8,6 +8,8 @@ The project is intentionally mock-first. Real providers, real final Telegram pub
 
 Phase 21 adds scheduler and production-operations safeguards. The scheduler remains disabled by default, manual scheduler runs stay mock-safe, and publishing/provider side effects remain blocked unless a later scoped phase explicitly changes that behavior. See `docs/SCHEDULER_OPERATIONS.md` for operator guidance.
 
+Phase 22 adds a controlled real integrations pilot route for sequential, explicit opt-in checks of Firecrawl, Telegram review, and WordPress draft readiness. It is not a launch path and does not enable scheduler, final Telegram publishing, public WordPress publishing, or automatic provider rollout. See `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md`.
+
 ## What this system does
 
 The pipeline supports:
@@ -23,6 +25,7 @@ The pipeline supports:
 9. Mock-safe media preparation abstractions.
 10. Operational Worker routes for health, readiness, status, poll, E2E smoke, and controlled dry-runs.
 11. Scheduler safeguards with disabled-by-default cron behavior and manual dry-run controls.
+12. Controlled real integrations pilot orchestration for explicit dry-run checks.
 
 ## Current status
 
@@ -49,6 +52,7 @@ Implemented:
 - Firecrawl/Web sandbox route as explicit opt-in only
 - Telegram review-channel dry-run as explicit opt-in only
 - WordPress draft dry-run as explicit opt-in only
+- controlled real integrations pilot route as explicit opt-in only
 - E2E mock smoke pipeline
 - production readiness hardening
 - scheduler and quota/cost-control foundations
@@ -148,6 +152,19 @@ Cloudflare scheduled handler
 -> no publishing side effects in Phase 21
 ```
 
+Controlled real integrations pilot flow:
+
+```text
+POST /internal/pilot/real-integrations
+-> readiness/config summary
+-> optional Firecrawl sandbox fetch
+-> optional Telegram review dry-run
+-> optional WordPress draft dry-run
+-> no scheduler activation
+-> no final Telegram publishing
+-> no public WordPress publishing
+```
+
 Manual scheduler dry-run route:
 
 ```text
@@ -161,10 +178,11 @@ POST /internal/scheduler/run
 | `/` | GET | Alias for health. |
 | `/health` | GET | Liveness check. |
 | `/ready` | GET | Safe runtime readiness/config summary. |
-| `/status` | GET | Safe operational module, provider, scheduler, and quota summary. |
+| `/status` | GET | Safe operational module, provider, scheduler, quota, and pilot summary. |
 | `/telegram/webhook` | POST | Telegram webhook for manual ingest and review callbacks. |
 | `/internal/poll` | POST | Mock-safe provider poll operation. |
 | `/internal/scheduler/run` | POST | Manual scheduler dry-run operation. |
+| `/internal/pilot/real-integrations` | POST | Controlled real integrations pilot orchestration. |
 | `/internal/providers/firecrawl/sandbox-fetch` | POST | Explicit Firecrawl/Web inspect-only sandbox fetch. |
 | `/internal/telegram/review-dry-run` | POST | Explicit Telegram review-channel dry-run. |
 | `/internal/wordpress/dry-run` | POST | Explicit WordPress draft dry-run. |
@@ -204,6 +222,26 @@ MAX_PUBLISH_ITEMS_PER_RUN
 The scheduled handler returns/logs a skipped result when scheduler is disabled. Manual scheduler dry-runs can be triggered through `/internal/scheduler/run` and remain mock-safe.
 
 See `docs/SCHEDULER_OPERATIONS.md` for the operator guide.
+
+## Controlled real integrations pilot
+
+Phase 22 adds a single internal pilot route:
+
+```text
+POST /internal/pilot/real-integrations
+```
+
+Default `{}` request behavior returns readiness/config summary only. Each integration step must be explicitly requested with a run flag.
+
+The pilot can coordinate:
+
+- Firecrawl sandbox fetch
+- Telegram review dry-run
+- WordPress draft dry-run
+
+It never launches scheduler behavior, final Telegram publishing, public WordPress publishing, media processing, or automatic provider rollout.
+
+See `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md` for the operator checklist.
 
 ## Local development
 
@@ -249,6 +287,14 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/scheduler/run" \
   -d '{"dryRun":true,"maxSources":1,"maxItems":1}'
 ```
 
+Controlled pilot readiness-only check:
+
+```bash
+curl -fsS -X POST "$WORKER_BASE_URL/internal/pilot/real-integrations" \
+  -H "content-type: application/json" \
+  -d '{}'
+```
+
 If `INTERNAL_API_SECRET` is configured, include the internal route header using a value from your local shell or secret store.
 
 ## Testing
@@ -276,6 +322,7 @@ Detailed operator guides:
 
 - `docs/PRODUCTION_DRY_RUN.md`
 - `docs/SCHEDULER_OPERATIONS.md`
+- `docs/CONTROLLED_REAL_INTEGRATIONS_PILOT.md`
 - `docs/FIRECRAWL_SANDBOX.md` if present in the branch history
 - `docs/TELEGRAM_REVIEW_DRY_RUN.md`
 - `docs/WORDPRESS_DRY_RUN.md`
@@ -291,7 +338,8 @@ Before deployment:
 6. Confirm `/health`, `/status`, and `/ready`.
 7. Run mock smoke checks.
 8. Run manual scheduler dry-run.
-9. Confirm rollback steps.
+9. Run controlled pilot readiness-only check.
+10. Confirm rollback steps.
 
 ## Configuration and secrets
 
@@ -318,6 +366,7 @@ Before production rollout, confirm:
 - `/health`, `/status`, and `/ready` pass
 - mock E2E smoke pipeline passes
 - manual scheduler dry-run passes
+- controlled pilot readiness-only check passes
 - real providers remain disabled until a scoped rollout enables them
 - scheduler remains disabled or dry-run/mock-safe
 - publishing remains disabled by default
@@ -328,6 +377,7 @@ Before production rollout, confirm:
 
 - Real providers are disabled by default.
 - Firecrawl/Web is available only through an explicit inspect-only sandbox route when enabled.
+- Controlled real integrations pilot steps are explicit opt-in only.
 - Real final Telegram publishing is not enabled by default.
 - Real WordPress publishing is not enabled by default.
 - Scheduler side effects are not enabled by default.
@@ -344,7 +394,7 @@ Before production rollout, confirm:
 4. Do not enable real providers by default.
 5. Do not enable real publishing by default.
 6. Do not make external network calls in tests.
-7. Do not bypass dedupe, validation, lifecycle, or scheduler safeguards.
+7. Do not bypass dedupe, validation, lifecycle, scheduler, or pilot safeguards.
 8. Prefer provider abstractions over direct third-party API calls.
 9. Run `pnpm lint`, `pnpm typecheck`, and `pnpm test` before opening or merging PRs.
 10. Update operational docs for operational behavior changes.
