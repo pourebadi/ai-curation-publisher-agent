@@ -19,6 +19,9 @@
     "worker:health": "curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/health",
     "worker:smoke": "curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/health && echo && curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/status && echo",
     "worker:e2e:mock": "curl -fsS -X POST ${WORKER_BASE_URL:-http://localhost:8787}/internal/e2e/mock-pipeline",
+    "dashboard:dev": "pnpm --filter @curator/dashboard dev",
+    "dashboard:build": "pnpm --filter @curator/dashboard build",
+    "dashboard:preview": "pnpm --filter @curator/dashboard preview",
     "db:migrate:local": "wrangler d1 migrations apply curator_mvp --local --config wrangler.toml",
     "d1:migrate:local": "pnpm db:migrate:local",
     "d1:migrate:remote": "wrangler d1 migrations apply curator_mvp --remote --config wrangler.toml"
