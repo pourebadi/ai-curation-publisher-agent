@@ -38,6 +38,16 @@ export function handleStatus(request: Request, env: Env): Response {
       realDryRunEnabled: config.wordpress.realDryRunEnabled,
       defaultStatus: config.wordpress.defaultStatus
     },
+    pilot: {
+      ready: Boolean(config.readiness.ready ?? true),
+      firecrawlConfigured: config.readiness.hasProviderCredentials.firecrawl,
+      telegramReviewConfigured: config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken,
+      telegramRealReviewEnabled: config.readiness.telegramRealReviewEnabled,
+      wordpressConfigured: config.readiness.hasWordPressConfig,
+      wordpressRealDryRunEnabled: config.readiness.wordpressRealDryRunEnabled,
+      schedulerEnabled: config.readiness.scheduler.enabled,
+      schedulerDryRun: config.readiness.scheduler.dryRun
+    },
     scheduler: config.scheduler,
     quotas: config.quotas,
     timestamp: timestamp()
