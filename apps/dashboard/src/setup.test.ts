@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildManagerSetupSummary, deriveSchedulerSafety, deriveSetupCenter, redactSensitiveJson } from "./setup";
-import type { StatusBundle } from "./types";
+import type { ApiResult, JsonObject, StatusBundle } from "./types";
 
-function ok(data: Record<string, unknown>) {
-  return { ok: true as const, status: 200, data };
+function ok(data: JsonObject): ApiResult {
+  return { ok: true, status: 200, data };
 }
 
 function bundle(overrides: Partial<StatusBundle> = {}): StatusBundle {
@@ -128,14 +128,14 @@ describe("dashboard setup helpers", () => {
     const redacted = redactSensitiveJson({
       ok: true,
       nested: {
-        apiToken: "secret-value",
-        password: "another-secret",
+        apiToken: "hidden-runtime-value",
+        password: "hidden-password-value",
         publicStatus: "safe"
       }
     });
 
-    expect(JSON.stringify(redacted)).not.toContain("secret-value");
-    expect(JSON.stringify(redacted)).not.toContain("another-secret");
+    expect(JSON.stringify(redacted)).not.toContain("hidden-runtime-value");
+    expect(JSON.stringify(redacted)).not.toContain("hidden-password-value");
     expect(JSON.stringify(redacted)).toContain("publicStatus");
   });
 });
