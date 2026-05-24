@@ -48,6 +48,13 @@ button.secondary:hover:not(:disabled) {
   background: #d7deeb;
 }
 
+code {
+  background: #eef4ff;
+  border-radius: 6px;
+  color: #1d4ed8;
+  padding: 0.1rem 0.35rem;
+}
+
 input,
 textarea {
   border: 1px solid #cfd8e6;
@@ -152,7 +159,12 @@ td span,
 .heroPanel,
 .card,
 .subcard,
-.summaryCard {
+.summaryCard,
+.runtimeItem,
+.detailItem,
+.pilotStep,
+.statusCallout,
+.launchStatus {
   background: white;
   border: 1px solid #e3e8f1;
   border-radius: 18px;
@@ -179,7 +191,12 @@ td span,
   padding: 1.25rem;
 }
 
-.subcard {
+.subcard,
+.runtimeItem,
+.detailItem,
+.pilotStep,
+.statusCallout,
+.launchStatus {
   padding: 1rem;
 }
 
@@ -196,10 +213,15 @@ td span,
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.summaryGrid {
+.summaryGrid,
+.runtimeGrid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.runtimeGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .summaryCard {
@@ -219,11 +241,90 @@ td span,
   font-size: 1.25rem;
 }
 
-.goodBorder {
+.goodBorder,
+.runtimeItem.safe {
   border-color: #86efac;
 }
 
-.badBorder {
+.badBorder,
+.runtimeItem.warning {
+  border-color: #fda4af;
+}
+
+.runtimeItem.unknown {
+  border-color: #facc15;
+}
+
+.runtimeItem span,
+.detailItem p,
+.pilotStep p {
+  color: #52627a;
+}
+
+.runtimeItem dl,
+.detailItem dl {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.runtimeItem dl div,
+.detailItem dl div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.runtimeItem dt,
+.detailItem dt {
+  color: #65758f;
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.runtimeItem dd,
+.detailItem dd {
+  margin: 0;
+}
+
+.detailList,
+.pilotCards {
+  display: grid;
+  gap: 1rem;
+}
+
+.pilotCards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.launchStatus {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin: 1rem 0;
+}
+
+.launchStatus strong {
+  font-size: 1.4rem;
+}
+
+.launchStatus.safe,
+.statusCallout.safe {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.launchStatus.warning,
+.statusCallout.warning {
+  background: #fffbeb;
+  border-color: #facc15;
+}
+
+.launchStatus.risky,
+.statusCallout.risky {
+  background: #fef2f2;
   border-color: #fda4af;
 }
 
@@ -328,11 +429,18 @@ td span,
   margin-bottom: 0.75rem;
 }
 
+@media (max-width: 1180px) {
+  .runtimeGrid,
+  .pilotCards,
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1024px) {
   .hero,
   .grid.two,
-  .grid.three,
-  .summaryGrid {
+  .grid.three {
     grid-template-columns: 1fr;
   }
 }
@@ -343,9 +451,16 @@ td span,
   }
 
   .buttonRow,
-  .sectionTitle {
+  .sectionTitle,
+  .launchStatus {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .runtimeGrid,
+  .pilotCards,
+  .summaryGrid {
+    grid-template-columns: 1fr;
   }
 
   button {
