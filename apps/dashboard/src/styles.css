@@ -219,9 +219,9 @@ td span,
 .hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-  gap: var(--space-6);
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
   margin-bottom: var(--space-5);
   padding: var(--space-8);
   background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(255,255,255,0.82));
@@ -264,7 +264,6 @@ td span,
   text-transform: uppercase;
 }
 
-.heroPanel,
 .tabPanel,
 .subcard,
 .overviewCard,
@@ -287,25 +286,62 @@ td span,
 }
 
 .heroPanel {
-  display: grid;
-  align-content: center;
-  gap: var(--space-3);
-  padding: var(--space-5);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: var(--space-2);
+  padding: 0.72rem 1rem;
+  color: var(--ink-soft);
+  background: rgba(238, 242, 255, 0.68);
+  border: 1px solid rgba(49, 94, 251, 0.12);
+  border-radius: 999px;
+  box-shadow: none;
+  backdrop-filter: blur(10px);
 }
 
 .heroPanel strong {
-  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  margin-right: 0.15rem;
+  color: var(--primary-strong);
+  font-size: 0.88rem;
+  font-weight: 820;
+}
+
+.heroPanel strong::before {
+  content: "✓";
+  display: inline-grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  color: #ffffff;
+  background: var(--safe);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1;
 }
 
 .heroPanel span {
   display: inline-flex;
-  width: fit-content;
-  padding: 0.42rem 0.76rem;
-  color: var(--primary-strong);
-  background: var(--primary-soft);
-  border-radius: 999px;
+  align-items: center;
+  gap: 0.55rem;
+  width: auto;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border-radius: 0;
   font-size: 0.86rem;
-  font-weight: 750;
+  font-weight: 650;
+}
+
+.heroPanel span:not(:last-child)::after {
+  content: "·";
+  color: rgba(102, 112, 133, 0.72);
+  font-weight: 850;
 }
 
 .topTabs {
@@ -885,6 +921,20 @@ details.subcard[open] {
   .tabPanel {
     padding: var(--space-5);
     border-radius: var(--radius-lg);
+  }
+
+  .heroPanel {
+    width: 100%;
+    border-radius: var(--radius-lg);
+  }
+
+  .heroPanel strong,
+  .heroPanel span {
+    width: 100%;
+  }
+
+  .heroPanel span:not(:last-child)::after {
+    content: "";
   }
 
   .buttonRow,
