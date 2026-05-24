@@ -26,6 +26,10 @@ export type DashboardSettings = {
 
 export type OperationName =
   | "refresh_status"
+  | "internal_auth_probe"
+  | "telegram_review_dry_run"
+  | "wordpress_draft_dry_run"
+  | "firecrawl_sandbox_fetch"
   | "mock_e2e_smoke"
   | "scheduler_dry_run"
   | "pilot_readiness"
@@ -68,4 +72,70 @@ export type ChecklistItem = {
   where: string;
   sensitive: boolean;
   configured?: boolean;
+};
+
+export type SetupTone = "safe" | "warning" | "risky";
+
+export type SetupStatus = {
+  label: string;
+  tone: SetupTone;
+  detail: string;
+  nextAction: string;
+};
+
+export type RuntimeChecklistItem = {
+  name: string;
+  purpose: string;
+  where: string;
+  sensitive: boolean;
+  safeDefault: string;
+  backendStatus: string;
+  safe?: boolean;
+  nextAction: string;
+};
+
+export type SetupDetailItem = {
+  name: string;
+  purpose: string;
+  where: string;
+  sensitive: boolean;
+  currentStatus: string;
+  nextAction: string;
+};
+
+export type LaunchSummary = {
+  overallStatus: "Not ready" | "Setup in progress" | "Pilot-ready" | "Risky config";
+  workerReachable: string;
+  internalSecurity: string;
+  telegramReadiness: string;
+  wordpressReadiness: string;
+  firecrawlReadiness: string;
+  schedulerSafety: "Safe" | "Warning" | "Risky";
+  publishingSafety: "Safe" | "Risky";
+  recommendedNextStep: string;
+};
+
+export type SchedulerSafety = {
+  riskLabel: "Safe" | "Warning" | "Risky";
+  enabled?: boolean;
+  dryRun?: boolean;
+  realProvidersAllowed?: boolean;
+  publishingAllowed?: boolean;
+  maxSourcesPerRun?: number;
+  maxItemsPerRun?: number;
+  maxAiItemsPerRun?: number;
+  maxProviderItemsPerRun?: number;
+  maxPublishItemsPerRun?: number;
+  warnings: string[];
+};
+
+export type SetupCenterModel = {
+  workerConnection: SetupStatus;
+  internalSecurity: SetupStatus;
+  cloudflareRuntime: RuntimeChecklistItem[];
+  telegram: SetupDetailItem[];
+  wordpress: SetupDetailItem[];
+  firecrawl: SetupDetailItem[];
+  scheduler: SchedulerSafety;
+  launchSummary: LaunchSummary;
 };
