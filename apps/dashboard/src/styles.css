@@ -549,6 +549,32 @@ td span,
   box-shadow: 0 10px 24px rgba(49, 94, 251, 0.12);
 }
 
+.stepButton.locked,
+.stepButton:disabled.locked {
+  color: #98a2b3;
+  background: #f2f4f7;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0.46;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.stepButton.locked:hover,
+.stepButton:disabled.locked:hover {
+  color: #98a2b3;
+  background: #f2f4f7;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.stepButton.locked strong,
+.stepButton.locked span,
+.stepButton.locked small {
+  color: #98a2b3;
+}
+
 .stepButton span {
   color: var(--muted);
   font-size: 0.78rem;
