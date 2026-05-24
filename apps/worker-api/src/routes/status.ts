@@ -1,14 +1,16 @@
+import { getEffectiveEnv } from "../admin-config/service";
 import { readOperationalConfig } from "../config";
 import { jsonResponse } from "../http/json";
 import { methodNotAllowed, timestamp } from "./response";
 import type { Env } from "../types";
 
-export function handleStatus(request: Request, env: Env): Response {
+export async function handleStatus(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") {
     return methodNotAllowed(["GET"]);
   }
 
-  const config = readOperationalConfig(env);
+  const effectiveEnv = await getEffectiveEnv(env);
+  const config = readOperationalConfig(effectiveEnv);
   const pilotReady = config.readiness.hasProviderCredentials.firecrawl
     || (config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken)
     || config.readiness.hasWordPressConfig;
