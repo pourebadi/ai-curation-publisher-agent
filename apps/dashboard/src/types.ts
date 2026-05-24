@@ -5,18 +5,8 @@ export type JsonObject = {
 };
 
 export type ApiResult<T extends JsonValue = JsonObject> =
-  | {
-      ok: true;
-      status: number;
-      data: T;
-    }
-  | {
-      ok: false;
-      status?: number;
-      error: string;
-      message: string;
-      data?: JsonValue;
-    };
+  | { ok: true; status: number; data: T }
+  | { ok: false; status?: number; error: string; message: string; data?: JsonValue };
 
 export type DashboardSettings = {
   apiBaseUrl: string;
@@ -36,7 +26,11 @@ export type OperationName =
   | "pilot_firecrawl"
   | "pilot_telegram_review"
   | "pilot_wordpress_draft"
-  | "pilot_combined";
+  | "pilot_combined"
+  | "admin_config_load"
+  | "admin_config_save"
+  | "admin_config_reset"
+  | "admin_config_audit";
 
 export type OperationRecord = {
   id: string;
@@ -75,67 +69,55 @@ export type ChecklistItem = {
 };
 
 export type SetupTone = "safe" | "warning" | "risky";
+export type SetupStatus = { label: string; tone: SetupTone; detail: string; nextAction: string };
+export type RuntimeChecklistItem = { name: string; purpose: string; where: string; sensitive: boolean; safeDefault: string; backendStatus: string; safe?: boolean; nextAction: string };
+export type SetupDetailItem = { name: string; purpose: string; where: string; sensitive: boolean; currentStatus: string; nextAction: string };
+export type LaunchSummary = { overallStatus: "Not ready" | "Setup in progress" | "Pilot-ready" | "Risky config"; workerReachable: string; internalSecurity: string; telegramReadiness: string; wordpressReadiness: string; firecrawlReadiness: string; schedulerSafety: "Safe" | "Warning" | "Risky"; publishingSafety: "Safe" | "Risky"; recommendedNextStep: string };
+export type SchedulerSafety = { riskLabel: "Safe" | "Warning" | "Risky"; enabled?: boolean; dryRun?: boolean; realProvidersAllowed?: boolean; publishingAllowed?: boolean; maxSourcesPerRun?: number; maxItemsPerRun?: number; maxAiItemsPerRun?: number; maxProviderItemsPerRun?: number; maxPublishItemsPerRun?: number; warnings: string[] };
+export type SetupCenterModel = { workerConnection: SetupStatus; internalSecurity: SetupStatus; cloudflareRuntime: RuntimeChecklistItem[]; telegram: SetupDetailItem[]; wordpress: SetupDetailItem[]; firecrawl: SetupDetailItem[]; scheduler: SchedulerSafety; launchSummary: LaunchSummary };
 
-export type SetupStatus = {
+export type AdminConfigGroup = "telegram" | "wordpress" | "providers" | "scheduler" | "quotas" | "secrets";
+export type AdminConfigSource = "d1" | "env" | "default" | "missing";
+export type AdminConfigItem = {
+  key: string;
+  group: AdminConfigGroup;
   label: string;
-  tone: SetupTone;
-  detail: string;
-  nextAction: string;
+  description: string;
+  type: string;
+  isSecret: boolean;
+  editable: boolean;
+  configured: boolean;
+  source: AdminConfigSource;
+  value?: string;
+  valueRedacted?: string;
+  validation: {
+    enumValues?: string[];
+    min?: number;
+    max?: number;
+    preferHttps?: boolean;
+  };
+  updatedAt?: string;
 };
-
-export type RuntimeChecklistItem = {
-  name: string;
-  purpose: string;
-  where: string;
-  sensitive: boolean;
-  safeDefault: string;
-  backendStatus: string;
-  safe?: boolean;
-  nextAction: string;
+export type AdminConfigResponse = {
+  ok: true;
+  encryption: {
+    configured: boolean;
+    valid: boolean;
+    secretEditingEnabled: boolean;
+    message?: string;
+  };
+  groups: Record<AdminConfigGroup, AdminConfigItem[]>;
+  items: AdminConfigItem[];
 };
-
-export type SetupDetailItem = {
-  name: string;
-  purpose: string;
-  where: string;
-  sensitive: boolean;
-  currentStatus: string;
-  nextAction: string;
-};
-
-export type LaunchSummary = {
-  overallStatus: "Not ready" | "Setup in progress" | "Pilot-ready" | "Risky config";
-  workerReachable: string;
-  internalSecurity: string;
-  telegramReadiness: string;
-  wordpressReadiness: string;
-  firecrawlReadiness: string;
-  schedulerSafety: "Safe" | "Warning" | "Risky";
-  publishingSafety: "Safe" | "Risky";
-  recommendedNextStep: string;
-};
-
-export type SchedulerSafety = {
-  riskLabel: "Safe" | "Warning" | "Risky";
-  enabled?: boolean;
-  dryRun?: boolean;
-  realProvidersAllowed?: boolean;
-  publishingAllowed?: boolean;
-  maxSourcesPerRun?: number;
-  maxItemsPerRun?: number;
-  maxAiItemsPerRun?: number;
-  maxProviderItemsPerRun?: number;
-  maxPublishItemsPerRun?: number;
-  warnings: string[];
-};
-
-export type SetupCenterModel = {
-  workerConnection: SetupStatus;
-  internalSecurity: SetupStatus;
-  cloudflareRuntime: RuntimeChecklistItem[];
-  telegram: SetupDetailItem[];
-  wordpress: SetupDetailItem[];
-  firecrawl: SetupDetailItem[];
-  scheduler: SchedulerSafety;
-  launchSummary: LaunchSummary;
+export type AdminAuditEntry = {
+  id: string;
+  key: string;
+  value_type: string;
+  is_secret: number;
+  action: string;
+  changed_at: string;
+  changed_by: string | null;
+  request_id: string | null;
+  previous_value_redacted: string | null;
+  new_value_redacted: string | null;
 };
