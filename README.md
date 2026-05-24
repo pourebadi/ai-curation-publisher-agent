@@ -12,6 +12,8 @@ The MVP is mock-first and safety-first. Real providers, scheduler side effects, 
 
 Phase 24 adds a browser-based operator dashboard under `apps/dashboard`. The dashboard is intended for a non-technical operator to check health, readiness, configuration state, safe smoke operations, scheduler safety, and controlled pilot readiness without using curl for normal checks.
 
+Phase 26 adds beginner-friendly Cloudflare setup and production readiness scripts. These scripts help configure safe non-secret Worker variables, deploy the Worker, and run safe checks without enabling real automation.
+
 ## Current MVP status
 
 | Area | Status | Notes |
@@ -34,6 +36,7 @@ Phase 24 adds a browser-based operator dashboard under `apps/dashboard`. The das
 | Scheduler safeguards | Implemented | Scheduler is disabled/dry-run guarded by default. |
 | Controlled pilot | Implemented | Explicit pilot route coordinates Firecrawl, Telegram review, and WordPress draft checks. |
 | Operator dashboard | Implemented MVP | React/Vite dashboard talks to the Worker API and stores local operator settings in the browser. |
+| Setup bootstrap | Implemented | Phase 26 scripts help run safe Cloudflare setup and production readiness checks. |
 | Monitoring/alerts | Not production-integrated | No external monitoring or alerting service is wired. |
 | Public dashboard auth | Not implemented in app | Protect production dashboard deployment with Cloudflare Access or equivalent. |
 
@@ -78,6 +81,7 @@ Package ownership:
 | `packages/telegram` | Telegram parsing, review message formatting, clients. |
 | `packages/wordpress` | WordPress output model, post builder, clients, publishing service. |
 | `packages/media` | Media asset model and mock preparation service. |
+| `scripts` | Operator setup and readiness helper scripts. |
 | `.github/workflows` | CI, deploy, smoke, D1 migration, and backup/export stub workflows. |
 
 ## Main data flows
@@ -150,77 +154,15 @@ Safety rules:
 - scheduler does not publish by default
 - controlled pilot checks are explicit opt-in only
 
-## Dedupe and validation
+## Provider, AI, Telegram, WordPress, and media safety
 
-Dedupe helpers include stable hashing, text normalization, canonical URL normalization, media URL hashing, stable IDs, fallback composite keys, and full dedupe key generation.
+Mock providers remain default. Real provider names and secret names may be documented, but real values must never be committed.
 
-Supported dedupe keys:
+The AI layer is provider-agnostic and mock-safe by default. Real AI calls are not required for tests.
 
-- `platform_source_post_id`
-- `canonical_url_hash`
-- `normalized_text_hash`
-- `media_url_hash`
-- `fallback_composite`
+Telegram supports manual ingest, review messages, review buttons, callback handling, and review-channel dry-run. Final Telegram publishing is abstracted and is not enabled by default.
 
-Validation checks include URL presence where required, allowed URL schemes, valid platform/source type, source identity or fallback identity, and content availability.
-
-## Provider system
-
-The provider layer owns provider adapters, registry/factory behavior, mock providers, real provider stubs, Firecrawl sandbox integration, response mappers, HTTP client abstraction, provider error categories, and failover readiness.
-
-Real provider integration names are documented as runtime configuration names only:
-
-- `PROVIDERS_MODE`
-- `ENABLE_APIFY_PROVIDER`
-- `ENABLE_GETXAPI_PROVIDER`
-- `ENABLE_FIRECRAWL_PROVIDER`
-- `APIFY_TOKEN`
-- `GETXAPI_KEY`
-- `FIRECRAWL_API_KEY`
-- `FIRECRAWL_BASE_URL`
-- `FIRECRAWL_TIMEOUT_MS`
-
-Mock providers remain default.
-
-## AI pipeline
-
-The AI layer is provider-agnostic and mock-safe by default. It supports prompt rendering, Telegram output, and WordPress output separation.
-
-Runtime names:
-
-- `AI_PROVIDER`
-- `AI_API_KEY`
-
-Real AI calls are not required for tests.
-
-## Telegram pipeline
-
-Telegram supports manual ingest, review message formatting, review buttons, callback handling, and a review-channel dry-run path. Final Telegram publishing is abstracted and not enabled by default.
-
-Runtime names:
-
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET`
-- `TELEGRAM_REVIEW_CHAT_ID`
-- `TELEGRAM_FINAL_CHAT_ID`
-- `TELEGRAM_ALLOWED_REVIEWER_IDS`
-- `TELEGRAM_REAL_REVIEW_ENABLED`
-
-Treat Telegram tokens, webhook values, chat IDs, and reviewer IDs as sensitive operational configuration.
-
-## WordPress pipeline
-
-WordPress supports output modeling, post payload building, mock client behavior, real REST client readiness, and draft-only dry-run behavior. Public WordPress publishing is not enabled by default, and media upload is not part of the MVP.
-
-Runtime names:
-
-- `WORDPRESS_BASE_URL`
-- `WORDPRESS_USERNAME`
-- `WORDPRESS_APPLICATION_PASSWORD`
-- `WORDPRESS_DEFAULT_STATUS`
-- `WORDPRESS_REAL_DRY_RUN_ENABLED`
-
-## Media pipeline
+WordPress supports output modeling, post payload building, mock client behavior, real REST client readiness, and draft-only dry-run behavior. Public WordPress publishing is not enabled by default.
 
 The media pipeline supports image, video, thumbnail, and carousel metadata with mock preparation. Production media download, ffmpeg, yt-dlp, R2 upload, Telegram media sending, and WordPress media upload are not enabled by default.
 
@@ -275,6 +217,84 @@ Header name:
 - `x-internal-api-secret`
 
 Local/mock mode may leave this unset. Deployed internal routes should use it. Do not expose the configured value in logs, docs, screenshots, responses, or browser UI.
+
+## Beginner Cloudflare setup and production checks
+
+Use these scripts after dependencies are installed with `pnpm install` and before handing the system to a non-technical operator.
+
+### `pnpm setup:cloudflare`
+
+Run this when you are preparing the Worker for Cloudflare production setup for the first time.
+
+```bash
+pnpm setup:cloudflare
+```
+
+The setup wizard does this safely:
+
+- confirms it is running from the repository root
+- inspects `wrangler.toml`
+- adds or corrects non-secret production-safe `[vars]`
+- keeps providers in mock mode
+- keeps the scheduler disabled and dry-run guarded
+- keeps publishing disabled
+- generates a one-time `INTERNAL_API_SECRET` value with Node crypto
+- prints that generated secret exactly once so you can save it securely
+- offers to send `INTERNAL_API_SECRET` to Cloudflare with `pnpm wrangler secret put INTERNAL_API_SECRET`
+- offers to run `pnpm worker:deploy`
+- asks for or infers `WORKER_BASE_URL`
+- checks `/health`, `/status`, `/ready`, and internal auth when a secret is available
+
+The setup wizard does not do these things:
+
+- it does not write secrets into `wrangler.toml`
+- it does not store generated secrets in files
+- it does not configure or store Cloudflare API tokens
+- it does not enable real providers
+- it does not enable the scheduler
+- it does not enable automatic publishing
+- it does not enable final Telegram publishing
+- it does not enable public WordPress publishing
+- it does not call real provider, Telegram, or WordPress APIs by itself
+
+### `pnpm check:production`
+
+Run this after deployment, after changing Cloudflare Worker variables or secrets, or before opening the dashboard to an operator.
+
+```bash
+WORKER_BASE_URL=https://your-worker-url.example pnpm check:production
+```
+
+If you want authenticated internal checks, provide the secret through the environment or enter it when prompted. The script never prints the secret value.
+
+```bash
+WORKER_BASE_URL=https://your-worker-url.example INTERNAL_API_SECRET=your-saved-secret pnpm check:production
+```
+
+The production checker runs only safe checks:
+
+- `GET /health`
+- `GET /status`
+- `GET /ready`
+- `POST /internal/e2e/mock-pipeline` without a secret
+- `POST /internal/e2e/mock-pipeline` with a secret when provided
+- `POST /internal/pilot/real-integrations` with an empty body when a secret is provided
+
+The empty pilot check is readiness-oriented. It must not enable scheduler behavior, provider polling, final Telegram publishing, or public WordPress publishing.
+
+### Where secrets belong
+
+Secrets must never be committed. Do not paste real secret values into README, source code, tests, screenshots, issue comments, PR descriptions, or chat.
+
+Use these storage locations:
+
+- local development: `.dev.vars`
+- Cloudflare runtime: Cloudflare Worker Secrets, usually through `pnpm wrangler secret put SECRET_NAME`
+- GitHub workflows: GitHub Actions Secrets
+
+Secret names are okay to document. Secret values are not.
+
+Telegram and WordPress remain optional until a controlled pilot. The scheduler remains disabled by default. After the Worker is deployed and readiness checks pass, the next step is deploying and protecting the operator dashboard with Cloudflare Access or an equivalent access-control layer.
 
 ## Operator dashboard
 
@@ -338,8 +358,8 @@ The dashboard does not display saved credential values after saving.
 
 | Variable | Where to set | Sensitive? | Purpose | Safety note |
 | --- | --- | --- | --- | --- |
-| `ENVIRONMENT` | `.dev.vars`, Cloudflare Variable | No | Runtime environment label. | Local/mock behavior can remain permissive. |
-| `LOG_LEVEL` | `.dev.vars`, Cloudflare Variable | No | Logging level. | Avoid noisy production logs. |
+| `ENVIRONMENT` | `.dev.vars`, Cloudflare Variable | No | Runtime environment label. | Production setup uses `production`. |
+| `LOG_LEVEL` | `.dev.vars`, Cloudflare Variable | No | Logging level. | Production setup uses `info`. |
 | `INTERNAL_API_SECRET` | `.dev.vars`, Cloudflare Secret | Yes | Internal route guard. | Required for deployed internal operations. |
 | `PROVIDERS_MODE` | `.dev.vars`, Cloudflare Variable | No | Provider mode. | Mock-safe by default. |
 | `ENABLE_APIFY_PROVIDER` | Cloudflare Variable | No | Enables Apify-style stub. | Disabled by default. |
@@ -369,9 +389,9 @@ The dashboard does not display saved credential values after saving.
 | `SCHEDULER_MAX_ITEMS_PER_RUN` | Cloudflare Variable | No | Scheduler item limit. | Keep conservative. |
 | `SCHEDULER_ALLOW_REAL_PROVIDERS` | Cloudflare Variable | No | Allows scheduler real providers. | Disabled by default. |
 | `SCHEDULER_ALLOW_PUBLISHING` | Cloudflare Variable | No | Allows scheduler publishing. | Disabled by default. |
-| `MAX_AI_ITEMS_PER_RUN` | Cloudflare Variable | No | AI quota foundation. | Keep conservative. |
+| `MAX_AI_ITEMS_PER_RUN` | Cloudflare Variable | No | AI quota foundation. | Keep zero unless explicitly scoped. |
 | `MAX_PROVIDER_ITEMS_PER_RUN` | Cloudflare Variable | No | Provider quota foundation. | Keep conservative. |
-| `MAX_PUBLISH_ITEMS_PER_RUN` | Cloudflare Variable | No | Publish quota foundation. | Keep zero unless scoped. |
+| `MAX_PUBLISH_ITEMS_PER_RUN` | Cloudflare Variable | No | Publish quota foundation. | Keep zero unless explicitly scoped. |
 | `CLOUDFLARE_API_TOKEN` | GitHub Actions Secret | Yes | Deploy/migration workflow auth. | Never put in frontend code. |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions Secret | Yes | Cloudflare workflow account identifier. | Use only in GitHub settings. |
 
@@ -422,6 +442,13 @@ WORKER_BASE_URL=http://localhost:8787 pnpm worker:smoke
 WORKER_BASE_URL=http://localhost:8787 pnpm worker:e2e:mock
 ```
 
+Setup and production readiness:
+
+```bash
+pnpm setup:cloudflare
+WORKER_BASE_URL=https://your-worker-url.example pnpm check:production
+```
+
 Dashboard:
 
 ```bash
@@ -440,12 +467,16 @@ The Worker uses `wrangler.toml`, D1 binding `DB`, and migrations under `packages
 
 GitHub workflows cover CI, manual deploy, smoke tests, D1 migrations, and a backup/export stub. Keep deploy and migration workflows manual unless a future scoped phase explicitly changes that behavior.
 
+For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnpm check:production` after deployment or configuration changes.
+
 ## Production readiness checklist
 
 - [ ] `pnpm lint` passes.
 - [ ] `pnpm typecheck` passes.
 - [ ] `pnpm test` passes.
 - [ ] `pnpm dashboard:build` passes.
+- [ ] `node --check scripts/setup-cloudflare.mjs` passes.
+- [ ] `node --check scripts/check-production-readiness.mjs` passes.
 - [ ] Worker boots locally.
 - [ ] Dashboard runs locally.
 - [ ] `/health`, `/status`, and `/ready` pass.
@@ -487,4 +518,4 @@ Do not launch if readiness fails, D1 migration state is uncertain, internal auth
 7. Do not make real network calls in tests.
 8. Do not bypass dedupe, validation, lifecycle, scheduler, auth, redaction, or dashboard safety guards.
 9. Do not put Cloudflare API tokens or mutation flows in the dashboard.
-10. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm dashboard:build` before opening or merging PRs.
+10. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm dashboard:build`, and script syntax checks before opening or merging PRs.
