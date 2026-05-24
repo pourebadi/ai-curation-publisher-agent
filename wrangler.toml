@@ -4,8 +4,21 @@ compatibility_date = "2026-05-01"
 workers_dev = true
 
 [vars]
-ENVIRONMENT = "local"
-LOG_LEVEL = "debug"
+ENVIRONMENT = "production"
+LOG_LEVEL = "info"
+PROVIDERS_MODE = "mock"
+SCHEDULER_ENABLED = "false"
+SCHEDULER_DRY_RUN = "true"
+SCHEDULER_ALLOW_REAL_PROVIDERS = "false"
+SCHEDULER_ALLOW_PUBLISHING = "false"
+SCHEDULER_MAX_SOURCES_PER_RUN = "1"
+SCHEDULER_MAX_ITEMS_PER_RUN = "2"
+MAX_AI_ITEMS_PER_RUN = "0"
+MAX_PROVIDER_ITEMS_PER_RUN = "5"
+MAX_PUBLISH_ITEMS_PER_RUN = "0"
+TELEGRAM_REAL_REVIEW_ENABLED = "false"
+WORDPRESS_REAL_DRY_RUN_ENABLED = "false"
+WORDPRESS_DEFAULT_STATUS = "draft"
 
 # Local/mock-safe D1 binding. Replace database_id through Cloudflare configuration
 # or environment-specific Wrangler config before production deployment.
