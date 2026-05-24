@@ -1,4 +1,5 @@
 import type { WordPressClient } from "@curator/wordpress";
+import { getEffectiveEnv } from "../admin-config/service";
 import { runWordPressDryRun, type WordPressDryRunInput } from "../operations/wordpress-dry-run";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
@@ -50,8 +51,9 @@ export async function handleInternalWordPressDryRun(
     }
   }
 
+  const effectiveEnv = await getEffectiveEnv(env);
   const result = await runWordPressDryRun({
-    env,
+    env: effectiveEnv,
     input: {
       title: parsed.value.title,
       content: parsed.value.content,
