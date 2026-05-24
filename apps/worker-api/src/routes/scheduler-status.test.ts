@@ -20,7 +20,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 describe("scheduler status summary", () => {
   it("status exposes safe scheduler and quota summaries", async () => {
-    const response = handleStatus(new Request("https://worker.local/status"), makeEnv({
+    const response = await handleStatus(new Request("https://worker.local/status"), makeEnv({
       SCHEDULER_ENABLED: "true",
       SCHEDULER_DRY_RUN: "true",
       SCHEDULER_MAX_SOURCES_PER_RUN: "2",
@@ -48,7 +48,7 @@ describe("scheduler status summary", () => {
   });
 
   it("readiness exposes safe scheduler and quota summaries without secrets", async () => {
-    const response = handleReady(new Request("https://worker.local/ready"), makeEnv({
+    const response = await handleReady(new Request("https://worker.local/ready"), makeEnv({
       INTERNAL_API_SECRET: "configured-secret",
       SCHEDULER_ENABLED: "true",
       SCHEDULER_ALLOW_REAL_PROVIDERS: "true",
