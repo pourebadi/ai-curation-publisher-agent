@@ -1,20 +1,35 @@
-import { ADMIN_CONFIG_DEFINITIONS, findAdminConfigDefinition, isEditableAdminConfigKey, isForbiddenAdminConfigKey, type AdminConfigDefinition, type AdminConfigGroup, type AdminConfigSource } from "./allowlist";
+import { ADMIN_CONFIG_DEFINITIONS, findAdminConfigDefinition, isEditableAdminConfigKey, isForbiddenAdminConfigKey, type AdminConfigDefinition, type AdminConfigGroup, type AdminConfigSafetyLevel, type AdminConfigSource } from "./allowlist";
 import { decryptSecretValue, encryptSecretValue, importConfigEncryptionKey } from "./crypto";
 import { validateAdminConfigValue } from "./validation";
 import type { Env } from "../types";
 
 export type AdminConfigRow = { key: string; value: string; value_type: string; is_secret: number; encrypted: number; updated_at: string; updated_by: string | null; description: string | null };
 export type AdminConfigAuditRow = { id: string; key: string; value_type: string; is_secret: number; action: string; changed_at: string; changed_by: string | null; request_id: string | null; previous_value_redacted: string | null; new_value_redacted: string | null };
-export type SafeAdminConfigItem = { key: string; group: AdminConfigGroup; label: string; description: string; type: string; isSecret: boolean; editable: boolean; configured: boolean; source: AdminConfigSource; value?: string; valueRedacted?: string; validation: { enumValues?: string[]; min?: number; max?: number; preferHttps?: boolean }; updatedAt?: string };
-export type SafeAdminConfigResponse = { ok: true; encryption: { configured: boolean; valid: boolean; secretEditingEnabled: boolean; message?: string }; groups: Record<AdminConfigGroup, SafeAdminConfigItem[]>; items: SafeAdminConfigItem[] };
+export type SafeAdminConfigItem = { key: string; group: AdminConfigGroup; label: string; description: string; whereUsed: string; type: string; isSecret: boolean; editable: boolean; configured: boolean; source: AdminConfigSource; value?: string; valueRedacted?: string; safetyLevel: AdminConfigSafetyLevel; setupVisible: boolean; settingsVisible: boolean; validation: { enumValues?: string[]; min?: number; max?: number; maxLength?: number; maxItems?: number; preferHttps?: boolean }; updatedAt?: string; restartRequired: false };
+export type SafeAdminConfigResponse = { ok: true; encryption: { configured: boolean; valid: boolean; secretEditingEnabled: boolean; message?: string }; groups: Record<AdminConfigGroup, SafeAdminConfigItem[]>; items: SafeAdminConfigItem[]; presets: { openai: string[]; gemini: string[] }; modes: { key: string; label: string; description: string }[] };
 export type SetAdminConfigInput = { key: string; value: unknown };
 export type AdminConfigWriteResult = { ok: true; response: SafeAdminConfigResponse } | { ok: false; status: number; error: string; message: string };
+
+export const AI_MODEL_PRESETS = {
+  openai: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"],
+  gemini: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+};
+
+export const OPERATING_MODE_DESCRIPTIONS = [
+  { key: "manual_only", label: "Manual only", description: "I will add content manually. Provider credentials are not required." },
+  { key: "mock_demo", label: "Mock/demo", description: "Use mock providers and mock E2E checks for demos and testing." },
+  { key: "provider_assisted", label: "Provider-assisted", description: "Use configured providers such as Firecrawl, Apify, or GetXAPI when explicitly enabled." }
+];
 
 export async function listEditableConfig(env: Env): Promise<SafeAdminConfigResponse> {
   const stored = await readAdminConfigRows(env.DB);
   const encryption = await getEncryptionSummary(env);
   const items = ADMIN_CONFIG_DEFINITIONS.map((definition) => toSafeItem(definition, stored.get(definition.key), env));
-  return { ok: true, encryption, groups: groupItems(items), items };
+  return { ok: true, encryption, groups: groupItems(items), items, presets: AI_MODEL_PRESETS, modes: OPERATING_MODE_DESCRIPTIONS };
+}
+
+export function getEditableConfigMetadata(): typeof ADMIN_CONFIG_DEFINITIONS {
+  return ADMIN_CONFIG_DEFINITIONS;
 }
 
 export async function getEffectiveEnv(env: Env): Promise<Env> {
@@ -31,6 +46,13 @@ export async function getEffectiveEnv(env: Env): Promise<Env> {
     setEnvValue(effective, definition.key, row.value);
   }
   return effective;
+}
+
+export const getEffectiveConfig = getEffectiveEnv;
+export const getConfigStatus = listEditableConfig;
+
+export async function setConfigValue(env: Env, key: string, value: unknown, request: Request): Promise<AdminConfigWriteResult> {
+  return setConfigValues(env, [{ key, value }], request);
 }
 
 export async function setConfigValues(env: Env, updates: SetAdminConfigInput[], request: Request): Promise<AdminConfigWriteResult> {
@@ -61,6 +83,10 @@ export async function setConfigValues(env: Env, updates: SetAdminConfigInput[], 
   return { ok: true, response: await listEditableConfig(env) };
 }
 
+export async function resetConfigValue(env: Env, key: string, request: Request): Promise<AdminConfigWriteResult> {
+  return resetConfigValues(env, [key], request);
+}
+
 export async function resetConfigValues(env: Env, keys: string[], request: Request): Promise<AdminConfigWriteResult> {
   if (!hasD1(env.DB)) return { ok: false, status: 500, error: "admin_config_db_unavailable", message: "D1 admin config store is unavailable." };
   if (!Array.isArray(keys) || keys.length === 0) return { ok: false, status: 400, error: "empty_keys", message: "Provide at least one config key to reset." };
@@ -84,6 +110,8 @@ export async function listAdminConfigAudit(env: Env, limit = 50): Promise<{ ok: 
   const result = await env.DB.prepare("SELECT * FROM admin_config_audit ORDER BY changed_at DESC LIMIT ?").bind(cappedLimit).all<AdminConfigAuditRow>();
   return { ok: true, entries: result.results ?? [] };
 }
+
+export const getAuditLog = listAdminConfigAudit;
 
 export async function getEncryptionSummary(env: Env): Promise<SafeAdminConfigResponse["encryption"]> {
   const imported = await importConfigEncryptionKey(env.CONFIG_ENCRYPTION_KEY);
@@ -117,13 +145,22 @@ function toSafeItem(definition: AdminConfigDefinition, row: AdminConfigRow | und
   const defaultValue = definition.defaultValue;
   const source: AdminConfigSource = row !== undefined ? "d1" : envValue !== undefined ? "env" : defaultValue !== undefined ? "default" : "missing";
   const configured = row !== undefined || envValue !== undefined || defaultValue !== undefined;
-  const base = { key: definition.key, group: definition.group, label: definition.label, description: definition.description, type: definition.valueType, isSecret: definition.isSecret, editable: definition.editable, configured, source, validation: { ...(definition.enumValues === undefined ? {} : { enumValues: [...definition.enumValues] }), ...(definition.min === undefined ? {} : { min: definition.min }), ...(definition.max === undefined ? {} : { max: definition.max }), ...(definition.preferHttps === undefined ? {} : { preferHttps: definition.preferHttps }) }, ...(row?.updated_at === undefined ? {} : { updatedAt: row.updated_at }) };
+  const base = { key: definition.key, group: definition.group, label: definition.label, description: definition.description, whereUsed: definition.whereUsed, type: definition.valueType, isSecret: definition.isSecret, editable: definition.editable, configured, source, safetyLevel: definition.safetyLevel, setupVisible: definition.setupVisible, settingsVisible: definition.settingsVisible, restartRequired: false as const, validation: { ...(definition.enumValues === undefined ? {} : { enumValues: [...definition.enumValues] }), ...(definition.min === undefined ? {} : { min: definition.min }), ...(definition.max === undefined ? {} : { max: definition.max }), ...(definition.maxLength === undefined ? {} : { maxLength: definition.maxLength }), ...(definition.maxItems === undefined ? {} : { maxItems: definition.maxItems }), ...(definition.preferHttps === undefined ? {} : { preferHttps: definition.preferHttps }) }, ...(row?.updated_at === undefined ? {} : { updatedAt: row.updated_at }) };
   if (definition.isSecret) return { ...base, valueRedacted: configured ? "[configured]" : "[missing]" };
   return { ...base, value: row?.value ?? envValue ?? defaultValue ?? "" };
 }
 
 function groupItems(items: SafeAdminConfigItem[]): Record<AdminConfigGroup, SafeAdminConfigItem[]> {
-  return { telegram: items.filter((item) => item.group === "telegram"), wordpress: items.filter((item) => item.group === "wordpress"), providers: items.filter((item) => item.group === "providers"), scheduler: items.filter((item) => item.group === "scheduler"), quotas: items.filter((item) => item.group === "quotas"), secrets: items.filter((item) => item.group === "secrets") };
+  return {
+    operating_mode: items.filter((item) => item.group === "operating_mode"),
+    content_input: items.filter((item) => item.group === "content_input"),
+    ai: items.filter((item) => item.group === "ai"),
+    telegram: items.filter((item) => item.group === "telegram"),
+    wordpress: items.filter((item) => item.group === "wordpress"),
+    providers: items.filter((item) => item.group === "providers"),
+    scheduler: items.filter((item) => item.group === "scheduler"),
+    quotas: items.filter((item) => item.group === "quotas")
+  };
 }
 
 async function writeAudit(env: Env, input: { definition: AdminConfigDefinition; action: string; changedAt: string; changedBy: string; requestId: string; previousValueRedacted: string; newValueRedacted: string }): Promise<void> {
