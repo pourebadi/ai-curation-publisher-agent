@@ -1,4 +1,5 @@
 import type { TelegramClient } from "@curator/telegram";
+import { getEffectiveEnv } from "../admin-config/service";
 import { runTelegramReviewDryRun, type TelegramReviewDryRunInput } from "../operations/telegram-review-dry-run";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
@@ -46,8 +47,9 @@ export async function handleInternalTelegramReviewDryRun(
     }
   }
 
+  const effectiveEnv = await getEffectiveEnv(env);
   const result = await runTelegramReviewDryRun({
-    env,
+    env: effectiveEnv,
     input: {
       text: parsed.value.text,
       ...(parsed.value.sourceUrl === undefined ? {} : { sourceUrl: parsed.value.sourceUrl })
