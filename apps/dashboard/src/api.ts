@@ -1,3 +1,4 @@
+import { redactSensitiveJson, redactSensitiveText } from "./setup";
 import type { ApiResult, JsonObject, JsonValue, PilotInput, StatusBundle } from "./types";
 
 export function normalizeApiBaseUrl(value: string): string {
@@ -20,6 +21,10 @@ export class WorkerApiClient {
     }
   }
 
+  hasInternalCredential(): boolean {
+    return this.internalCredential !== undefined;
+  }
+
   async getStatusBundle(): Promise<StatusBundle> {
     const [health, status, ready] = await Promise.all([
       this.getJson("/health"),
@@ -28,6 +33,27 @@ export class WorkerApiClient {
     ]);
 
     return { health, status, ready };
+  }
+
+  async runInternalAuthProbe(): Promise<ApiResult> {
+    const withoutSecret = await this.postJson("/internal/e2e/mock-pipeline", {}, false);
+    const withSecret = this.internalCredential === undefined
+      ? undefined
+      : await this.postJson("/internal/e2e/mock-pipeline", {}, true);
+
+    const ok = withoutSecret.status === 401 && withSecret?.ok === true;
+    return {
+      ok: true,
+      status: withSecret?.status ?? withoutSecret.status ?? 0,
+      data: {
+        ok,
+        withoutSecretStatus: withoutSecret.status ?? "network_error",
+        withSecretStatus: withSecret?.status ?? "not_run",
+        protected: withoutSecret.status === 401,
+        credentialWorks: withSecret?.ok === true,
+        note: ok ? "Internal auth is protected and the local credential works." : "Internal auth needs attention. Check Cloudflare Worker Secret and the locally entered dashboard credential."
+      }
+    };
   }
 
   async runMockE2E(): Promise<ApiResult> {
@@ -42,6 +68,26 @@ export class WorkerApiClient {
     });
   }
 
+  async runTelegramReviewDryRun(input: { text: string; sourceUrl?: string }): Promise<ApiResult> {
+    const body: JsonObject = { text: input.text };
+    if (input.sourceUrl !== undefined && input.sourceUrl.length > 0) {
+      body.sourceUrl = input.sourceUrl;
+    }
+    return this.postInternalJson("/internal/telegram/review-dry-run", body);
+  }
+
+  async runWordPressDraftDryRun(input: { title: string; content: string; sourceUrl?: string }): Promise<ApiResult> {
+    const body: JsonObject = { title: input.title, content: input.content };
+    if (input.sourceUrl !== undefined && input.sourceUrl.length > 0) {
+      body.sourceUrl = input.sourceUrl;
+    }
+    return this.postInternalJson("/internal/wordpress/dry-run", body);
+  }
+
+  async runFirecrawlSandboxFetch(input: { url: string }): Promise<ApiResult> {
+    return this.postInternalJson("/internal/providers/firecrawl/sandbox-fetch", { url: input.url });
+  }
+
   async runPilot(input: PilotInput): Promise<ApiResult> {
     return this.postInternalJson("/internal/pilot/real-integrations", input as JsonObject);
   }
@@ -51,12 +97,16 @@ export class WorkerApiClient {
   }
 
   private async postInternalJson(path: string, body: JsonObject): Promise<ApiResult> {
+    return this.postJson(path, body, true);
+  }
+
+  private async postJson(path: string, body: JsonObject, includeCredential: boolean): Promise<ApiResult> {
     return this.requestJson(path, {
       method: "POST",
       body: JSON.stringify(body),
       headers: {
         "content-type": "application/json",
-        ...(this.internalCredential === undefined ? {} : { "x-internal-api-secret": this.internalCredential })
+        ...(includeCredential && this.internalCredential !== undefined ? { "x-internal-api-secret": this.internalCredential } : {})
       }
     });
   }
@@ -80,20 +130,20 @@ export class WorkerApiClient {
           status: response.status,
           error: getErrorName(data),
           message: getErrorMessage(data, response.status),
-          data: redactValue(data)
+          data: redactSensitiveJson(data)
         };
       }
 
       return {
         ok: true,
         status: response.status,
-        data: redactValue(data) as JsonObject
+        data: redactSensitiveJson(data) as JsonObject
       };
     } catch (error) {
       return {
         ok: false,
         error: "network_error",
-        message: error instanceof Error ? redactText(error.message) : "Network request failed."
+        message: error instanceof Error ? redactSensitiveText(error.message) : "Network request failed."
       };
     }
   }
@@ -117,46 +167,10 @@ function getErrorName(value: JsonValue): string {
 
 function getErrorMessage(value: JsonValue, status: number): string {
   if (isObject(value) && typeof value.message === "string") {
-    return redactText(value.message);
+    return redactSensitiveText(value.message);
   }
 
   return `Request failed with HTTP ${status}.`;
-}
-
-export function redactValue(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item));
-  }
-
-  if (!isObject(value)) {
-    return typeof value === "string" ? redactText(value) : value;
-  }
-
-  const redacted: JsonObject = {};
-  for (const [key, nestedValue] of Object.entries(value)) {
-    if (isSensitiveKey(key)) {
-      redacted[key] = "[configured locally]";
-      continue;
-    }
-    redacted[key] = redactValue(nestedValue);
-  }
-
-  return redacted;
-}
-
-function redactText(value: string): string {
-  return value.replace(/x-internal-api-secret:\s*[^\s]+/gi, "x-internal-api-secret: [redacted]");
-}
-
-function isSensitiveKey(key: string): boolean {
-  const normalized = key.toLowerCase();
-  return normalized.includes("token")
-    || normalized.includes("secret")
-    || normalized.includes("password")
-    || normalized.includes("apikey")
-    || normalized.includes("api_key")
-    || normalized.includes("authorization")
-    || normalized.includes("credential");
 }
 
 function isObject(value: JsonValue): value is JsonObject {
