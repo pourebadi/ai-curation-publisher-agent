@@ -86,6 +86,7 @@ function App(): JSX.Element {
   const completedSteps = wizardSteps.filter((step) => step.status === "Ready").length;
   const progressPercent = Math.round((completedSteps / wizardSteps.length) * 100);
   const internalReady = settings.hasInternalCredential;
+  const workerReady = wizardSteps[0]?.status === "Ready";
 
   const recordOperation = useCallback((name: OperationName, ok: boolean, result: JsonValue): void => {
     const safeResult = redactSensitiveJson(result);
@@ -128,6 +129,28 @@ function App(): JSX.Element {
     setCredentialInput("");
     setSettings(loadSettings());
     setNotice("Saved locally. Secret values are never displayed after saving.");
+  }
+
+  async function saveAndCheckConnection(): Promise<void> {
+    saveApiBaseUrl(apiBaseUrlInput);
+    if (credentialInput.length > 0) {
+      saveInternalCredential(credentialInput, rememberCredential);
+    }
+    setCredentialInput("");
+    const nextSettings = loadSettings();
+    setSettings(nextSettings);
+    setBusy("refresh_status");
+    const checkClient = new WorkerApiClient(nextSettings.apiBaseUrl, getInternalCredential());
+    const next = await checkClient.getStatusBundle();
+    setBundle(next);
+    const ok = next.health?.ok === true && next.status?.ok === true && next.ready?.ok === true;
+    recordOperation("refresh_status", ok, {
+      health: resultToJson(next.health),
+      status: resultToJson(next.status),
+      ready: resultToJson(next.ready)
+    });
+    setNotice(ok ? "Connection saved and checked. Your Worker is reachable." : "We can’t reach your Worker yet. Check the URL and try again.");
+    setBusy(undefined);
   }
 
   function clearAllSettings(): void {
@@ -207,16 +230,15 @@ function App(): JSX.Element {
             <span>{setupCenter.launchSummary.recommendedNextStep}</span>
           </div>
           <div className="overviewCards">
-            <OverviewCard title="System status" value={bundle.health?.ok === true ? "Worker is online" : "Worker is not connected"} tone={bundle.health?.ok === true ? "safe" : "warning"} />
+            <OverviewCard title="System status" value={bundle.health?.ok === true ? "Worker is online" : "We can’t reach your Worker yet"} tone={bundle.health?.ok === true ? "safe" : "warning"} />
             <OverviewCard title="Setup progress" value={`${completedSteps} of ${wizardSteps.length} steps complete`} tone={completedSteps === wizardSteps.length ? "safe" : "warning"} />
-            <OverviewCard title="Internal security" value={setupCenter.launchSummary.internalSecurity === "Ready" ? "Internal security is configured" : "Internal security needs setup"} tone={setupCenter.launchSummary.internalSecurity === "Ready" ? "safe" : "warning"} />
+            <OverviewCard title="Internal security" value={setupCenter.launchSummary.internalSecurity === "Ready" ? "Internal security is configured" : "Waiting for Worker connection"} tone={setupCenter.launchSummary.internalSecurity === "Ready" ? "safe" : "warning"} />
             <OverviewCard title="Scheduler safety" value={setupCenter.scheduler.riskLabel === "Safe" ? "Scheduler is disabled or safe" : "Scheduler needs review"} tone={toneForRisk(setupCenter.scheduler.riskLabel)} />
             <OverviewCard title="Publishing safety" value={setupCenter.launchSummary.publishingSafety === "Safe" ? "No public publishing is enabled" : "Publishing is risky"} tone={setupCenter.launchSummary.publishingSafety === "Safe" ? "safe" : "risky"} />
-            <OverviewCard title="Next action" value={setupCenter.launchSummary.recommendedNextStep} tone="plain" />
+            <OverviewCard title="Next action" value={workerReady ? setupCenter.launchSummary.recommendedNextStep : "Paste your deployed Cloudflare Worker URL, then check the connection."} tone="plain" />
           </div>
           <div className="quickActions">
             <button type="button" onClick={() => setActiveTab("wizard")}>Continue setup wizard</button>
-            <button type="button" className="secondary" onClick={() => setActiveTab("technical")}>Open technical details</button>
           </div>
         </section>
       )}
@@ -249,6 +271,7 @@ function App(): JSX.Element {
                 rememberCredential,
                 setRememberCredential,
                 saveSetup,
+                saveAndCheckConnection,
                 clearAllSettings,
                 refreshStatus,
                 runOperation,
@@ -275,11 +298,13 @@ function App(): JSX.Element {
                 setConfirmTelegramPilot,
                 confirmWordPressPilot,
                 setConfirmWordPressPilot,
-                runPilotFromInput
+                runPilotFromInput,
+                workerReady
               })}
+              {wizardStepIndex === 0 && !workerReady && <p className="warning">Paste your deployed Cloudflare Worker URL, then check the connection before continuing.</p>}
               <div className="wizardNav">
                 <button type="button" className="secondary" onClick={() => setWizardStepIndex(Math.max(0, wizardStepIndex - 1))} disabled={wizardStepIndex === 0}>Previous step</button>
-                <button type="button" onClick={() => setWizardStepIndex(Math.min(wizardSteps.length - 1, wizardStepIndex + 1))} disabled={wizardStepIndex === wizardSteps.length - 1}>Next step</button>
+                <button type="button" onClick={() => setWizardStepIndex(Math.min(wizardSteps.length - 1, wizardStepIndex + 1))} disabled={wizardStepIndex === wizardSteps.length - 1 || (wizardStepIndex === 0 && !workerReady)}>Next step</button>
               </div>
             </div>
           </div>
@@ -290,9 +315,9 @@ function App(): JSX.Element {
         <section className="tabPanel" aria-labelledby="integrations-heading">
           <div className="sectionTitle"><div><p className="eyebrow">Integrations</p><h2 id="integrations-heading">Optional setup</h2></div></div>
           <nav className="subTabs" aria-label="Integration tabs">{integrationTabs.map((tab) => <button type="button" key={tab.id} className={activeIntegration === tab.id ? "active" : "secondary"} onClick={() => setActiveIntegration(tab.id)}>{tab.label}</button>)}</nav>
-          {activeIntegration === "telegram" && <IntegrationPanel title="Telegram review" status={integrationStatus(setupCenter.telegram, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_REVIEW_CHAT_ID", "TELEGRAM_REAL_REVIEW_ENABLED"])} items={setupCenter.telegram} instructions="Configure Telegram values manually in Cloudflare. Use review dry-run only when you intentionally enabled review mode." advanced={<DetailList items={setupCenter.telegram} />} action={<TelegramAction telegramText={telegramText} setTelegramText={setTelegramText} telegramSourceUrl={telegramSourceUrl} setTelegramSourceUrl={setTelegramSourceUrl} internalReady={internalReady} busy={busy} runOperation={runOperation} client={client} />} />}
-          {activeIntegration === "wordpress" && <IntegrationPanel title="WordPress draft" status={integrationStatus(setupCenter.wordpress, ["WORDPRESS_BASE_URL", "WORDPRESS_USERNAME", "WORDPRESS_APPLICATION_PASSWORD", "WORDPRESS_REAL_DRY_RUN_ENABLED"])} items={setupCenter.wordpress} instructions="Keep WordPress output draft-only. Configure values manually in Cloudflare before running a draft dry-run." advanced={<DetailList items={setupCenter.wordpress} />} action={<WordPressAction wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} wordpressSourceUrl={wordpressSourceUrl} setWordpressSourceUrl={setWordpressSourceUrl} internalReady={internalReady} busy={busy} runOperation={runOperation} client={client} />} />}
-          {activeIntegration === "firecrawl" && <IntegrationPanel title="Firecrawl sandbox" status={integrationStatus(setupCenter.firecrawl, ["PROVIDERS_MODE", "ENABLE_FIRECRAWL_PROVIDER", "FIRECRAWL_API_KEY"])} items={setupCenter.firecrawl} instructions="Firecrawl is optional and may call an external service only if backend settings are manually enabled." advanced={<DetailList items={setupCenter.firecrawl} />} action={<FirecrawlAction firecrawlUrl={firecrawlUrl} setFirecrawlUrl={setFirecrawlUrl} confirmFirecrawl={confirmFirecrawl} setConfirmFirecrawl={setConfirmFirecrawl} internalReady={internalReady} busy={busy} runOperation={runOperation} client={client} />} />}
+          {activeIntegration === "telegram" && <IntegrationPanel title="Telegram review" status={integrationStatus(setupCenter.telegram, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_REVIEW_CHAT_ID", "TELEGRAM_REAL_REVIEW_ENABLED"])} items={workerReady ? setupCenter.telegram : []} instructions={workerReady ? "Configure Telegram values manually in Cloudflare. Use review dry-run only when you intentionally enabled review mode." : "Waiting for Worker connection"} advanced={<DetailList items={setupCenter.telegram} />} action={<TelegramAction telegramText={telegramText} setTelegramText={setTelegramText} telegramSourceUrl={telegramSourceUrl} setTelegramSourceUrl={setTelegramSourceUrl} internalReady={internalReady && workerReady} busy={busy} runOperation={runOperation} client={client} />} />}
+          {activeIntegration === "wordpress" && <IntegrationPanel title="WordPress draft" status={integrationStatus(setupCenter.wordpress, ["WORDPRESS_BASE_URL", "WORDPRESS_USERNAME", "WORDPRESS_APPLICATION_PASSWORD", "WORDPRESS_REAL_DRY_RUN_ENABLED"])} items={workerReady ? setupCenter.wordpress : []} instructions={workerReady ? "Keep WordPress output draft-only. Configure values manually in Cloudflare before running a draft dry-run." : "Waiting for Worker connection"} advanced={<DetailList items={setupCenter.wordpress} />} action={<WordPressAction wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} wordpressSourceUrl={wordpressSourceUrl} setWordpressSourceUrl={setWordpressSourceUrl} internalReady={internalReady && workerReady} busy={busy} runOperation={runOperation} client={client} />} />}
+          {activeIntegration === "firecrawl" && <IntegrationPanel title="Firecrawl sandbox" status={integrationStatus(setupCenter.firecrawl, ["PROVIDERS_MODE", "ENABLE_FIRECRAWL_PROVIDER", "FIRECRAWL_API_KEY"])} items={workerReady ? setupCenter.firecrawl : []} instructions={workerReady ? "Firecrawl is optional and may call an external service only if backend settings are manually enabled." : "Waiting for Worker connection"} advanced={<DetailList items={setupCenter.firecrawl} />} action={<FirecrawlAction firecrawlUrl={firecrawlUrl} setFirecrawlUrl={setFirecrawlUrl} confirmFirecrawl={confirmFirecrawl} setConfirmFirecrawl={setConfirmFirecrawl} internalReady={internalReady && workerReady} busy={busy} runOperation={runOperation} client={client} />} />}
         </section>
       )}
 
@@ -312,22 +337,22 @@ function App(): JSX.Element {
             <OverviewCard title="Publish quota" value={formatNumber(setupCenter.scheduler.maxPublishItemsPerRun)} tone={setupCenter.scheduler.maxPublishItemsPerRun === 0 ? "safe" : "warning"} />
           </div>
           {setupCenter.scheduler.warnings.length > 0 && <div className="helperBlock"><strong>What this means</strong><ul>{setupCenter.scheduler.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
-          <button type="button" onClick={() => void runOperation("scheduler_dry_run", () => client.runSchedulerDryRun())} disabled={!internalReady || busy !== undefined}>Run scheduler dry-run</button>
+          <button type="button" onClick={() => void runOperation("scheduler_dry_run", () => client.runSchedulerDryRun())} disabled={!internalReady || !workerReady || busy !== undefined}>Run scheduler dry-run</button>
         </section>
       )}
 
       {activeTab === "pilot" && (
         <section className="tabPanel" aria-labelledby="pilot-heading">
           <div className="sectionTitle"><div><p className="eyebrow">Pilot Tests</p><h2 id="pilot-heading">Run safe checks one step at a time</h2></div></div>
-          <p className="helperText">Readiness-only is the default safe action. Real-ish pilot steps require explicit confirmation and backend configuration.</p>
-          <div className="buttonRow"><button type="button" onClick={() => void runOperation("pilot_readiness", () => client.runPilot({}))} disabled={!internalReady || busy !== undefined}>Run readiness-only pilot</button></div>
+          <p className="helperText">{workerReady ? "Readiness-only is the default safe action. Real-ish pilot steps require explicit confirmation and backend configuration." : "Waiting for Worker connection"}</p>
+          <div className="buttonRow"><button type="button" onClick={() => void runOperation("pilot_readiness", () => client.runPilot({}))} disabled={!internalReady || !workerReady || busy !== undefined}>Run readiness-only pilot</button></div>
           <div className="pilotCards">
             <PilotStep title="Firecrawl" checked={pilotInput.runFirecrawl === true} confirmed={confirmFirecrawl} onChecked={(checked) => setPilotInput({ ...pilotInput, runFirecrawl: checked })} onConfirmed={setConfirmFirecrawl} warning="May call Firecrawl if backend is enabled/configured." />
             <PilotStep title="Telegram" checked={pilotInput.runTelegramReview === true} confirmed={confirmTelegramPilot} onChecked={(checked) => setPilotInput({ ...pilotInput, runTelegramReview: checked })} onConfirmed={setConfirmTelegramPilot} warning="Review-channel only; no final publish." />
             <PilotStep title="WordPress" checked={pilotInput.runWordPressDraft === true} confirmed={confirmWordPressPilot} onChecked={(checked) => setPilotInput({ ...pilotInput, runWordPressDraft: checked })} onConfirmed={setConfirmWordPressPilot} warning="Draft-only; no public publish." />
           </div>
           <details className="subcard"><summary>Inputs for selected pilot steps</summary><label>Firecrawl URL<input value={pilotInput.firecrawlUrl ?? ""} onChange={(event) => setPilotInput({ ...pilotInput, firecrawlUrl: event.target.value })} /></label><label>Telegram text<textarea value={pilotInput.telegramText ?? ""} onChange={(event) => setPilotInput({ ...pilotInput, telegramText: event.target.value })} /></label><label>WordPress title<input value={pilotInput.wordpressTitle ?? ""} onChange={(event) => setPilotInput({ ...pilotInput, wordpressTitle: event.target.value })} /></label><label>WordPress content<textarea value={pilotInput.wordpressContent ?? ""} onChange={(event) => setPilotInput({ ...pilotInput, wordpressContent: event.target.value })} /></label><label>Source URL<input value={pilotInput.sourceUrl ?? ""} onChange={(event) => setPilotInput({ ...pilotInput, sourceUrl: event.target.value })} /></label></details>
-          <button type="button" onClick={runPilotFromInput} disabled={!internalReady || busy !== undefined}>Run selected confirmed pilot checks</button>
+          <button type="button" onClick={runPilotFromInput} disabled={!internalReady || !workerReady || busy !== undefined}>Run selected confirmed pilot checks</button>
           <RecentResults history={history.filter((record) => record.name.startsWith("pilot_"))} emptyText="No pilot results yet." />
         </section>
       )}
@@ -399,6 +424,20 @@ function RouteDetails(): JSX.Element {
 
 function buildWizardSteps(setupCenter: SetupCenterModel, settings: DashboardSettings, bundle: StatusBundle): WizardStep[] {
   const workerStatus = settings.apiBaseUrl.length === 0 ? "Not started" : setupCenter.workerConnection.tone === "safe" ? "Ready" : "Needs action";
+  const waitingStep = { status: "Not started" as const, summary: "Waiting for Worker connection", nextAction: "Finish Step 1 first." };
+
+  if (workerStatus !== "Ready") {
+    return [
+      { title: "Worker connection", status: workerStatus, summary: "We can’t reach your Worker yet.", nextAction: "Paste your deployed Cloudflare Worker URL, then check the connection." },
+      { title: "Internal security", ...waitingStep },
+      { title: "Telegram review setup", ...waitingStep },
+      { title: "WordPress draft setup", ...waitingStep },
+      { title: "Firecrawl setup", ...waitingStep },
+      { title: "Controlled pilot", ...waitingStep },
+      { title: "Launch readiness", ...waitingStep }
+    ];
+  }
+
   const internalStatus = setupCenter.internalSecurity.tone === "safe" ? "Ready" : readPath(bundle.ready, ["summary", "hasInternalSecret"]) === true ? "Needs action" : "Not started";
   const telegramStatus = integrationStatus(setupCenter.telegram, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_REVIEW_CHAT_ID", "TELEGRAM_REAL_REVIEW_ENABLED"]);
   const wordpressStatus = integrationStatus(setupCenter.wordpress, ["WORDPRESS_BASE_URL", "WORDPRESS_USERNAME", "WORDPRESS_APPLICATION_PASSWORD", "WORDPRESS_REAL_DRY_RUN_ENABLED"]);
@@ -407,7 +446,7 @@ function buildWizardSteps(setupCenter: SetupCenterModel, settings: DashboardSett
   const launchStatus: WizardStatus = setupCenter.launchSummary.overallStatus === "Pilot-ready" ? "Ready" : setupCenter.launchSummary.overallStatus === "Risky config" ? "Risky" : "Warning";
 
   return [
-    { title: "Worker connection", status: workerStatus, summary: "Connect the dashboard to the deployed Worker.", nextAction: setupCenter.workerConnection.nextAction },
+    { title: "Worker connection", status: workerStatus, summary: "Your dashboard can reach the deployed Cloudflare Worker.", nextAction: "Continue to internal security." },
     { title: "Internal security", status: internalStatus, summary: "Protect internal actions with the Worker secret and local dashboard credential.", nextAction: setupCenter.internalSecurity.nextAction },
     { title: "Telegram review setup", status: telegramStatus, summary: "Prepare review-channel dry-run only. No final Telegram publish is available.", nextAction: nextMissingAction(setupCenter.telegram) },
     { title: "WordPress draft setup", status: wordpressStatus, summary: "Prepare draft-only WordPress checks. No public publishing is available.", nextAction: nextMissingAction(setupCenter.wordpress) },
@@ -418,13 +457,18 @@ function buildWizardSteps(setupCenter: SetupCenterModel, settings: DashboardSett
 }
 
 function renderWizardStep(index: number, props: WizardRenderProps): JSX.Element {
-  if (index === 0) return <div className="stepContent"><StatusCallout status={props.setupCenter.workerConnection} /><label>Worker API base URL<input value={props.apiBaseUrlInput} onChange={(event) => props.setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.example.workers.dev" /></label><div className="buttonRow"><button type="button" onClick={props.saveSetup}>Save locally</button><button type="button" onClick={() => void props.refreshStatus()} disabled={props.busy !== undefined}>Check connection</button></div></div>;
+  if (index > 0 && !props.workerReady) return <WaitingForWorker />;
+  if (index === 0) return <div className="stepContent"><div className={`statusCallout ${props.workerReady ? "safe" : "warning"}`}><strong>{props.workerReady ? "Worker is online" : "We can’t reach your Worker yet."}</strong><p>{props.workerReady ? "This dashboard can talk to your deployed Cloudflare Worker." : "Paste your deployed Cloudflare Worker URL, then check the connection."}</p></div><label>Cloudflare Worker URL<input value={props.apiBaseUrlInput} onChange={(event) => props.setApiBaseUrlInput(event.target.value)} placeholder="https://ai-curation-publisher-agent.yourname.workers.dev" /></label><p className="muted">Example: https://ai-curation-publisher-agent.yourname.workers.dev</p><div className="buttonRow"><button type="button" onClick={() => void props.saveAndCheckConnection()} disabled={props.busy !== undefined || props.apiBaseUrlInput.trim().length === 0}>Save and check connection</button></div></div>;
   if (index === 1) return <div className="stepContent"><StatusCallout status={props.setupCenter.internalSecurity} /><p className="muted">Set <code>INTERNAL_API_SECRET</code> in Cloudflare Worker Secrets. Enter the same value locally here. The dashboard will not display it later.</p><label>Internal API credential<input value={props.credentialInput} onChange={(event) => props.setCredentialInput(event.target.value)} type="password" /></label><label className="checkRow"><input type="checkbox" checked={props.rememberCredential} onChange={(event) => props.setRememberCredential(event.target.checked)} />Remember in this browser</label><div className="buttonRow"><button type="button" onClick={props.saveSetup}>Save credential locally</button><button type="button" className="secondary" onClick={props.clearAllSettings}>Clear saved settings</button><button type="button" onClick={() => void props.runOperation("internal_auth_probe", () => props.client.runInternalAuthProbe())} disabled={!props.internalReady || props.busy !== undefined}>Check auth</button></div></div>;
   if (index === 2) return <div className="stepContent"><IntegrationPanel title="Telegram review" status={integrationStatus(props.setupCenter.telegram, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_REVIEW_CHAT_ID", "TELEGRAM_REAL_REVIEW_ENABLED"])} items={props.setupCenter.telegram} instructions="Configure bot and review chat manually in Cloudflare. Keep final publishing disabled." advanced={<DetailList items={props.setupCenter.telegram} />} action={<TelegramAction telegramText={props.telegramText} setTelegramText={props.setTelegramText} telegramSourceUrl={props.telegramSourceUrl} setTelegramSourceUrl={props.setTelegramSourceUrl} internalReady={props.internalReady} busy={props.busy} runOperation={props.runOperation} client={props.client} />} /></div>;
   if (index === 3) return <div className="stepContent"><IntegrationPanel title="WordPress draft" status={integrationStatus(props.setupCenter.wordpress, ["WORDPRESS_BASE_URL", "WORDPRESS_USERNAME", "WORDPRESS_APPLICATION_PASSWORD", "WORDPRESS_REAL_DRY_RUN_ENABLED"])} items={props.setupCenter.wordpress} instructions="Configure WordPress manually. Keep output draft-only." advanced={<DetailList items={props.setupCenter.wordpress} />} action={<WordPressAction wordpressTitle={props.wordpressTitle} setWordpressTitle={props.setWordpressTitle} wordpressContent={props.wordpressContent} setWordpressContent={props.setWordpressContent} wordpressSourceUrl={props.wordpressSourceUrl} setWordpressSourceUrl={props.setWordpressSourceUrl} internalReady={props.internalReady} busy={props.busy} runOperation={props.runOperation} client={props.client} />} /></div>;
   if (index === 4) return <div className="stepContent"><IntegrationPanel title="Firecrawl sandbox" status={integrationStatus(props.setupCenter.firecrawl, ["ENABLE_FIRECRAWL_PROVIDER", "FIRECRAWL_API_KEY"])} items={props.setupCenter.firecrawl} instructions="Configure Firecrawl manually only for a scoped sandbox pilot." advanced={<DetailList items={props.setupCenter.firecrawl} />} action={<FirecrawlAction firecrawlUrl={props.firecrawlUrl} setFirecrawlUrl={props.setFirecrawlUrl} confirmFirecrawl={props.confirmFirecrawl} setConfirmFirecrawl={props.setConfirmFirecrawl} internalReady={props.internalReady} busy={props.busy} runOperation={props.runOperation} client={props.client} />} /></div>;
   if (index === 5) return <div className="stepContent"><button type="button" onClick={() => void props.runOperation("pilot_readiness", () => props.client.runPilot({}))} disabled={!props.internalReady || props.busy !== undefined}>Run readiness-only pilot</button><div className="pilotCards"><PilotStep title="Firecrawl" checked={props.pilotInput.runFirecrawl === true} confirmed={props.confirmFirecrawl} onChecked={(checked) => props.setPilotInput({ ...props.pilotInput, runFirecrawl: checked })} onConfirmed={props.setConfirmFirecrawl} warning="May call Firecrawl if configured." /><PilotStep title="Telegram" checked={props.pilotInput.runTelegramReview === true} confirmed={props.confirmTelegramPilot} onChecked={(checked) => props.setPilotInput({ ...props.pilotInput, runTelegramReview: checked })} onConfirmed={props.setConfirmTelegramPilot} warning="Review-channel only." /><PilotStep title="WordPress" checked={props.pilotInput.runWordPressDraft === true} confirmed={props.confirmWordPressPilot} onChecked={(checked) => props.setPilotInput({ ...props.pilotInput, runWordPressDraft: checked })} onConfirmed={props.setConfirmWordPressPilot} warning="Draft-only." /></div><button type="button" onClick={props.runPilotFromInput} disabled={!props.internalReady || props.busy !== undefined}>Run confirmed pilot checks</button></div>;
   return <div className="stepContent"><div className={`launchStatus ${toneForOverall(props.setupCenter.launchSummary.overallStatus)}`}><strong>{props.setupCenter.launchSummary.overallStatus}</strong><span>{props.setupCenter.launchSummary.recommendedNextStep}</span></div><div className="overviewCards compact"><OverviewCard title="Worker" value={props.setupCenter.launchSummary.workerReachable} tone="plain" /><OverviewCard title="Security" value={props.setupCenter.launchSummary.internalSecurity} tone="plain" /><OverviewCard title="Scheduler" value={props.setupCenter.launchSummary.schedulerSafety} tone={toneForRisk(props.setupCenter.scheduler.riskLabel)} /><OverviewCard title="Publishing" value={props.setupCenter.launchSummary.publishingSafety} tone={props.setupCenter.launchSummary.publishingSafety === "Safe" ? "safe" : "risky"} /></div></div>;
+}
+
+function WaitingForWorker(): JSX.Element {
+  return <div className="statusCallout warning"><strong>Waiting for Worker connection</strong><p>Finish Step 1 first. Once the Worker is reachable, this step will show the right setup instructions.</p></div>;
 }
 
 type WizardRenderProps = {
@@ -437,6 +481,7 @@ type WizardRenderProps = {
   rememberCredential: boolean;
   setRememberCredential: (value: boolean) => void;
   saveSetup: () => void;
+  saveAndCheckConnection: () => Promise<void>;
   clearAllSettings: () => void;
   refreshStatus: () => Promise<void>;
   runOperation: (name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string) => Promise<void>;
@@ -464,6 +509,7 @@ type WizardRenderProps = {
   confirmWordPressPilot: boolean;
   setConfirmWordPressPilot: (value: boolean) => void;
   runPilotFromInput: () => void;
+  workerReady: boolean;
 };
 
 function integrationStatus(items: SetupDetailItem[], requiredNames: string[]): WizardStatus {
