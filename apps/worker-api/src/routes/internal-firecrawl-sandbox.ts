@@ -1,4 +1,5 @@
 import type { ProviderHttpClient } from "@curator/providers";
+import { getEffectiveEnv } from "../admin-config/service";
 import { runFirecrawlSandboxFetch, type FirecrawlSandboxFetchInput } from "../operations/firecrawl-sandbox";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
@@ -46,8 +47,9 @@ export async function handleInternalFirecrawlSandbox(
     return badRequest("invalid_url_protocol", "Request body URL must use http or https.", request);
   }
 
+  const effectiveEnv = await getEffectiveEnv(env);
   const result = await runFirecrawlSandboxFetch({
-    env,
+    env: effectiveEnv,
     input: {
       url: url.toString(),
       ...(parsed.value.limit === undefined ? {} : { limit: parsed.value.limit })
