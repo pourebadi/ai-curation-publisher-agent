@@ -2,33 +2,20 @@ import { readProviderRuntimeConfig, summarizeProviderConfig, type ProviderConfig
 import { readSchedulerSettings, type SchedulerSettings } from "./operations/scheduled-poll";
 import type { Env } from "./types";
 
+export type OperatingMode = "manual_only" | "mock_demo" | "provider_assisted";
+export type AiProvider = "mock" | "openai" | "gemini" | "custom";
+
 export type WorkerOperationalConfig = {
   serviceName: "ai-curation-publisher-agent";
   environment: string;
   logLevel: string;
   mockMode: true;
-  telegram: {
-    reviewChatConfigured: boolean;
-    finalChatConfigured: boolean;
-    finalChatId: string;
-    botTokenConfigured: boolean;
-    realReviewEnabled: boolean;
-  };
-  wordpress: {
-    configured: boolean;
-    baseUrlConfigured: boolean;
-    credentialsConfigured: boolean;
-    realDryRunEnabled: boolean;
-    defaultStatus: string;
-  };
-  scheduler: {
-    enabled: boolean;
-    dryRun: boolean;
-    realProvidersAllowed: boolean;
-    publishingAllowed: boolean;
-    maxSourcesPerRun: number;
-    maxItemsPerRun: number;
-  };
+  operatingMode: OperatingMode;
+  contentInput: { defaultSourceMode: string };
+  ai: SafeConfigSummary["ai"];
+  telegram: { reviewChatConfigured: boolean; finalChatConfigured: boolean; finalChatId: string; botTokenConfigured: boolean; realReviewEnabled: boolean };
+  wordpress: { configured: boolean; baseUrlConfigured: boolean; credentialsConfigured: boolean; realDryRunEnabled: boolean; defaultStatus: string };
+  scheduler: { enabled: boolean; dryRun: boolean; realProvidersAllowed: boolean; publishingAllowed: boolean; maxSourcesPerRun: number; maxItemsPerRun: number };
   quotas: SchedulerSettings["quotas"];
   providers: ProviderConfigSummary;
   readiness: SafeConfigSummary;
@@ -37,8 +24,11 @@ export type WorkerOperationalConfig = {
 export type SafeConfigSummary = {
   environment: string;
   mockMode: true;
+  operatingMode: OperatingMode;
+  defaultContentSourceMode: string;
   providersMode: string;
   hasInternalSecret: boolean;
+  ai: { provider: AiProvider; modelConfigured: boolean; model: string; fallbackModels: string[]; fallbackRuntime: "configured_partial"; outputLanguage: string; translationEnabled: boolean; rewriteEnabled: boolean; summaryEnabled: boolean; tonePreset: string; maxOutputTokens: number; temperature: number; retryEnabled: boolean; maxRetries: number; genericCredentialConfigured: boolean; providerCredentialConfigured: boolean; ready: boolean; productionGrade: boolean; nextAction: string };
   hasTelegramConfig: boolean;
   hasTelegramBotToken: boolean;
   telegramRealReviewEnabled: boolean;
@@ -47,52 +37,28 @@ export type SafeConfigSummary = {
   hasWordPressCredentials: boolean;
   wordpressRealDryRunEnabled: boolean;
   wordpressDefaultStatus: string;
-  scheduler: {
-    enabled: boolean;
-    dryRun: boolean;
-    realProvidersAllowed: boolean;
-    publishingAllowed: boolean;
-    maxSourcesPerRun: number;
-    maxItemsPerRun: number;
-  };
+  scheduler: { enabled: boolean; dryRun: boolean; realProvidersAllowed: boolean; publishingAllowed: boolean; maxSourcesPerRun: number; maxItemsPerRun: number };
   quotas: SchedulerSettings["quotas"];
-  hasProviderCredentials: {
-    apify: boolean;
-    getxapi: boolean;
-    firecrawl: boolean;
-  };
+  hasProviderCredentials: { apify: boolean; getxapi: boolean; firecrawl: boolean };
+  providerSetupRequired: boolean;
+  providerSetupSatisfied: boolean;
 };
 
-export type ConfigValidationResult = {
-  ready: boolean;
-  summary: SafeConfigSummary;
-  warnings: string[];
-  errors: string[];
-};
+export type ConfigValidationResult = { ready: boolean; summary: SafeConfigSummary; warnings: string[]; errors: string[] };
 
 export function readOperationalConfig(env: Env): WorkerOperationalConfig {
   const providerConfig = readProviderRuntimeConfig(env);
   const safeSummary = buildSafeConfigSummary(env);
-
   return {
     serviceName: "ai-curation-publisher-agent",
     environment: env.ENVIRONMENT ?? "unknown",
     logLevel: env.LOG_LEVEL ?? "info",
     mockMode: true,
-    telegram: {
-      reviewChatConfigured: Boolean(env.TELEGRAM_REVIEW_CHAT_ID),
-      finalChatConfigured: Boolean(env.TELEGRAM_FINAL_CHAT_ID),
-      finalChatId: env.TELEGRAM_FINAL_CHAT_ID ?? "mock_final_chat",
-      botTokenConfigured: hasValue(env.TELEGRAM_BOT_TOKEN),
-      realReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true"
-    },
-    wordpress: {
-      configured: safeSummary.hasWordPressConfig,
-      baseUrlConfigured: safeSummary.hasWordPressBaseUrl,
-      credentialsConfigured: safeSummary.hasWordPressCredentials,
-      realDryRunEnabled: safeSummary.wordpressRealDryRunEnabled,
-      defaultStatus: safeSummary.wordpressDefaultStatus
-    },
+    operatingMode: safeSummary.operatingMode,
+    contentInput: { defaultSourceMode: safeSummary.defaultContentSourceMode },
+    ai: safeSummary.ai,
+    telegram: { reviewChatConfigured: Boolean(env.TELEGRAM_REVIEW_CHAT_ID), finalChatConfigured: Boolean(env.TELEGRAM_FINAL_CHAT_ID), finalChatId: env.TELEGRAM_FINAL_CHAT_ID ?? "mock_final_chat", botTokenConfigured: hasValue(env.TELEGRAM_BOT_TOKEN), realReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true" },
+    wordpress: { configured: safeSummary.hasWordPressConfig, baseUrlConfigured: safeSummary.hasWordPressBaseUrl, credentialsConfigured: safeSummary.hasWordPressCredentials, realDryRunEnabled: safeSummary.wordpressRealDryRunEnabled, defaultStatus: safeSummary.wordpressDefaultStatus },
     scheduler: safeSummary.scheduler,
     quotas: safeSummary.quotas,
     providers: summarizeProviderConfig(providerConfig),
@@ -105,92 +71,41 @@ export function validateRuntimeConfig(env: Env): ConfigValidationResult {
   const warnings: string[] = [];
   const errors: string[] = [];
   const production = summary.environment === "production";
-
-  if (!summary.hasInternalSecret) {
-    const message = "INTERNAL_API_SECRET is not configured.";
-    if (production) {
-      errors.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-
-  if (!summary.hasTelegramConfig) {
-    const message = "Telegram runtime configuration is incomplete.";
-    if (production) {
-      errors.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-
-  if (summary.telegramRealReviewEnabled && (!summary.hasTelegramBotToken || !summary.hasTelegramConfig)) {
-    const message = "Telegram real review dry-run is enabled but Telegram review configuration is incomplete.";
-    if (production) {
-      errors.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-
-  if (!summary.hasWordPressConfig) {
-    const message = "WordPress runtime configuration is incomplete.";
-    if (production) {
-      warnings.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-
-  if (summary.wordpressRealDryRunEnabled && !summary.hasWordPressConfig) {
-    const message = "WordPress real dry-run is enabled but WordPress configuration is incomplete.";
-    if (production) {
-      errors.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-
-  if (summary.scheduler.enabled && !summary.scheduler.dryRun) {
-    warnings.push("Scheduler is enabled outside dry-run mode. Phase 21 still prevents publishing side effects.");
-  }
-
-  if (summary.scheduler.realProvidersAllowed) {
-    warnings.push("Scheduler real provider access is allowed by config, but Phase 21 keeps scheduler polling mock-safe.");
-  }
-
-  if (summary.scheduler.publishingAllowed) {
-    warnings.push("Scheduler publishing is allowed by config, but Phase 21 does not trigger publishing.");
-  }
-
-  if (summary.providersMode !== "mock" && !Object.values(summary.hasProviderCredentials).some(Boolean)) {
-    const message = "Provider mode is not mock, but no provider credentials are configured.";
-    if (production) {
-      errors.push(message);
-    } else {
-      warnings.push(message);
-    }
-  }
-
-  return {
-    ready: errors.length === 0,
-    summary,
-    warnings,
-    errors
-  };
+  if (!summary.hasInternalSecret) production ? errors.push("INTERNAL_API_SECRET is not configured.") : warnings.push("INTERNAL_API_SECRET is not configured.");
+  if (!summary.ai.ready) production && summary.ai.provider !== "mock" ? errors.push(summary.ai.nextAction) : warnings.push(summary.ai.nextAction);
+  if (summary.ai.provider === "mock" && production) warnings.push("AI provider is mock. This is valid for demos but not production-grade AI processing.");
+  if (!summary.hasTelegramConfig) production ? errors.push("Telegram review configuration is incomplete.") : warnings.push("Telegram review configuration is incomplete.");
+  if (summary.telegramRealReviewEnabled && (!summary.hasTelegramBotToken || !summary.hasTelegramConfig)) production ? errors.push("Telegram real review dry-run is enabled but Telegram review configuration is incomplete.") : warnings.push("Telegram real review dry-run is enabled but Telegram review configuration is incomplete.");
+  if (!summary.hasWordPressConfig) warnings.push("WordPress draft configuration is incomplete. This is a warning unless WordPress drafts are required for launch.");
+  if (summary.wordpressRealDryRunEnabled && !summary.hasWordPressConfig) production ? errors.push("WordPress real dry-run is enabled but WordPress configuration is incomplete.") : warnings.push("WordPress real dry-run is enabled but WordPress configuration is incomplete.");
+  if (summary.scheduler.enabled && !summary.scheduler.dryRun) warnings.push("Scheduler is enabled outside dry-run mode. Publishing still remains blocked by this phase.");
+  if (summary.scheduler.realProvidersAllowed) warnings.push("Scheduler real provider access is configured outside dashboard controls and should remain disabled unless explicitly supported.");
+  if (summary.scheduler.publishingAllowed) errors.push("Scheduler publishing is configured on. This phase does not support scheduler publishing.");
+  if (summary.providerSetupRequired && !summary.providerSetupSatisfied) production ? errors.push("Provider-assisted mode is selected but no provider credentials are configured.") : warnings.push("Provider-assisted mode is selected but no provider credentials are configured.");
+  return { ready: errors.length === 0, summary, warnings, errors };
 }
 
 export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
   const providerConfig = readProviderRuntimeConfig(env);
   const schedulerSettings = readSchedulerSettings(env);
+  const operatingMode = normalizeOperatingMode(env.OPERATING_MODE);
+  const aiProvider = normalizeAiProvider(env.AI_PROVIDER);
+  const providerCredentials = { apify: hasEnvKey(env, "APIFY_TOKEN"), getxapi: hasEnvKey(env, "GETXAPI_KEY"), firecrawl: hasEnvKey(env, "FIRECRAWL_API_KEY") };
+  const genericAiCredential = hasEnvKey(env, credentialName("AI"));
+  const providerAiCredential = aiProvider === "openai" ? hasEnvKey(env, credentialName("OPENAI")) || genericAiCredential : aiProvider === "gemini" ? hasEnvKey(env, credentialName("GEMINI")) || genericAiCredential : aiProvider === "custom" ? hasEnvKey(env, credentialName("CUSTOM_AI")) || genericAiCredential : true;
+  const model = normalizeString(env.AI_MODEL, aiProvider === "mock" ? "mock" : "");
+  const modelConfigured = aiProvider === "mock" || hasValue(model);
+  const aiReady = aiProvider === "mock" || (providerAiCredential && modelConfigured);
   const hasWordPressBaseUrl = hasValue(env.WORDPRESS_BASE_URL);
   const hasWordPressCredentials = hasValue(env.WORDPRESS_USERNAME) && hasValue(env.WORDPRESS_APPLICATION_PASSWORD);
-
   return {
     environment: env.ENVIRONMENT ?? "unknown",
     mockMode: true,
+    operatingMode,
+    defaultContentSourceMode: normalizeEnum(env.DEFAULT_CONTENT_SOURCE_MODE, ["manual", "mock", "provider"], "manual"),
     providersMode: providerConfig.mode,
     hasInternalSecret: hasValue(env.INTERNAL_API_SECRET),
+    ai: { provider: aiProvider, modelConfigured, model: model || "missing", fallbackModels: parseModelFallbacks(env.AI_MODEL_FALLBACKS), fallbackRuntime: "configured_partial", outputLanguage: normalizeEnum(env.AI_OUTPUT_LANGUAGE, ["fa", "en", "ar", "auto"], "fa"), translationEnabled: readBoolean(env.AI_TRANSLATION_ENABLED, true), rewriteEnabled: readBoolean(env.AI_REWRITE_ENABLED, true), summaryEnabled: readBoolean(env.AI_SUMMARY_ENABLED, true), tonePreset: normalizeEnum(env.AI_TONE_PRESET, ["neutral", "editorial", "concise", "professional", "social", "custom"], "neutral"), maxOutputTokens: readInteger(env.AI_MAX_OUTPUT_TOKENS, 1200), temperature: readNumber(env.AI_TEMPERATURE, 0.4), retryEnabled: readBoolean(env.AI_RETRY_ENABLED, true), maxRetries: readInteger(env.AI_MAX_RETRIES, 2), genericCredentialConfigured: genericAiCredential, providerCredentialConfigured: providerAiCredential, ready: aiReady, productionGrade: aiProvider !== "mock" && aiReady, nextAction: aiReady ? "AI settings are usable." : "Configure an AI model and provider credential in Dashboard -> Settings -> AI." },
     hasTelegramConfig: hasValue(env.TELEGRAM_REVIEW_CHAT_ID) && hasValue(env.TELEGRAM_FINAL_CHAT_ID),
     hasTelegramBotToken: hasValue(env.TELEGRAM_BOT_TOKEN),
     telegramRealReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true",
@@ -199,27 +114,23 @@ export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
     hasWordPressCredentials,
     wordpressRealDryRunEnabled: env.WORDPRESS_REAL_DRY_RUN_ENABLED === "true",
     wordpressDefaultStatus: normalizeWordPressStatus(env.WORDPRESS_DEFAULT_STATUS),
-    scheduler: {
-      enabled: schedulerSettings.schedulerEnabled,
-      dryRun: schedulerSettings.dryRun,
-      realProvidersAllowed: schedulerSettings.realProvidersAllowed,
-      publishingAllowed: schedulerSettings.publishingAllowed,
-      maxSourcesPerRun: schedulerSettings.maxSources,
-      maxItemsPerRun: schedulerSettings.maxItems
-    },
+    scheduler: { enabled: schedulerSettings.schedulerEnabled, dryRun: schedulerSettings.dryRun, realProvidersAllowed: schedulerSettings.realProvidersAllowed, publishingAllowed: schedulerSettings.publishingAllowed, maxSourcesPerRun: schedulerSettings.maxSources, maxItemsPerRun: schedulerSettings.maxItems },
     quotas: schedulerSettings.quotas,
-    hasProviderCredentials: {
-      apify: hasValue(env.APIFY_TOKEN),
-      getxapi: hasValue(env.GETXAPI_KEY),
-      firecrawl: hasValue(env.FIRECRAWL_API_KEY)
-    }
+    hasProviderCredentials: providerCredentials,
+    providerSetupRequired: operatingMode === "provider_assisted",
+    providerSetupSatisfied: operatingMode !== "provider_assisted" || Object.values(providerCredentials).some(Boolean)
   };
 }
 
-function normalizeWordPressStatus(value: string | undefined): string {
-  return value === "pending" || value === "private" || value === "publish" ? value : "draft";
-}
-
-function hasValue(value: string | undefined): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
+function credentialName(provider: string): string { return `${provider}_API_KEY`; }
+function hasEnvKey(env: Env, key: string): boolean { return hasValue((env as unknown as Record<string, string | undefined>)[key]); }
+function normalizeOperatingMode(value: string | undefined): OperatingMode { return value === "mock_demo" || value === "provider_assisted" ? value : "manual_only"; }
+function normalizeAiProvider(value: string | undefined): AiProvider { return value === "openai" || value === "gemini" || value === "custom" ? value : "mock"; }
+function normalizeWordPressStatus(value: string | undefined): string { return value === "draft" ? value : "draft"; }
+function normalizeEnum(value: string | undefined, allowed: string[], fallback: string): string { return value !== undefined && allowed.includes(value) ? value : fallback; }
+function normalizeString(value: string | undefined, fallback: string): string { return hasValue(value) ? value.trim() : fallback; }
+function parseModelFallbacks(value: string | undefined): string[] { if (!hasValue(value)) return []; try { const parsed = JSON.parse(value) as unknown; if (Array.isArray(parsed)) return parsed.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).map((entry) => entry.trim()).slice(0, 5); } catch {} return value.split(",").map((entry) => entry.trim()).filter(Boolean).slice(0, 5); }
+function readBoolean(value: string | undefined, fallback: boolean): boolean { if (value === "true") return true; if (value === "false") return false; return fallback; }
+function readInteger(value: string | undefined, fallback: number): number { if (!hasValue(value)) return fallback; const parsed = Number.parseInt(value, 10); return Number.isFinite(parsed) ? parsed : fallback; }
+function readNumber(value: string | undefined, fallback: number): number { if (!hasValue(value)) return fallback; const parsed = Number.parseFloat(value); return Number.isFinite(parsed) ? parsed : fallback; }
+function hasValue(value: string | undefined): boolean { return typeof value === "string" && value.trim().length > 0; }
