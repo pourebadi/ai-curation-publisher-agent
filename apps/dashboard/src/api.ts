@@ -21,10 +21,6 @@ export class WorkerApiClient {
     }
   }
 
-  hasInternalCredential(): boolean {
-    return this.internalCredential !== undefined;
-  }
-
   async getStatusBundle(): Promise<StatusBundle> {
     const [health, status, ready] = await Promise.all([
       this.getJson("/health"),
@@ -40,19 +36,28 @@ export class WorkerApiClient {
     const withSecret = this.internalCredential === undefined
       ? undefined
       : await this.postJson("/internal/e2e/mock-pipeline", {}, true);
+    const protectedRoute = withoutSecret.status === 401;
+    const credentialWorks = withSecret?.ok === true;
+    const ok = protectedRoute && credentialWorks;
+    const data: JsonObject = {
+      ok,
+      withoutSecretStatus: withoutSecret.status ?? "network_error",
+      withSecretStatus: withSecret?.status ?? "not_run",
+      protected: protectedRoute,
+      credentialWorks,
+      note: ok ? "Internal auth is protected and the local credential works." : "Internal auth needs attention. Check Cloudflare Worker Secret and the locally entered dashboard credential."
+    };
 
-    const ok = withoutSecret.status === 401 && withSecret?.ok === true;
+    if (ok) {
+      return { ok: true, status: withSecret.status, data };
+    }
+
     return {
-      ok: true,
-      status: withSecret?.status ?? withoutSecret.status ?? 0,
-      data: {
-        ok,
-        withoutSecretStatus: withoutSecret.status ?? "network_error",
-        withSecretStatus: withSecret?.status ?? "not_run",
-        protected: withoutSecret.status === 401,
-        credentialWorks: withSecret?.ok === true,
-        note: ok ? "Internal auth is protected and the local credential works." : "Internal auth needs attention. Check Cloudflare Worker Secret and the locally entered dashboard credential."
-      }
+      ok: false,
+      status: withSecret?.status ?? withoutSecret.status,
+      error: "internal_auth_probe_failed",
+      message: "Internal auth protection did not pass the expected check.",
+      data
     };
   }
 
