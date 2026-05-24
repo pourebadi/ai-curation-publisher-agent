@@ -54,7 +54,7 @@ export class WorkerApiClient {
 
     return {
       ok: false,
-      status: withSecret?.status ?? withoutSecret.status,
+      status: withSecret?.status ?? withoutSecret.status ?? 0,
       error: "internal_auth_probe_failed",
       message: "Internal auth protection did not pass the expected check.",
       data
