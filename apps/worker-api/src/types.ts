@@ -3,6 +3,7 @@ export interface Env {
   ENVIRONMENT?: string;
   LOG_LEVEL?: string;
   INTERNAL_API_SECRET?: string;
+  CONFIG_ENCRYPTION_KEY?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   TELEGRAM_REVIEW_CHAT_ID?: string;
