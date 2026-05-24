@@ -13,6 +13,8 @@
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
+    "setup:cloudflare": "node scripts/setup-cloudflare.mjs",
+    "check:production": "node scripts/check-production-readiness.mjs",
     "dev": "pnpm --filter @curator/worker-api dev",
     "worker:dev": "pnpm --filter @curator/worker-api dev",
     "worker:deploy": "wrangler deploy --config wrangler.toml",
