@@ -11,7 +11,10 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
 
   const effectiveEnv = await getEffectiveEnv(env);
   const config = readOperationalConfig(effectiveEnv);
-  const pilotReady = config.readiness.hasProviderCredentials.firecrawl
+  const pilotReady = config.operatingMode === "manual_only"
+    || config.operatingMode === "mock_demo"
+    || config.readiness.providerSetupSatisfied
+    || config.readiness.hasProviderCredentials.firecrawl
     || (config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken)
     || config.readiness.hasWordPressConfig;
 
@@ -20,6 +23,8 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
     service: config.serviceName,
     environment: config.environment,
     mockMode: config.mockMode,
+    operatingMode: config.operatingMode,
+    contentInput: config.contentInput,
     modules: {
       telegram: true,
       ai: true,
@@ -29,7 +34,12 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
       wordpress: true,
       publishing: true
     },
-    providers: config.providers,
+    ai: config.ai,
+    providers: {
+      ...config.providers,
+      setupRequired: config.readiness.providerSetupRequired,
+      setupSatisfied: config.readiness.providerSetupSatisfied
+    },
     telegram: {
       reviewChatConfigured: config.telegram.reviewChatConfigured,
       finalChatConfigured: config.telegram.finalChatConfigured,
