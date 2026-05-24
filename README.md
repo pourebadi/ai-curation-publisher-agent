@@ -14,7 +14,9 @@ Phase 24 added the browser-based operator dashboard under `apps/dashboard`.
 
 Phase 26 added beginner-friendly Cloudflare setup and production readiness scripts.
 
-Phase 27 adds the Dashboard Setup Center so a non-technical owner can understand Worker connection, internal security, runtime configuration, optional integrations, scheduler safety, controlled pilot readiness, and recent operation results after the Worker and dashboard are already deployed.
+Phase 27 added the Dashboard Setup Center.
+
+Phase 28 simplifies the dashboard into a tabbed guided experience: Overview, Setup Wizard, Integrations, Scheduler Safety, Pilot Tests, and Technical Details. The goal is to help a non-technical owner see the next action first while keeping dense configuration and raw JSON out of the default view.
 
 ## Current MVP status
 
@@ -33,12 +35,12 @@ Phase 27 adds the Dashboard Setup Center so a non-technical owner can understand
 | Media pipeline | Implemented as abstraction | No real production media download/upload is enabled by default. |
 | Providers | Implemented | Mock providers are default; real stubs are gated. |
 | Firecrawl sandbox | Explicit opt-in | Inspect-only Web/Firecrawl sandbox path exists. |
-| Telegram review dry-run | Explicit opt-in | Review-channel dry-run only; no final channel publish. |
+| Telegram review dry-run | Explicit opt-in | Review-channel dry-run only; no final publish. |
 | WordPress draft dry-run | Explicit opt-in | Draft-only when explicitly enabled and configured. |
 | Scheduler safeguards | Implemented | Scheduler is disabled/dry-run guarded by default. |
 | Controlled pilot | Implemented | Explicit pilot route coordinates Firecrawl, Telegram review, and WordPress draft checks. |
 | Operator dashboard | Implemented | React/Vite dashboard talks to the Worker API and stores local operator settings in the browser. |
-| Dashboard Setup Center | Implemented | Guides Worker connection, internal security, runtime config, optional integrations, scheduler safety, controlled pilot, launch readiness, and activity history. |
+| Dashboard Setup Center | Implemented | Phase 28 presents setup through Overview, Setup Wizard, Integrations, Scheduler Safety, Pilot Tests, and Technical Details tabs. |
 | Setup bootstrap | Implemented | Phase 26 scripts help run safe Cloudflare setup and production readiness checks. |
 | Monitoring/alerts | Not production-integrated | No external monitoring or alerting service is wired. |
 | Public dashboard auth | Not implemented in app | Protect production dashboard deployment with Cloudflare Access or equivalent. |
@@ -68,7 +70,7 @@ Operator Dashboard (apps/dashboard)
   -> calls Worker API over HTTPS
   -> stores Worker API URL locally
   -> stores internal API credential locally only when the operator chooses
-  -> shows Setup Center guidance
+  -> shows guided tabs and collapsible technical details
   -> never displays saved credential values
 ```
 
@@ -223,24 +225,22 @@ WORKER_BASE_URL=https://your-worker-url.example pnpm check:production
 
 The production checker runs only safe checks against `/health`, `/status`, `/ready`, `/internal/e2e/mock-pipeline`, and readiness-only controlled pilot behavior when an internal credential is provided. It never prints secret values.
 
-## Dashboard Setup Center
+## Dashboard guided setup
 
-The Setup Center lives in `apps/dashboard` and is intended for use after the Worker and dashboard have already been deployed.
+The dashboard lives in `apps/dashboard` and is intended for use after the Worker and dashboard have already been deployed.
 
-It helps the owner understand and safely operate setup from the browser:
+Phase 28 organizes the dashboard into six tabs:
 
-- Worker connection: local Worker API URL, `/health`, `/status`, `/ready`, and next action.
-- Internal security: local internal credential state, backend `hasInternalSecret`, and protected-route checks.
-- Cloudflare runtime config: plain-language checklist for environment, logging, provider mode, scheduler flags, quotas, Telegram review flag, WordPress dry-run flag, and WordPress default status.
-- Telegram setup wizard: required names, where to configure them, backend status, safe chat-ID guidance, and review dry-run only when the internal credential is configured.
-- WordPress setup wizard: required names, where to configure them, backend status, and draft dry-run only when the internal credential is configured.
-- Firecrawl setup wizard: provider mode, Firecrawl enable flag, credential name, endpoint/timeout guidance, sandbox URL input, and explicit confirmation before a sandbox fetch.
-- Scheduler safety: Safe/Warning/Risky labels for scheduler enabled, dry-run, real-provider allowance, publishing allowance, source/item limits, and quotas.
-- Controlled pilot: readiness-only default, explicit confirmation for Firecrawl, Telegram, and WordPress pilot steps, collapsed raw JSON, no final publish, no public WordPress publish, and no scheduler activation.
-- Launch readiness summary: manager-friendly overall status, integration readiness, scheduler safety, publishing safety, and recommended next step.
-- Activity/results: recent setup results stored locally with timestamps, ok/fail state, warning/error counts, redacted JSON, and a clear-history control.
+1. **Overview**: simple owner-friendly status cards for system status, setup progress, internal security, scheduler safety, publishing safety, and the next recommended action.
+2. **Setup Wizard**: the recommended path for non-technical operators. It walks through Worker connection, internal security, Telegram review setup, WordPress draft setup, Firecrawl setup, controlled pilot, and launch readiness.
+3. **Integrations**: focused views for Telegram, WordPress, and Firecrawl. Each view shows missing items, setup instructions, safe test actions, and collapsible advanced details.
+4. **Scheduler Safety**: a plain-language safety view for scheduler enabled/disabled, dry-run, real-provider access, publishing access, limits, quotas, and risk labels.
+5. **Pilot Tests**: safe readiness-only pilot first, then optional Firecrawl, Telegram review, and WordPress draft checks with explicit confirmation.
+6. **Technical Details**: debugging-only area for full runtime checklists, raw `/health`, `/status`, `/ready` JSON, route details, advanced environment mapping, and recent operation results.
 
-The Setup Center intentionally does not:
+Use **Setup Wizard** first. Use **Technical Details** only when troubleshooting or when a technical maintainer asks for raw status information.
+
+The dashboard intentionally does not:
 
 - set Cloudflare Worker variables
 - mutate Cloudflare Worker Secrets
@@ -253,20 +253,17 @@ The Setup Center intentionally does not:
 - display saved secret values
 - bypass backend safeguards
 
-Cloudflare secrets and variables must still be configured manually in Cloudflare. GitHub workflow values must still be configured manually in GitHub Actions Secrets. This design keeps high-risk account operations outside browser frontend code.
+Cloudflare secrets and variables must still be configured manually in Cloudflare. GitHub workflow values must still be configured manually in GitHub Actions Secrets. This keeps high-risk account operations outside frontend code.
 
 Typical use after deployment:
 
 1. Open the protected dashboard URL.
 2. Enter the deployed Worker API base URL.
-3. Click refresh/check connection.
-4. Confirm Worker connection and readiness.
-5. Configure `INTERNAL_API_SECRET` manually in Cloudflare Worker Secrets if missing.
-6. Enter the same internal credential locally in the dashboard.
-7. Run the internal auth check.
-8. Review runtime config and scheduler safety.
-9. Configure optional Telegram, WordPress, or Firecrawl values manually only when piloting that integration.
-10. Run mock E2E, readiness-only pilot, then one confirmed pilot step at a time.
+3. Use **Overview** to see the current state.
+4. Use **Setup Wizard** to complete one step at a time.
+5. Configure missing values manually in Cloudflare Worker Variables or Secrets.
+6. Run safe checks from the relevant wizard step or tab.
+7. Use **Technical Details** only for debugging.
 
 ## Operator dashboard commands
 
@@ -424,7 +421,8 @@ For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnp
 - [ ] Worker boots locally.
 - [ ] Dashboard runs locally.
 - [ ] `/health`, `/status`, and `/ready` pass.
-- [ ] Dashboard Setup Center shows Worker connection and internal security status.
+- [ ] Dashboard Overview shows a simple current status.
+- [ ] Dashboard Setup Wizard guides the next action.
 - [ ] Mock E2E smoke passes.
 - [ ] Controlled pilot readiness-only passes.
 - [ ] Internal route protection is configured for deployed environments.
@@ -437,7 +435,7 @@ For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnp
 
 ## Launch / no-launch criteria
 
-Launch only if CI is green, readiness checks pass, internal auth is configured, smoke checks pass, dashboard build passes, controlled pilot readiness succeeds, dashboard Setup Center shows no risky config, and rollback is understood.
+Launch only if CI is green, readiness checks pass, internal auth is configured, smoke checks pass, dashboard build passes, controlled pilot readiness succeeds, dashboard Setup Wizard shows no risky config, and rollback is understood.
 
 Do not launch if readiness fails, D1 migration state is uncertain, internal auth fails, unexpected real external calls occur, logs expose sensitive information, scheduler is enabled unintentionally, or public publishing is enabled unintentionally.
 
