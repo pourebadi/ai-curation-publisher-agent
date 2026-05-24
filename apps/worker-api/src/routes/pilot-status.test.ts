@@ -21,7 +21,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 describe("controlled pilot status summary", () => {
   it("exposes safe pilot booleans without runtime values", async () => {
-    const response = handleStatus(new Request("https://worker.local/status"), makeEnv({
+    const response = await handleStatus(new Request("https://worker.local/status"), makeEnv({
       PROVIDERS_MODE: "mixed",
       ENABLE_FIRECRAWL_PROVIDER: "true",
       FIRECRAWL_API_KEY: hiddenRuntimeValue,
