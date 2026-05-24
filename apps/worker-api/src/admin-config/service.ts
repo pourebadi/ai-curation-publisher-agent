@@ -1,0 +1,287 @@
+import { ADMIN_CONFIG_DEFINITIONS, findAdminConfigDefinition, isEditableAdminConfigKey, isForbiddenAdminConfigKey, type AdminConfigDefinition, type AdminConfigGroup, type AdminConfigSource } from "./allowlist";
+import { decryptSecretValue, encryptSecretValue, importConfigEncryptionKey } from "./crypto";
+import { validateAdminConfigValue } from "./validation";
+import type { Env } from "../types";
+
+export type AdminConfigRow = {
+  key: string;
+  value: string;
+  value_type: string;
+  is_secret: number;
+  encrypted: number;
+  updated_at: string;
+  updated_by: string | null;
+  description: string | null;
+};
+
+export type AdminConfigAuditRow = {
+  id: string;
+  key: string;
+  value_type: string;
+  is_secret: number;
+  action: string;
+  changed_at: string;
+  changed_by: string | null;
+  request_id: string | null;
+  previous_value_redacted: string | null;
+  new_value_redacted: string | null;
+};
+
+export type SafeAdminConfigItem = {
+  key: string;
+  group: AdminConfigGroup;
+  label: string;
+  description: string;
+  type: string;
+  isSecret: boolean;
+  editable: boolean;
+  configured: boolean;
+  source: AdminConfigSource;
+  value?: string;
+  valueRedacted?: string;
+  validation: {
+    enumValues?: string[];
+    min?: number;
+    max?: number;
+    preferHttps?: boolean;
+  };
+  updatedAt?: string;
+};
+
+export type SafeAdminConfigResponse = {
+  ok: true;
+  encryption: {
+    configured: boolean;
+    valid: boolean;
+    secretEditingEnabled: boolean;
+    message?: string;
+  };
+  groups: Record<AdminConfigGroup, SafeAdminConfigItem[]>;
+  items: SafeAdminConfigItem[];
+};
+
+export type SetAdminConfigInput = {
+  key: string;
+  value: unknown;
+};
+
+export type AdminConfigWriteResult =
+  | { ok: true; response: SafeAdminConfigResponse }
+  | { ok: false; status: number; error: string; message: string };
+
+export async function listEditableConfig(env: Env): Promise<SafeAdminConfigResponse> {
+  const stored = await readAdminConfigRows(env.DB);
+  const encryption = await getEncryptionSummary(env);
+  const items = ADMIN_CONFIG_DEFINITIONS.map((definition) => toSafeItem(definition, stored.get(definition.key), env));
+  const groups = groupItems(items);
+  return { ok: true, encryption, groups, items };
+}
+
+export async function getEffectiveEnv(env: Env): Promise<Env> {
+  const stored = await readAdminConfigRows(env.DB);
+  const effective = { ...env } as Env;
+
+  for (const definition of ADMIN_CONFIG_DEFINITIONS) {
+    const row = stored.get(definition.key);
+    if (row === undefined) continue;
+
+    if (definition.isSecret) {
+      const decrypted = await decryptSecretValue(env.CONFIG_ENCRYPTION_KEY, row.value);
+      if (decrypted.ok) {
+        setEnvValue(effective, definition.key, decrypted.value);
+      }
+      continue;
+    }
+
+    setEnvValue(effective, definition.key, row.value);
+  }
+
+  return effective;
+}
+
+export async function setConfigValues(env: Env, updates: SetAdminConfigInput[], request: Request): Promise<AdminConfigWriteResult> {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { ok: false, status: 400, error: "empty_updates", message: "Provide at least one config update." };
+  }
+
+  const stored = await readAdminConfigRows(env.DB);
+  const now = new Date().toISOString();
+  const changedBy = request.headers.get("x-admin-user") ?? "dashboard";
+  const requestId = request.headers.get("cf-ray") ?? request.headers.get("x-request-id") ?? crypto.randomUUID();
+
+  for (const update of updates) {
+    if (typeof update.key !== "string") {
+      return { ok: false, status: 400, error: "invalid_key", message: "Config key must be a string." };
+    }
+    if (isForbiddenAdminConfigKey(update.key) || !isEditableAdminConfigKey(update.key)) {
+      return { ok: false, status: 400, error: "config_key_not_editable", message: `${update.key} is not editable from the dashboard.` };
+    }
+
+    const definition = findAdminConfigDefinition(update.key);
+    if (definition === undefined) {
+      return { ok: false, status: 400, error: "unknown_config_key", message: `${update.key} is not allowed.` };
+    }
+
+    const validation = validateAdminConfigValue(definition, update.value);
+    if (!validation.ok) {
+      return { ok: false, status: 400, error: validation.error, message: validation.message };
+    }
+
+    let valueToStore = validation.value;
+    let encrypted = 0;
+    if (definition.isSecret) {
+      const encryptedValue = await encryptSecretValue(env.CONFIG_ENCRYPTION_KEY, validation.value);
+      if (!encryptedValue.ok) {
+        return { ok: false, status: 400, error: encryptedValue.error, message: encryptedValue.message };
+      }
+      valueToStore = encryptedValue.value;
+      encrypted = 1;
+    }
+
+    const previous = stored.get(definition.key);
+    await env.DB.prepare(
+      `INSERT INTO admin_config (key, value, value_type, is_secret, encrypted, updated_at, updated_by, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, value_type = excluded.value_type, is_secret = excluded.is_secret, encrypted = excluded.encrypted, updated_at = excluded.updated_at, updated_by = excluded.updated_by, description = excluded.description`
+    ).bind(definition.key, valueToStore, definition.valueType, definition.isSecret ? 1 : 0, encrypted, now, changedBy, definition.description).run();
+
+    await writeAudit(env, {
+      definition,
+      action: previous === undefined ? "create" : "update",
+      changedAt: now,
+      changedBy,
+      requestId,
+      previousValueRedacted: redactedValue(definition, previous?.value),
+      newValueRedacted: redactedValue(definition, validation.value)
+    });
+  }
+
+  return { ok: true, response: await listEditableConfig(env) };
+}
+
+export async function resetConfigValues(env: Env, keys: string[], request: Request): Promise<AdminConfigWriteResult> {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return { ok: false, status: 400, error: "empty_keys", message: "Provide at least one config key to reset." };
+  }
+
+  const stored = await readAdminConfigRows(env.DB);
+  const now = new Date().toISOString();
+  const changedBy = request.headers.get("x-admin-user") ?? "dashboard";
+  const requestId = request.headers.get("cf-ray") ?? request.headers.get("x-request-id") ?? crypto.randomUUID();
+
+  for (const key of keys) {
+    if (isForbiddenAdminConfigKey(key) || !isEditableAdminConfigKey(key)) {
+      return { ok: false, status: 400, error: "config_key_not_editable", message: `${key} is not editable from the dashboard.` };
+    }
+    const definition = findAdminConfigDefinition(key);
+    if (definition === undefined) {
+      return { ok: false, status: 400, error: "unknown_config_key", message: `${key} is not allowed.` };
+    }
+    const previous = stored.get(key);
+    await env.DB.prepare("DELETE FROM admin_config WHERE key = ?").bind(key).run();
+    await writeAudit(env, {
+      definition,
+      action: "reset",
+      changedAt: now,
+      changedBy,
+      requestId,
+      previousValueRedacted: redactedValue(definition, previous?.value),
+      newValueRedacted: "[reset]"
+    });
+  }
+
+  return { ok: true, response: await listEditableConfig(env) };
+}
+
+export async function listAdminConfigAudit(env: Env, limit = 50): Promise<{ ok: true; entries: AdminConfigAuditRow[] }> {
+  const cappedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+  const result = await env.DB.prepare("SELECT * FROM admin_config_audit ORDER BY changed_at DESC LIMIT ?").bind(cappedLimit).all<AdminConfigAuditRow>();
+  return { ok: true, entries: result.results ?? [] };
+}
+
+export async function getEncryptionSummary(env: Env): Promise<SafeAdminConfigResponse["encryption"]> {
+  const imported = await importConfigEncryptionKey(env.CONFIG_ENCRYPTION_KEY);
+  if (!imported.ok) {
+    return { configured: Boolean(env.CONFIG_ENCRYPTION_KEY), valid: false, secretEditingEnabled: false, message: imported.message };
+  }
+  return { configured: true, valid: true, secretEditingEnabled: true };
+}
+
+async function readAdminConfigRows(db: D1Database): Promise<Map<string, AdminConfigRow>> {
+  const result = await db.prepare("SELECT * FROM admin_config").all<AdminConfigRow>();
+  return new Map((result.results ?? []).map((row) => [row.key, row]));
+}
+
+function toSafeItem(definition: AdminConfigDefinition, row: AdminConfigRow | undefined, env: Env): SafeAdminConfigItem {
+  const envValue = readEnvValue(env, definition.key);
+  const defaultValue = definition.defaultValue;
+  const source: AdminConfigSource = row !== undefined ? "d1" : envValue !== undefined ? "env" : defaultValue !== undefined ? "default" : "missing";
+  const configured = row !== undefined || envValue !== undefined || defaultValue !== undefined;
+  const base = {
+    key: definition.key,
+    group: definition.group,
+    label: definition.label,
+    description: definition.description,
+    type: definition.valueType,
+    isSecret: definition.isSecret,
+    editable: definition.editable,
+    configured,
+    source,
+    validation: {
+      ...(definition.enumValues === undefined ? {} : { enumValues: [...definition.enumValues] }),
+      ...(definition.min === undefined ? {} : { min: definition.min }),
+      ...(definition.max === undefined ? {} : { max: definition.max }),
+      ...(definition.preferHttps === undefined ? {} : { preferHttps: definition.preferHttps })
+    },
+    ...(row?.updated_at === undefined ? {} : { updatedAt: row.updated_at })
+  };
+
+  if (definition.isSecret) {
+    return { ...base, valueRedacted: configured ? "[configured]" : "[missing]" };
+  }
+
+  return { ...base, value: row?.value ?? envValue ?? defaultValue ?? "" };
+}
+
+function groupItems(items: SafeAdminConfigItem[]): Record<AdminConfigGroup, SafeAdminConfigItem[]> {
+  return {
+    telegram: items.filter((item) => item.group === "telegram"),
+    wordpress: items.filter((item) => item.group === "wordpress"),
+    providers: items.filter((item) => item.group === "providers"),
+    scheduler: items.filter((item) => item.group === "scheduler"),
+    quotas: items.filter((item) => item.group === "quotas"),
+    secrets: items.filter((item) => item.group === "secrets")
+  };
+}
+
+async function writeAudit(env: Env, input: { definition: AdminConfigDefinition; action: string; changedAt: string; changedBy: string; requestId: string; previousValueRedacted: string; newValueRedacted: string }): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO admin_config_audit (id, key, value_type, is_secret, action, changed_at, changed_by, request_id, previous_value_redacted, new_value_redacted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    crypto.randomUUID(),
+    input.definition.key,
+    input.definition.valueType,
+    input.definition.isSecret ? 1 : 0,
+    input.action,
+    input.changedAt,
+    input.changedBy,
+    input.requestId,
+    input.previousValueRedacted,
+    input.newValueRedacted
+  ).run();
+}
+
+function redactedValue(definition: AdminConfigDefinition, value: string | undefined): string {
+  if (value === undefined) return "[missing]";
+  return definition.isSecret ? "[redacted]" : value;
+}
+
+function readEnvValue(env: Env, key: string): string | undefined {
+  const value = (env as unknown as Record<string, string | undefined>)[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function setEnvValue(env: Env, key: string, value: string): void {
+  (env as unknown as Record<string, string | undefined>)[key] = value;
+}
