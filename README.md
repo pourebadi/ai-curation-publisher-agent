@@ -10,9 +10,11 @@ AI Curation Publisher Agent is a Cloudflare Worker-based backend for collecting 
 
 The MVP is mock-first and safety-first. Real providers, scheduler side effects, final Telegram publishing, public WordPress publishing, and media download/upload are not enabled by default.
 
-Phase 24 adds a browser-based operator dashboard under `apps/dashboard`. The dashboard is intended for a non-technical operator to check health, readiness, configuration state, safe smoke operations, scheduler safety, and controlled pilot readiness without using curl for normal checks.
+Phase 24 added the browser-based operator dashboard under `apps/dashboard`.
 
-Phase 26 adds beginner-friendly Cloudflare setup and production readiness scripts. These scripts help configure safe non-secret Worker variables, deploy the Worker, and run safe checks without enabling real automation.
+Phase 26 added beginner-friendly Cloudflare setup and production readiness scripts.
+
+Phase 27 adds the Dashboard Setup Center so a non-technical owner can understand Worker connection, internal security, runtime configuration, optional integrations, scheduler safety, controlled pilot readiness, and recent operation results after the Worker and dashboard are already deployed.
 
 ## Current MVP status
 
@@ -35,7 +37,8 @@ Phase 26 adds beginner-friendly Cloudflare setup and production readiness script
 | WordPress draft dry-run | Explicit opt-in | Draft-only when explicitly enabled and configured. |
 | Scheduler safeguards | Implemented | Scheduler is disabled/dry-run guarded by default. |
 | Controlled pilot | Implemented | Explicit pilot route coordinates Firecrawl, Telegram review, and WordPress draft checks. |
-| Operator dashboard | Implemented MVP | React/Vite dashboard talks to the Worker API and stores local operator settings in the browser. |
+| Operator dashboard | Implemented | React/Vite dashboard talks to the Worker API and stores local operator settings in the browser. |
+| Dashboard Setup Center | Implemented | Guides Worker connection, internal security, runtime config, optional integrations, scheduler safety, controlled pilot, launch readiness, and activity history. |
 | Setup bootstrap | Implemented | Phase 26 scripts help run safe Cloudflare setup and production readiness checks. |
 | Monitoring/alerts | Not production-integrated | No external monitoring or alerting service is wired. |
 | Public dashboard auth | Not implemented in app | Protect production dashboard deployment with Cloudflare Access or equivalent. |
@@ -64,7 +67,8 @@ D1 repositories/services (packages/db)
 Operator Dashboard (apps/dashboard)
   -> calls Worker API over HTTPS
   -> stores Worker API URL locally
-  -> stores internal API credential in browser storage only when the operator chooses
+  -> stores internal API credential locally only when the operator chooses
+  -> shows Setup Center guidance
   -> never displays saved credential values
 ```
 
@@ -102,31 +106,6 @@ Telegram/manual input
 -> queue for publish abstraction
 -> Telegram final abstraction
 -> WordPress abstraction
-```
-
-### Provider polling flow
-
-```text
-source config
--> provider registry
--> source poller
--> normalized posts
--> ingest gate
--> dedupe/validation
--> downstream processing
-```
-
-### E2E mock smoke flow
-
-```text
-mock source
--> mock provider
--> mock AI
--> mock Telegram review
--> simulated approval
--> mock final Telegram publish
--> mock WordPress publish
--> structured result
 ```
 
 ### Controlled real integrations pilot
@@ -230,32 +209,9 @@ Run this when you are preparing the Worker for Cloudflare production setup for t
 pnpm setup:cloudflare
 ```
 
-The setup wizard does this safely:
+The setup wizard safely inspects `wrangler.toml`, adds or corrects non-secret production-safe `[vars]`, keeps providers in mock mode, keeps scheduler and publishing disabled, helps generate `INTERNAL_API_SECRET`, offers to save it as a Cloudflare Worker Secret, offers Worker deploy, and checks `/health`, `/status`, `/ready`, and internal auth when possible.
 
-- confirms it is running from the repository root
-- inspects `wrangler.toml`
-- adds or corrects non-secret production-safe `[vars]`
-- keeps providers in mock mode
-- keeps the scheduler disabled and dry-run guarded
-- keeps publishing disabled
-- generates a one-time `INTERNAL_API_SECRET` value with Node crypto
-- prints that generated secret exactly once so you can save it securely
-- offers to send `INTERNAL_API_SECRET` to Cloudflare with `pnpm wrangler secret put INTERNAL_API_SECRET`
-- offers to run `pnpm worker:deploy`
-- asks for or infers `WORKER_BASE_URL`
-- checks `/health`, `/status`, `/ready`, and internal auth when a secret is available
-
-The setup wizard does not do these things:
-
-- it does not write secrets into `wrangler.toml`
-- it does not store generated secrets in files
-- it does not configure or store Cloudflare API tokens
-- it does not enable real providers
-- it does not enable the scheduler
-- it does not enable automatic publishing
-- it does not enable final Telegram publishing
-- it does not enable public WordPress publishing
-- it does not call real provider, Telegram, or WordPress APIs by itself
+The setup wizard does not write secrets into `wrangler.toml`, store generated secrets in files, configure Cloudflare API tokens, enable real providers, enable scheduler, enable publishing, or call real provider/Telegram/WordPress APIs by itself.
 
 ### `pnpm check:production`
 
@@ -265,66 +221,54 @@ Run this after deployment, after changing Cloudflare Worker variables or secrets
 WORKER_BASE_URL=https://your-worker-url.example pnpm check:production
 ```
 
-If you want authenticated internal checks, provide the secret through the environment or enter it when prompted. The script never prints the secret value.
+The production checker runs only safe checks against `/health`, `/status`, `/ready`, `/internal/e2e/mock-pipeline`, and readiness-only controlled pilot behavior when an internal credential is provided. It never prints secret values.
 
-```bash
-WORKER_BASE_URL=https://your-worker-url.example INTERNAL_API_SECRET=your-saved-secret pnpm check:production
-```
+## Dashboard Setup Center
 
-The production checker runs only safe checks:
+The Setup Center lives in `apps/dashboard` and is intended for use after the Worker and dashboard have already been deployed.
 
-- `GET /health`
-- `GET /status`
-- `GET /ready`
-- `POST /internal/e2e/mock-pipeline` without a secret
-- `POST /internal/e2e/mock-pipeline` with a secret when provided
-- `POST /internal/pilot/real-integrations` with an empty body when a secret is provided
+It helps the owner understand and safely operate setup from the browser:
 
-The empty pilot check is readiness-oriented. It must not enable scheduler behavior, provider polling, final Telegram publishing, or public WordPress publishing.
+- Worker connection: local Worker API URL, `/health`, `/status`, `/ready`, and next action.
+- Internal security: local internal credential state, backend `hasInternalSecret`, and protected-route checks.
+- Cloudflare runtime config: plain-language checklist for environment, logging, provider mode, scheduler flags, quotas, Telegram review flag, WordPress dry-run flag, and WordPress default status.
+- Telegram setup wizard: required names, where to configure them, backend status, safe chat-ID guidance, and review dry-run only when the internal credential is configured.
+- WordPress setup wizard: required names, where to configure them, backend status, and draft dry-run only when the internal credential is configured.
+- Firecrawl setup wizard: provider mode, Firecrawl enable flag, credential name, endpoint/timeout guidance, sandbox URL input, and explicit confirmation before a sandbox fetch.
+- Scheduler safety: Safe/Warning/Risky labels for scheduler enabled, dry-run, real-provider allowance, publishing allowance, source/item limits, and quotas.
+- Controlled pilot: readiness-only default, explicit confirmation for Firecrawl, Telegram, and WordPress pilot steps, collapsed raw JSON, no final publish, no public WordPress publish, and no scheduler activation.
+- Launch readiness summary: manager-friendly overall status, integration readiness, scheduler safety, publishing safety, and recommended next step.
+- Activity/results: recent setup results stored locally with timestamps, ok/fail state, warning/error counts, redacted JSON, and a clear-history control.
 
-### Where secrets belong
+The Setup Center intentionally does not:
 
-Secrets must never be committed. Do not paste real secret values into README, source code, tests, screenshots, issue comments, PR descriptions, or chat.
-
-Use these storage locations:
-
-- local development: `.dev.vars`
-- Cloudflare runtime: Cloudflare Worker Secrets, usually through `pnpm wrangler secret put SECRET_NAME`
-- GitHub workflows: GitHub Actions Secrets
-
-Secret names are okay to document. Secret values are not.
-
-Telegram and WordPress remain optional until a controlled pilot. The scheduler remains disabled by default. After the Worker is deployed and readiness checks pass, the next step is deploying and protecting the operator dashboard with Cloudflare Access or an equivalent access-control layer.
-
-## Operator dashboard
-
-The dashboard lives in `apps/dashboard` and is built with React, Vite, and TypeScript.
-
-It can:
-
-- configure the Worker API base URL locally
-- store the internal API credential in session storage by default
-- optionally remember the internal API credential in this browser
-- show only whether the internal credential is configured or missing
-- call `/health`, `/status`, and `/ready`
-- translate status into plain-language manager guidance
-- show safe configuration checklists
-- run mock E2E smoke
-- run manual scheduler dry-run
-- run controlled pilot readiness-only
-- run explicit Firecrawl, Telegram review, and WordPress draft pilot checks
-- store the last 10 dashboard operation results in local storage
-
-It intentionally cannot:
-
-- set Cloudflare Worker values
-- mutate Cloudflare secrets
+- set Cloudflare Worker variables
+- mutate Cloudflare Worker Secrets
 - store or use Cloudflare API tokens
-- enable scheduler
 - enable real providers
+- enable scheduler
+- enable publishing
 - enable final Telegram publishing
 - enable public WordPress publishing
+- display saved secret values
 - bypass backend safeguards
+
+Cloudflare secrets and variables must still be configured manually in Cloudflare. GitHub workflow values must still be configured manually in GitHub Actions Secrets. This design keeps high-risk account operations outside browser frontend code.
+
+Typical use after deployment:
+
+1. Open the protected dashboard URL.
+2. Enter the deployed Worker API base URL.
+3. Click refresh/check connection.
+4. Confirm Worker connection and readiness.
+5. Configure `INTERNAL_API_SECRET` manually in Cloudflare Worker Secrets if missing.
+6. Enter the same internal credential locally in the dashboard.
+7. Run the internal auth check.
+8. Review runtime config and scheduler safety.
+9. Configure optional Telegram, WordPress, or Firecrawl values manually only when piloting that integration.
+10. Run mock E2E, readiness-only pilot, then one confirmed pilot step at a time.
+
+## Operator dashboard commands
 
 Run locally:
 
@@ -459,7 +403,7 @@ pnpm dashboard:preview
 
 ## Testing strategy
 
-Tests cover packages, routes, operations, providers, mappers, repositories, and mock E2E flows. Real network calls are not allowed in tests. Dashboard validation is currently build-oriented rather than a heavy frontend test suite.
+Tests cover packages, routes, operations, providers, mappers, repositories, dashboard helper functions, and mock E2E flows. Real network calls are not allowed in tests. Dashboard validation is build-oriented plus lightweight helper tests.
 
 ## Cloudflare deployment and D1
 
@@ -467,7 +411,7 @@ The Worker uses `wrangler.toml`, D1 binding `DB`, and migrations under `packages
 
 GitHub workflows cover CI, manual deploy, smoke tests, D1 migrations, and a backup/export stub. Keep deploy and migration workflows manual unless a future scoped phase explicitly changes that behavior.
 
-For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnpm check:production` after deployment or configuration changes.
+For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnpm check:production` after deployment or configuration changes. After the Worker and dashboard are deployed, use the Dashboard Setup Center for guided visual checks.
 
 ## Production readiness checklist
 
@@ -480,6 +424,7 @@ For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnp
 - [ ] Worker boots locally.
 - [ ] Dashboard runs locally.
 - [ ] `/health`, `/status`, and `/ready` pass.
+- [ ] Dashboard Setup Center shows Worker connection and internal security status.
 - [ ] Mock E2E smoke passes.
 - [ ] Controlled pilot readiness-only passes.
 - [ ] Internal route protection is configured for deployed environments.
@@ -492,7 +437,7 @@ For beginner production setup, start with `pnpm setup:cloudflare`, then run `pnp
 
 ## Launch / no-launch criteria
 
-Launch only if CI is green, readiness checks pass, internal auth is configured, smoke checks pass, dashboard build passes, controlled pilot readiness succeeds, and rollback is understood.
+Launch only if CI is green, readiness checks pass, internal auth is configured, smoke checks pass, dashboard build passes, controlled pilot readiness succeeds, dashboard Setup Center shows no risky config, and rollback is understood.
 
 Do not launch if readiness fails, D1 migration state is uncertain, internal auth fails, unexpected real external calls occur, logs expose sensitive information, scheduler is enabled unintentionally, or public publishing is enabled unintentionally.
 
