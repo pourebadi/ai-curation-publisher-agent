@@ -50,6 +50,11 @@ export function deriveSchedulerSafety(bundle: StatusBundle): SetupCenterModel["s
   const dryRun = readBoolean(scheduler, ["dryRun"]);
   const realProvidersAllowed = readBoolean(scheduler, ["realProvidersAllowed"]);
   const publishingAllowed = readBoolean(scheduler, ["publishingAllowed"]);
+  const maxSourcesPerRun = readNumber(scheduler, ["maxSourcesPerRun"]);
+  const maxItemsPerRun = readNumber(scheduler, ["maxItemsPerRun"]);
+  const maxAiItemsPerRun = readNumber(quotas, ["maxAiItemsPerRun"]);
+  const maxProviderItemsPerRun = readNumber(quotas, ["maxProviderItemsPerRun"]);
+  const maxPublishItemsPerRun = readNumber(quotas, ["maxPublishItemsPerRun"]);
   const warnings: string[] = [];
   if (enabled === true) warnings.push("Scheduler is enabled. Confirm this is intentional before launch.");
   if (dryRun === false) warnings.push("Scheduler dry-run is off. This is not safe for setup mode.");
@@ -59,15 +64,15 @@ export function deriveSchedulerSafety(bundle: StatusBundle): SetupCenterModel["s
 
   return {
     riskLabel,
-    enabled,
-    dryRun,
-    realProvidersAllowed,
-    publishingAllowed,
-    maxSourcesPerRun: readNumber(scheduler, ["maxSourcesPerRun"]),
-    maxItemsPerRun: readNumber(scheduler, ["maxItemsPerRun"]),
-    maxAiItemsPerRun: readNumber(quotas, ["maxAiItemsPerRun"]),
-    maxProviderItemsPerRun: readNumber(quotas, ["maxProviderItemsPerRun"]),
-    maxPublishItemsPerRun: readNumber(quotas, ["maxPublishItemsPerRun"]),
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(dryRun === undefined ? {} : { dryRun }),
+    ...(realProvidersAllowed === undefined ? {} : { realProvidersAllowed }),
+    ...(publishingAllowed === undefined ? {} : { publishingAllowed }),
+    ...(maxSourcesPerRun === undefined ? {} : { maxSourcesPerRun }),
+    ...(maxItemsPerRun === undefined ? {} : { maxItemsPerRun }),
+    ...(maxAiItemsPerRun === undefined ? {} : { maxAiItemsPerRun }),
+    ...(maxProviderItemsPerRun === undefined ? {} : { maxProviderItemsPerRun }),
+    ...(maxPublishItemsPerRun === undefined ? {} : { maxPublishItemsPerRun }),
     warnings
   };
 }
