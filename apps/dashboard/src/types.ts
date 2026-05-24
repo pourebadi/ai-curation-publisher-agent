@@ -4,7 +4,7 @@ export type JsonObject = {
   [key: string]: JsonValue;
 };
 
-export type ApiResult<T extends JsonValue = JsonObject> =
+export type ApiResult<T = JsonObject> =
   | { ok: true; status: number; data: T }
   | { ok: false; status?: number; error: string; message: string; data?: JsonValue };
 
@@ -90,22 +90,12 @@ export type AdminConfigItem = {
   source: AdminConfigSource;
   value?: string;
   valueRedacted?: string;
-  validation: {
-    enumValues?: string[];
-    min?: number;
-    max?: number;
-    preferHttps?: boolean;
-  };
+  validation: { enumValues?: string[]; min?: number; max?: number; preferHttps?: boolean };
   updatedAt?: string;
 };
 export type AdminConfigResponse = {
   ok: true;
-  encryption: {
-    configured: boolean;
-    valid: boolean;
-    secretEditingEnabled: boolean;
-    message?: string;
-  };
+  encryption: { configured: boolean; valid: boolean; secretEditingEnabled: boolean; message?: string };
   groups: Record<AdminConfigGroup, AdminConfigItem[]>;
   items: AdminConfigItem[];
 };
