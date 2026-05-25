@@ -90,7 +90,7 @@ export function buildWizardGuidance(input: WizardGuidanceInput): WizardGuidance 
         ],
         bullets: [
           "If no routes are loaded: enter Admin access, click Load routes, then seed or create a route if the count is still 0.",
-          "Final publishing stays disabled unless explicitly enabled server-side.",
+          "Final channel delivery stays off by default and must be reviewed outside this dashboard.",
           "WordPress remains optional for this Telegram-first workflow."
         ],
         status: [
@@ -105,12 +105,12 @@ export function buildWizardGuidance(input: WizardGuidanceInput): WizardGuidance 
         title: "Configure WordPress drafts only when needed",
         paragraphs: [
           "WordPress is optional for the Telegram-first workflow.",
-          "When configured, use draft-only checks first. Public WordPress publishing remains disabled."
+          "When configured, use draft-only checks first. WordPress live-site delivery remains off."
         ],
         bullets: [
           "Skip WordPress if Telegram is the only target for now.",
           "Use WordPress drafts only after credentials are configured safely.",
-          "Do not enable public publishing from the dashboard."
+          "Keep WordPress live-site delivery off in this dashboard."
         ],
         status: [{ label: "WordPress", value: input.wordpressReady ? "Draft config detected" : "Optional / not configured" }]
       };
@@ -124,7 +124,7 @@ export function buildWizardGuidance(input: WizardGuidanceInput): WizardGuidance 
         bullets: [
           "Skipped is acceptable in Manual-only mode.",
           "Add providers later when the route and review workflow is stable.",
-          "Provider setup must not enable automatic publishing by default."
+          "Provider setup keeps automatic distribution off by default."
         ],
         status: [{ label: "Providers", value: input.operatingMode === "manual_only" ? "Optional / skipped" : "Needed for provider-assisted mode" }]
       };
@@ -132,16 +132,16 @@ export function buildWizardGuidance(input: WizardGuidanceInput): WizardGuidance 
       return {
         title: "Run safe operational checks",
         paragraphs: [
-          "Safe tests verify setup without public publishing.",
-          "Route config check validates route tables. Publish queue dry-run reviews queue status and does not public-publish."
+          "Safe tests verify setup without live-site changes.",
+          "Route config check validates route tables. Queue dry-run reviews queue status without sending to live channels."
         ],
         bullets: [
           "Readiness check: no external service calls.",
-          "Telegram route config: no Telegram API call and no publish.",
-          "Telegram publish queue dry-run: no final Telegram publish.",
-          "Telegram review dry-run requires confirmation and never final-publishes."
+          "Telegram route config: no Telegram API call and nothing is sent.",
+          "Telegram queue dry-run: no final channel message is sent.",
+          "Telegram review dry-run requires confirmation and stays review-only."
         ],
-        status: [{ label: "Final/public publishing controls", value: "Not available here" }]
+        status: [{ label: "Live-channel controls", value: "Not available here" }]
       };
     case "readiness":
       return {
