@@ -25,6 +25,21 @@ describe("operating mode readiness", () => {
     expect(validation.errors).not.toContain("Provider-assisted mode is selected but no provider credentials are configured.");
   });
 
+  it("does not hard-fail manual_only production when review is not enabled", () => {
+    const validation = validateRuntimeConfig(makeEnv({ OPERATING_MODE: "manual_only", TELEGRAM_REVIEW_CHAT_ID: "", TELEGRAM_FINAL_CHAT_ID: "", TELEGRAM_BOT_TOKEN: "", TELEGRAM_REAL_REVIEW_ENABLED: "false" }));
+
+    expect(validation.ready).toBe(true);
+    expect(validation.errors).toEqual([]);
+    expect(validation.warnings.some((warning) => warning.includes("Telegram review configuration is incomplete"))).toBe(true);
+  });
+
+  it("hard-fails only when review workflow is enabled but incomplete", () => {
+    const validation = validateRuntimeConfig(makeEnv({ OPERATING_MODE: "manual_only", TELEGRAM_REVIEW_CHAT_ID: "", TELEGRAM_FINAL_CHAT_ID: "", TELEGRAM_BOT_TOKEN: "", TELEGRAM_REAL_REVIEW_ENABLED: "true" }));
+
+    expect(validation.ready).toBe(false);
+    expect(validation.errors).toContain("Telegram review is enabled but review configuration is incomplete.");
+  });
+
   it("guides provider credentials in provider_assisted mode", () => {
     const summary = buildSafeConfigSummary(makeEnv({ OPERATING_MODE: "provider_assisted", PROVIDERS_MODE: "real" }));
     const validation = validateRuntimeConfig(makeEnv({ OPERATING_MODE: "provider_assisted", PROVIDERS_MODE: "real" }));
@@ -49,5 +64,6 @@ describe("operating mode readiness", () => {
 
     expect(summary.ai.ready).toBe(true);
     expect(summary.ai.productionGrade).toBe(false);
+    expect(summary.ai.runtimeProviderSwitching).toBe("stored_config_only");
   });
 });
