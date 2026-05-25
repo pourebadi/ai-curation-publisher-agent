@@ -9,6 +9,27 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function successMessage(messageId = 42, chatId = "final-chat", text = "Final text"): unknown {
+  return {
+    ok: true,
+    result: {
+      message_id: messageId,
+      chat: { id: chatId },
+      text
+    }
+  };
+}
+
+function requestBody(fetchImpl: typeof fetch): Record<string, unknown> {
+  const [, init] = vi.mocked(fetchImpl).mock.calls[0] ?? [];
+  return JSON.parse(String(init?.body)) as Record<string, unknown>;
+}
+
+function requestUrl(fetchImpl: typeof fetch): string {
+  const [url] = vi.mocked(fetchImpl).mock.calls[0] ?? [];
+  return String(url);
+}
+
 describe("RealTelegramClient", () => {
   it("builds sendMessage request using an injected fetch implementation", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({
@@ -37,10 +58,9 @@ describe("RealTelegramClient", () => {
       text: "Review text"
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url, init] = vi.mocked(fetchImpl).mock.calls[0] ?? [];
-    expect(url).toBe("https://telegram.local/botconfigured-token/sendMessage");
-    expect(init).toMatchObject({ method: "POST" });
-    expect(JSON.parse(String(init?.body))).toMatchObject({
+    expect(requestUrl(fetchImpl)).toBe("https://telegram.local/botconfigured-token/sendMessage");
+    expect(vi.mocked(fetchImpl).mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(requestBody(fetchImpl)).toMatchObject({
       chat_id: "review-chat",
       text: "Review text",
       disable_web_page_preview: true
@@ -62,30 +82,15 @@ describe("RealTelegramClient", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("does not expose the bot token in API error messages", async () => {
+  it("does not expose the bot token or raw Telegram description in API error messages", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({
       ok: false,
-      description: "remote failure"
+      description: "remote failure with configured-token and https://telegram.local/botconfigured-token/sendMessage"
     }, 401)) as unknown as typeof fetch;
     const client = new RealTelegramClient({
       botToken: "configured-token",
       fetchImpl,
       apiBaseUrl: "https://telegram.local"
-    });
-
-    await expect(client.sendReviewMessage({
-      chatId: "review-chat",
-      text: "Review text",
-      replyMarkup: buildReviewInlineKeyboard("item_1")
-    })).rejects.toBeInstanceOf(TelegramClientError);
-
-    await expect(client.sendReviewMessage({
-      chatId: "review-chat",
-      text: "Review text",
-      replyMarkup: buildReviewInlineKeyboard("item_1")
-    })).rejects.toMatchObject({
-      category: "telegram_api_error",
-      message: "Telegram Bot API returned an error."
     });
 
     try {
@@ -94,8 +99,17 @@ describe("RealTelegramClient", () => {
         text: "Review text",
         replyMarkup: buildReviewInlineKeyboard("item_1")
       });
+      throw new Error("Expected TelegramClientError");
     } catch (error) {
+      expect(error).toBeInstanceOf(TelegramClientError);
+      expect(error).toMatchObject({
+        category: "telegram_api_error",
+        message: "Telegram Bot API returned an error.",
+        statusCode: 401
+      });
       expect(String((error as Error).message)).not.toContain("configured-token");
+      expect(String((error as Error).message)).not.toContain("remote failure");
+      expect(String((error as Error).message)).not.toContain("telegram.local");
     }
   });
 
@@ -116,21 +130,101 @@ describe("RealTelegramClient", () => {
     });
   });
 
-  it("does not enable real final publishing through this client", async () => {
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
+  it("classifies malformed fetch responses without TypeError", async () => {
+    const fetchImpl = vi.fn(async () => undefined) as unknown as typeof fetch;
     const client = new RealTelegramClient({
       botToken: "configured-token",
       fetchImpl,
       apiBaseUrl: "https://telegram.local"
     });
 
-    await expect(client.publishFinalMessage({
-      chatId: "final-chat",
-      text: "Final text"
+    await expect(client.sendReviewMessage({
+      chatId: "review-chat",
+      text: "Review text",
+      replyMarkup: buildReviewInlineKeyboard("item_1")
     })).rejects.toMatchObject({
-      category: "telegram_api_error",
-      message: "Real final Telegram publishing is not enabled by this client path."
+      name: "TelegramClientError",
+      category: "invalid_response",
+      message: "Telegram Bot API returned an invalid response object."
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("publishes text-only final messages with optional topic id", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(successMessage(100, "final-chat", "Final text"))) as unknown as typeof fetch;
+    const client = new RealTelegramClient({
+      botToken: "configured-token",
+      fetchImpl,
+      apiBaseUrl: "https://telegram.local"
+    });
+
+    const message = await client.publishFinalMessage({
+      chatId: "final-chat",
+      messageThreadId: 701,
+      text: "Final text"
+    });
+
+    expect(message).toMatchObject({ chatId: "final-chat", messageId: "100", text: "Final text", messageThreadId: 701 });
+    expect(requestUrl(fetchImpl)).toBe("https://telegram.local/botconfigured-token/sendMessage");
+    expect(requestBody(fetchImpl)).toMatchObject({
+      chat_id: "final-chat",
+      message_thread_id: 701,
+      text: "Final text",
+      disable_web_page_preview: true
+    });
+  });
+
+  it("publishes photo final messages", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(successMessage(101, "final-chat", "Photo caption"))) as unknown as typeof fetch;
+    const client = new RealTelegramClient({ botToken: "configured-token", fetchImpl, apiBaseUrl: "https://telegram.local" });
+
+    const message = await client.publishFinalMessage({
+      chatId: "final-chat",
+      text: "Photo caption",
+      media: [{ kind: "photo", fileId: "photo-file-id" }]
+    });
+
+    expect(message).toMatchObject({ chatId: "final-chat", messageId: "101" });
+    expect(requestUrl(fetchImpl)).toBe("https://telegram.local/botconfigured-token/sendPhoto");
+    expect(requestBody(fetchImpl)).toMatchObject({
+      chat_id: "final-chat",
+      photo: "photo-file-id",
+      caption: "Photo caption"
+    });
+  });
+
+  it("publishes video final messages", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(successMessage(102, "final-chat", "Video caption"))) as unknown as typeof fetch;
+    const client = new RealTelegramClient({ botToken: "configured-token", fetchImpl, apiBaseUrl: "https://telegram.local" });
+
+    await client.publishFinalMessage({
+      chatId: "final-chat",
+      text: "Video caption",
+      media: [{ kind: "video", fileId: "video-file-id" }]
+    });
+
+    expect(requestUrl(fetchImpl)).toBe("https://telegram.local/botconfigured-token/sendVideo");
+    expect(requestBody(fetchImpl)).toMatchObject({
+      chat_id: "final-chat",
+      video: "video-file-id",
+      caption: "Video caption"
+    });
+  });
+
+  it("publishes document final messages", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(successMessage(103, "final-chat", "Document caption"))) as unknown as typeof fetch;
+    const client = new RealTelegramClient({ botToken: "configured-token", fetchImpl, apiBaseUrl: "https://telegram.local" });
+
+    await client.publishFinalMessage({
+      chatId: "final-chat",
+      text: "Document caption",
+      media: [{ kind: "document", fileId: "document-file-id" }]
+    });
+
+    expect(requestUrl(fetchImpl)).toBe("https://telegram.local/botconfigured-token/sendDocument");
+    expect(requestBody(fetchImpl)).toMatchObject({
+      chat_id: "final-chat",
+      document: "document-file-id",
+      caption: "Document caption"
+    });
   });
 });
