@@ -20,8 +20,21 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("controlled pilot status summary", () => {
+  it("does not mark manual-only mode ready by itself", async () => {
+    const response = await handleStatus(new Request("https://worker.local/status"), makeEnv({ OPERATING_MODE: "manual_only" }));
+    const body = await json(response);
+
+    expect(response.status).toBe(200);
+    expect(body.pilot).toMatchObject({
+      ready: false,
+      modeAllowsPilot: true,
+      setupSafe: true
+    });
+  });
+
   it("exposes safe pilot booleans without runtime values", async () => {
     const response = await handleStatus(new Request("https://worker.local/status"), makeEnv({
+      INTERNAL_API_SECRET: "configured",
       PROVIDERS_MODE: "mixed",
       ENABLE_FIRECRAWL_PROVIDER: "true",
       FIRECRAWL_API_KEY: hiddenRuntimeValue,
@@ -37,6 +50,8 @@ describe("controlled pilot status summary", () => {
     expect(response.status).toBe(200);
     expect(body.pilot).toMatchObject({
       ready: true,
+      modeAllowsPilot: true,
+      setupSafe: true,
       firecrawlConfigured: true,
       telegramReviewConfigured: true,
       telegramRealReviewEnabled: true,
