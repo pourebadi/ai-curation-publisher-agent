@@ -10,11 +10,12 @@ class MemoryStatement { private values: unknown[] = []; constructor(private read
 class MemoryD1 { config = new Map<string, Row>(); audit: Row[] = []; prepare(query: string): MemoryStatement { return new MemoryStatement(this, query); } all(query: string, values: unknown[]): Row[] { if (query.includes("admin_config_audit")) return [...this.audit].reverse().slice(0, Number(values[0] ?? 50)); return [...this.config.values()]; } run(query: string, values: unknown[]): void { if (query.startsWith("DELETE FROM admin_config")) { this.config.delete(String(values[0])); return; } if (query.includes("INSERT INTO admin_config_audit")) { this.audit.push({ id: String(values[0]), key: String(values[1]), value_type: String(values[2]), is_secret: Number(values[3]), action: String(values[4]), changed_at: String(values[5]), changed_by: String(values[6]), request_id: String(values[7]), previous_value_redacted: String(values[8]), new_value_redacted: String(values[9]) }); return; } if (query.includes("INSERT INTO admin_config")) { this.config.set(String(values[0]), { key: String(values[0]), value: String(values[1]), value_type: String(values[2]), is_secret: Number(values[3]), encrypted: Number(values[4]), updated_at: String(values[5]), updated_by: String(values[6]), description: String(values[7]) }); } } }
 function env(overrides: Partial<Env> = {}): Env { return { DB: new MemoryD1() as unknown as D1Database, INTERNAL_API_SECRET: "internal", ...overrides }; }
 function request(): Request { return new Request("https://worker.local/internal/admin/config", { headers: { "x-admin-user": "test-admin", "x-request-id": "req-test" } }); }
-const hexKey = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const hexKey = "000102030405060708090a0b0d0e0f101112131415161718191a1b1c1d1e1f".replace("0d", "0c0d");
 
 describe("admin config allowlist and validation", () => {
   it("permits expected editable keys and rejects forbidden keys", () => {
     expect(isEditableAdminConfigKey("OPERATING_MODE")).toBe(true);
+    expect(isEditableAdminConfigKey("DEFAULT_CONTENT_SOURCE_MODE")).toBe(true);
     expect(isEditableAdminConfigKey("AI_PROVIDER")).toBe(true);
     expect(isEditableAdminConfigKey("AI_MODEL_FALLBACKS")).toBe(true);
     expect(isEditableAdminConfigKey("OPENAI_API_KEY")).toBe(true);
@@ -23,18 +24,22 @@ describe("admin config allowlist and validation", () => {
     expect(isEditableAdminConfigKey("INTERNAL_API_SECRET")).toBe(false);
     expect(isForbiddenAdminConfigKey("CONFIG_ENCRYPTION_KEY")).toBe(true);
     expect(isForbiddenAdminConfigKey("SCHEDULER_ALLOW_PUBLISHING")).toBe(true);
+    expect(isForbiddenAdminConfigKey("WORDPRESS_REAL_PUBLISH_ENABLED")).toBe(true);
     expect(ADMIN_CONFIG_DEFINITIONS.some((entry) => entry.key === "CLOUDFLARE_API_TOKEN")).toBe(false);
   });
 
-  it("rejects bad values", () => {
+  it("rejects bad values and normalizes model fallback chains", () => {
     expect(validateAdminConfigValue(findAdminConfigDefinition("TELEGRAM_REAL_REVIEW_ENABLED")!, "yes").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("FIRECRAWL_TIMEOUT_MS")!, "abc").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("WORDPRESS_BASE_URL")!, "http://example.com").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("WORDPRESS_DEFAULT_STATUS")!, "publish").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("MAX_PUBLISH_ITEMS_PER_RUN")!, "1").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("OPERATING_MODE")!, "auto_publish").ok).toBe(false);
+    expect(validateAdminConfigValue(findAdminConfigDefinition("DEFAULT_CONTENT_SOURCE_MODE")!, "auto").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("AI_PROVIDER")!, "unknown").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("AI_MODEL_FALLBACKS")!, "[1]").ok).toBe(false);
+    expect(validateAdminConfigValue(findAdminConfigDefinition("AI_MODEL_FALLBACKS")!, "model-a,,model-b").ok).toBe(false);
+    expect(validateAdminConfigValue(findAdminConfigDefinition("AI_MODEL_FALLBACKS")!, "")).toMatchObject({ ok: true, value: "[]" });
     expect(validateAdminConfigValue(findAdminConfigDefinition("AI_MODEL_FALLBACKS")!, "model-a,model-b")).toMatchObject({ ok: true, value: "[\"model-a\",\"model-b\"]" });
     expect(validateAdminConfigValue(findAdminConfigDefinition("AI_TEMPERATURE")!, "2.5").ok).toBe(false);
   });
@@ -42,8 +47,10 @@ describe("admin config allowlist and validation", () => {
   it("returns metadata for setup and settings UI", async () => {
     const listed = await listEditableConfig(env());
     const mode = listed.items.find((item) => item.key === "OPERATING_MODE");
+    const provider = listed.items.find((item) => item.key === "FIRECRAWL_API_KEY");
     const ai = listed.items.find((item) => item.key === "AI_PROVIDER");
-    expect(mode).toMatchObject({ group: "operating_mode", setupVisible: true, safetyLevel: "safe" });
+    expect(mode).toMatchObject({ group: "operating_mode", setupVisible: true, safetyLevel: "safe", requiredForProduction: true });
+    expect(provider).toMatchObject({ group: "providers", optionalInManualOnly: true });
     expect(ai).toMatchObject({ group: "ai", setupVisible: true });
     expect(listed.presets.openai).toContain("gpt-5.5");
     expect(listed.presets.gemini).toContain("gemini-2.5-pro");
