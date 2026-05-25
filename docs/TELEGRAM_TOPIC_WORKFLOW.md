@@ -1,8 +1,8 @@
 # Telegram Topic Workflow
 
-Phase 34 completes the safe operating path for the Telegram topic workflow foundation introduced in Phase 33.
+Phase 35 polishes the Telegram topic-based operations experience for non-technical operators while keeping the system safe by default.
 
-The system still stays safe by default:
+Safety defaults remain:
 
 - One central Telegram bot is used.
 - Routing is based on `chat.id` plus `message_thread_id`, not topic names or AI guesses.
@@ -10,6 +10,7 @@ The system still stays safe by default:
 - Final Telegram publishing is disabled unless `TELEGRAM_FINAL_PUBLISH_ENABLED=true` is explicitly configured server-side.
 - WordPress remains optional.
 - Scheduler publishing remains disabled.
+- Raw route payloads belong in Technical only.
 
 ## Mental model
 
@@ -32,39 +33,88 @@ source_chat_id + source_thread_id
   -> final channel(s)
 ```
 
-Topic names such as `Crypto Source` or `Design FA Review` are for humans. The backend uses Telegram IDs.
+Topic names are only for humans. The system uses numeric topic IDs.
 
-## Getting chat IDs and topic IDs
+## Finding chat IDs and topic IDs
 
 The Worker sees these values in Telegram webhook updates:
 
-- `message.chat.id` becomes `sourceChatId` or `reviewChatId`.
-- `message.message_thread_id` becomes `sourceThreadId` or `reviewThreadId`.
+| Telegram update field | Route config field |
+| --- | --- |
+| `message.chat.id` | `sourceChatId` or `reviewChatId` |
+| `message.message_thread_id` | `sourceThreadId` or `reviewThreadId` |
 
-For setup, send a test message in the source topic and inspect the webhook/debug payload in the Worker logs or safe internal tooling. Do not rely on the visible topic name.
+For setup, send a test message in the source topic and inspect the webhook/debug payload in Worker logs or safe internal tooling. Do not rely on the visible topic name.
 
-## Example structure
-
-Internal Telegram forum supergroup:
-
-```text
-Content Ops
-  - Crypto Source
-  - Crypto FA Review
-  - Crypto EN Review
-  - Design Source
-  - Design FA Review
-```
-
-Public channels:
+Examples:
 
 ```text
-@crypto_fa
-@crypto_en
-@design_fa
+source chat ID: -1001234567890
+source topic ID: 101
+review topic ID: 201
+final channel: @crypto_fa
 ```
 
-Example route:
+## Route manager
+
+The dashboard route manager under Settings -> Telegram should show an operator-friendly summary:
+
+- Telegram bot status: Configured or Missing
+- Final publishing: Disabled or Enabled
+- Route count
+- Enabled output count
+- Media mode
+- WordPress: Optional
+
+Route cards should show:
+
+- category
+- source chat ID
+- source topic/thread ID
+- prompt profile
+- enabled or disabled
+- output count
+- warning if an enabled route has no enabled outputs
+
+Output summaries should show:
+
+- language
+- review chat ID
+- review topic/thread ID
+- final channel/chat ID
+- enabled or disabled
+- latest status when available
+
+The dashboard helper `telegram-route-manager.ts` keeps labels friendly and keeps technical field names in helper text. It does not define or expose secret inputs.
+
+## Protected route management APIs
+
+All endpoints require `x-internal-api-secret` when `INTERNAL_API_SECRET` is configured.
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/internal/telegram/topic-routes` | `GET` | List route manager state and validation summary. |
+| `/internal/telegram/topic-routes` | `POST` | Create or upsert a route. |
+| `/internal/telegram/topic-routes/:id` | `PUT` | Update a route. |
+| `/internal/telegram/topic-routes/:id/disable` | `POST` | Disable a route. |
+| `/internal/telegram/topic-routes/:id/outputs` | `POST` | Create or upsert an output for a route. |
+| `/internal/telegram/topic-route-outputs/:id` | `PUT` | Update a route output. |
+| `/internal/telegram/topic-route-outputs/:id/disable` | `POST` | Disable a route output. |
+| `/internal/telegram/topic-routes/validate` | `POST` | Validate stored route config. |
+| `/internal/telegram/outputs/recent` | `GET` | Read recent generated Telegram outputs with redacted errors. |
+
+Validation checks:
+
+- source chat ID is present
+- source topic ID is numeric
+- review chat ID is present
+- review topic ID is numeric
+- final chat/channel ID is present
+- enabled route has at least one enabled output
+- duplicate source chat/topic is rejected
+- duplicate output ID is rejected
+
+## Example route config
 
 ```json
 {
@@ -73,39 +123,56 @@ Example route:
   "sourceChatId": "-1001111111111",
   "sourceThreadId": 101,
   "promptProfile": "crypto_editorial",
-  "outputs": [
-    {
-      "id": "crypto_fa",
-      "language": "fa",
-      "reviewChatId": "-1001111111111",
-      "reviewThreadId": 201,
-      "finalChatId": "@crypto_fa"
-    },
-    {
-      "id": "crypto_en",
-      "language": "en",
-      "reviewChatId": "-1001111111111",
-      "reviewThreadId": 202,
-      "finalChatId": "@crypto_en"
-    }
-  ]
+  "enabled": true
 }
 ```
 
-## Workflow
+Example output config:
 
-When a Telegram message arrives in a configured source topic:
+```json
+{
+  "id": "crypto_fa",
+  "language": "fa",
+  "reviewChatId": "-1001111111111",
+  "reviewThreadId": 201,
+  "finalChatId": "@crypto_fa",
+  "enabled": true
+}
+```
 
-1. `/telegram/webhook` parses the update.
-2. The Worker reads `chat.id` and `message_thread_id`.
-3. The Worker looks up an enabled route in `telegram_routes`.
-4. If no route exists, the update is safely ignored and no item is created.
-5. If a route exists, the existing ingest gate creates the item.
-6. Telegram media metadata is stored when present.
-7. One generated output is created for each enabled route output/language.
-8. One review draft is sent to each configured review topic.
-9. The reviewer can choose `Send`, `Cancel`, or `Status` for each output.
-10. `Send` affects only that one language/output.
+## Outputs and statuses
+
+Each configured route output creates one language/channel-specific generated output.
+
+Important statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `ready_for_review` | Draft was generated and sent to review. |
+| `approved` | Reviewer pressed Send. |
+| `queued_for_publish` | Final publishing is disabled, so the output is safely queued. |
+| `publishing` | Real final publish is being attempted. |
+| `published` | Telegram returned a final message ID. |
+| `failed` | Publish or generation failed with a redacted error. |
+| `cancelled` | Reviewer cancelled this output. |
+
+Recent output status is available from:
+
+```text
+GET /internal/telegram/outputs/recent?limit=20
+```
+
+The response includes item ID, category, language, review status, publish queue status, final channel, redacted last error, and update time.
+
+## Safe tests
+
+Dashboard safe tests should include:
+
+1. Check Telegram route config: validates stored route tables, does not call Telegram, does not publish.
+2. Telegram publish queue dry-run: reviews queue safety and retry eligibility, does not send a final post.
+3. Telegram review dry-run: may send or simulate review only after confirmation, never final-publishes.
+
+Do not add casual final-public-publish controls. A final publish test must remain hidden/disabled unless `TELEGRAM_FINAL_PUBLISH_ENABLED=true`, and it must require explicit confirmation.
 
 ## Review buttons
 
@@ -129,13 +196,11 @@ If final publishing is enabled server-side, the Worker attempts final Telegram p
 
 ## Retry failed Telegram publishes
 
-Phase 34 adds a protected retry route:
+Protected retry route:
 
 ```text
 POST /internal/telegram/publish/retry
 ```
-
-It requires `x-internal-api-secret` when `INTERNAL_API_SECRET` is configured.
 
 Request body, choose one identifier:
 
@@ -151,11 +216,11 @@ or:
 
 Safety behavior:
 
-- The route only retries rows in `telegram_publish_queue` with `status = failed`.
-- It does not enable final publishing by itself.
-- If `TELEGRAM_FINAL_PUBLISH_ENABLED=false`, the route returns `skipped`.
-- It redacts Telegram API errors before storing or returning them.
-- It never exposes bot tokens or raw Telegram API descriptions.
+- only retries rows in `telegram_publish_queue` with `status = failed`
+- does not enable final publishing by itself
+- returns `skipped` if `TELEGRAM_FINAL_PUBLISH_ENABLED=false`
+- redacts Telegram API errors before storing or returning them
+- never exposes bot tokens or raw Telegram API descriptions
 
 ## Final publishing flag
 
@@ -167,18 +232,16 @@ TELEGRAM_FINAL_PUBLISH_ENABLED=false
 
 Default is false in local and production Wrangler config.
 
-To enable final publishing, set this intentionally in Worker environment/admin-protected runtime configuration. Do not expose casual one-click public publishing to normal operators.
-
 Required for real final publishing:
 
 - `TELEGRAM_FINAL_PUBLISH_ENABLED=true`
 - `TELEGRAM_BOT_TOKEN` configured as a Worker Secret or encrypted admin secret
-- Bot admin/posting permission in the final channel
-- A configured `finalChatId` for the route output
+- bot admin/posting permission in the final channel
+- configured `finalChatId` for the route output
 
 ## Media behavior
 
-Phase 34 supports metadata-first media publishing.
+Phase 35 keeps metadata-only mode working.
 
 Incoming Telegram source messages store:
 
@@ -190,130 +253,64 @@ Incoming Telegram source messages store:
 - width/height/duration when present
 - `media_group_id` when present
 
-Final publish can reuse Telegram `file_id` for:
+Current final publish can reuse Telegram `file_id` for:
 
 - photo -> `sendPhoto`
 - video or animation -> `sendVideo`
 - document -> `sendDocument`
 
-If no media is available, the Worker uses `sendMessage`.
-
-Known media limitations:
+Known limitations:
 
 - R2 download/upload is not implemented yet.
-- `sendMediaGroup` is not implemented yet.
-- If a source message has multiple media assets, the current final publish path uses the first publishable Telegram file ID.
+- `sendMediaGroup` is reported as unsupported by `/status` for this branch.
+- If a source message has multiple media assets, the current final publish path uses the first publishable Telegram file ID or fails clearly for unsupported groups.
 - Media remains Telegram-file-id based. This is safe for Telegram-to-Telegram reuse, but not yet a full cross-platform media archive.
 
-## Safe seed endpoint for development
-
-This internal route seeds route config:
+Status warning:
 
 ```text
-POST /internal/telegram/topic-routes/seed
+Media storage is not configured. Telegram file_id reuse is active.
 ```
-
-It requires `x-internal-api-secret` when `INTERNAL_API_SECRET` is configured.
-
-Example local call:
-
-```bash
-curl -fsS -X POST "$WORKER_BASE_URL/internal/telegram/topic-routes/seed" \
-  -H "content-type: application/json" \
-  -H "x-internal-api-secret: $INTERNAL_API_SECRET" \
-  --data @telegram-routes.local.json
-```
-
-Do not paste real secrets into route config files.
-
-## Dashboard route summary
-
-The dashboard reads Telegram topic workflow information from `/status` and `/ready`.
-
-Visible operator summary should show:
-
-- bot token configured/missing
-- final publishing enabled/disabled
-- route count
-- enabled route output count
-- route category
-- source topic/thread id
-- review topic/thread id
-- final channel
-- enabled state
-
-Phase 34 exposes this data under:
-
-```text
-telegram.topicWorkflow.routes
-```
-
-The dashboard intentionally keeps route editing out of the normal operator screen for now. Use the protected seed endpoint or D1 migration/seed tooling for route setup. A polished route editor is planned for a later phase.
-
-## Required bot permissions
-
-For the internal forum supergroup:
-
-- The bot must be present in the group.
-- The bot must be able to receive messages in source topics.
-- The bot must be able to send messages in review topics.
-
-For public channels:
-
-- The bot must be an admin.
-- The bot must have permission to post messages.
 
 ## Status and readiness
 
-`/status` includes:
+`/status` and `/ready` include:
 
 ```text
-telegram.topicWorkflow.topicWorkflowConfigured
-telegram.topicWorkflow.routeCount
+telegram.topicWorkflow.routeManagerReady
+telegram.topicWorkflow.routeValidation.valid
+telegram.topicWorkflow.routeValidation.invalidRouteCount
+telegram.topicWorkflow.routeValidation.issueCount
 telegram.topicWorkflow.enabledRouteCount
-telegram.topicWorkflow.outputCount
 telegram.topicWorkflow.enabledOutputCount
-telegram.topicWorkflow.botTokenConfigured
-telegram.topicWorkflow.reviewRoutingConfigured
+telegram.topicWorkflow.mediaMode
+telegram.topicWorkflow.sendMediaGroupSupported
 telegram.topicWorkflow.finalPublishingEnabled
 telegram.topicWorkflow.wordpressOptional
-telegram.topicWorkflow.mediaMode
 telegram.topicWorkflow.routes
-telegram.topicWorkflow.warnings
 ```
 
-`/ready` includes the same topic workflow summary under `summary.telegramTopicWorkflow`.
+Final publishing disabled is not a readiness error. It is the safe default.
 
-No secret values are returned.
-
-## WordPress remains optional
-
-Missing WordPress settings do not block the Telegram topic workflow.
-
-WordPress draft and publishing behavior remain separate from this Telegram-first workflow.
+WordPress remains optional for the Telegram topic workflow.
 
 ## Troubleshooting
 
-If a source message is ignored, check:
-
-- The source topic has a `telegram_routes` row.
-- `sourceChatId` matches `message.chat.id`.
-- `sourceThreadId` matches `message.message_thread_id`.
-- The route is enabled.
-- The route has at least one enabled output.
-
-If review messages are not sent, check:
-
-- `TELEGRAM_BOT_TOKEN` is configured.
-- `TELEGRAM_REAL_REVIEW_ENABLED=true` if you expect real Telegram delivery.
-- The bot can post in the review topic.
-
-If Send only queues, that is expected while `TELEGRAM_FINAL_PUBLISH_ENABLED=false`.
+| Problem | What to check |
+| --- | --- |
+| Source message is ignored | Route exists, route is enabled, source chat ID matches `message.chat.id`, source topic ID matches `message_thread_id`. |
+| Route shows warning | Enabled route needs at least one enabled output. |
+| Review message is not sent | Bot token is configured, real review flag is intended, bot can post in review topic. |
+| Send only queues | `TELEGRAM_FINAL_PUBLISH_ENABLED=false` is active. This is safe. |
+| Publish retry returns skipped | Final publishing is still disabled. Enable only server-side and intentionally. |
+| Media album does not publish as album | `sendMediaGroup` is not enabled in this branch; use single-file reuse or plan Phase 36. |
+| WordPress missing | Safe for Telegram-only flow. WordPress is optional. |
 
 ## Intentionally not included yet
 
 - R2 media download/upload.
+- Full `sendMediaGroup` final publishing.
 - Provider automation from Apify/X/Instagram into route IDs.
-- Full dashboard route editor.
+- One-click public final publish controls.
 - Scheduler publishing.
 - Public WordPress publishing.
