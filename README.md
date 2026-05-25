@@ -1,88 +1,128 @@
 # AI Curation Publisher Agent
 
-A provider-agnostic social/web content curation, review, and publishing pipeline for Cloudflare Workers, D1, Telegram review, WordPress draft output, and a safe operator dashboard.
+A provider-agnostic social/web content curation, review, and draft-publishing pipeline for Cloudflare Workers, D1, Telegram review, WordPress drafts, and a safe operator dashboard.
 
 The project is mock-first and safety-first. Real providers, scheduler side effects, final Telegram publishing, public WordPress publishing, and real media download/upload are not enabled by default.
 
-## Current status
+## Phase 30 Admin Control Center
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Worker API | Implemented | Public health/status/readiness routes and protected internal routes. |
-| D1 database | Implemented | Core data tables plus Phase 30 admin config/audit tables. |
-| Dashboard | Implemented | Admin control panel for status, setup, safe tests, and editable config. |
-| Admin config | Implemented | Protected Worker Admin API stores editable config overrides in D1. |
-| Secret storage | Implemented | Dashboard-submitted integration secrets are encrypted before D1 storage. |
-| Telegram review | Implemented | Review-channel dry-run only unless explicitly configured. No final publish from dashboard. |
-| WordPress draft | Implemented | Draft-only dry-run. Public publishing remains blocked. |
-| Firecrawl sandbox | Implemented | Explicit sandbox fetch only when backend is configured. |
-| Scheduler safeguards | Implemented | Dashboard does not enable scheduler publishing or real provider scheduler access. |
-| Public dashboard auth | External | Protect production dashboard with Cloudflare Access or equivalent. |
+Phase 30 turns the dashboard into an Admin Control Center for non-technical operators. It supports setup guidance, safe settings, operating modes, AI configuration, encrypted integration credentials, pilot tests, launch readiness, and recent-change audit review.
 
-## Architecture
+The dashboard architecture is intentionally narrow:
 
 ```text
-Dashboard admin user
-  -> Dashboard frontend
-  -> protected Worker Admin API using x-internal-api-secret
-  -> D1 admin_config / admin_config_audit
-  -> effective runtime config for status, readiness, and safe dry-run checks
+Dashboard
+  -> protected Worker Admin API
+  -> D1 admin_config store
+  -> encrypted D1 values for selected credentials
+  -> Worker effective runtime config
 ```
 
-Important security boundary: the dashboard frontend does **not** call the Cloudflare API, does **not** receive Cloudflare API tokens, and does **not** directly mutate Cloudflare Worker Secrets. Editable runtime settings go through the protected Worker API and are stored as application-level configuration in D1.
+The dashboard does not call the Cloudflare API, does not receive Cloudflare API tokens, and does not directly mutate Cloudflare Worker Secrets. Cloudflare Worker Secrets remain for bootstrap/system secrets only.
 
-## Phase 30: editable admin config and encrypted secrets
+## Bootstrap secrets
 
-Phase 30 makes the dashboard a real admin control panel for safe runtime configuration.
+These are not editable from the dashboard:
 
-Admins can edit allowlisted settings from **Dashboard -> Settings** after entering `INTERNAL_API_SECRET` for the current page session. The dashboard does not store that admin secret in `localStorage` or `sessionStorage`; it is kept in memory only until the page reloads.
+- `INTERNAL_API_SECRET`
+- `CONFIG_ENCRYPTION_KEY`
 
-Non-secret settings are stored as D1 overrides. Secret integration values are encrypted before D1 storage using Web Crypto AES-GCM and a Worker Secret named `CONFIG_ENCRYPTION_KEY`.
-
-Configure the encryption key manually:
+Configure `CONFIG_ENCRYPTION_KEY` manually before using dashboard secret editing:
 
 ```bash
 pnpm wrangler secret put CONFIG_ENCRYPTION_KEY
 ```
 
-Do not commit the generated key. Do not paste it into README, source code, tests, issues, PRs, screenshots, or chat.
+If `CONFIG_ENCRYPTION_KEY` is missing or invalid, non-secret settings can still be edited, but secret forms are disabled and the dashboard shows: `Secret editing requires CONFIG_ENCRYPTION_KEY`.
 
-If `CONFIG_ENCRYPTION_KEY` is missing or invalid:
+Do not generate or commit real secret values.
 
-- the dashboard can still read public/effective config status
-- non-secret dashboard overrides may still be saved
-- secret editing is disabled
-- readiness reports that config encryption is not ready for secret editing
+## Operating modes
 
-## New protected admin routes
+The Admin Control Center supports:
 
-All admin config routes require `x-internal-api-secret` when `INTERNAL_API_SECRET` is configured.
-
-| Route | Method | Purpose |
+| Mode | Meaning | Provider credential requirement |
 | --- | --- | --- |
-| `/internal/admin/config` | `GET` | List editable config metadata and safe current status. |
-| `/internal/admin/config` | `PUT` | Save one or more allowlisted config values. |
-| `/internal/admin/config/reset` | `POST` | Remove one or more D1 dashboard overrides. |
-| `/internal/admin/config/audit` | `GET` | Return recent redacted audit entries. |
+| `manual_only` | I will add content manually. Provider credentials are not required. | Not required. |
+| `mock_demo` | Use mock providers and mock E2E checks for demos/testing. | Not required. |
+| `provider_assisted` | Use configured providers such as Firecrawl, Apify, or GetXAPI. | At least one provider should be configured. |
 
-Secret values are never returned by these routes. Secret items report configured/missing and `valueRedacted` only.
+Readiness and dashboard setup guidance respect the selected mode. Manual-only mode does not block setup on missing provider credentials, because apparently the product should not nag users about features they are not using.
 
-## D1 migration
+## AI configuration
 
-Phase 30 adds:
+AI is a first-class setup area.
 
-- `packages/db/migrations/0030_admin_config.sql`
+Editable AI settings include:
 
-New tables:
+- `AI_PROVIDER`: `mock`, `openai`, `gemini`, `custom`
+- `AI_MODEL`
+- `AI_MODEL_FALLBACKS`
+- `AI_OUTPUT_LANGUAGE`: `fa`, `en`, `ar`, `auto`
+- `AI_TRANSLATION_ENABLED`
+- `AI_REWRITE_ENABLED`
+- `AI_SUMMARY_ENABLED`
+- `AI_TONE_PRESET`: `neutral`, `editorial`, `concise`, `professional`, `social`, `custom`
+- `AI_CUSTOM_SYSTEM_PROMPT`
+- `AI_MAX_OUTPUT_TOKENS`
+- `AI_TEMPERATURE`
+- `AI_RETRY_ENABLED`
+- `AI_MAX_RETRIES`
 
-- `admin_config`
-- `admin_config_audit`
+Dashboard model presets are suggestions only. Manual model IDs are allowed so new provider models do not require a code change.
 
-Audit rows store redacted values only. Plaintext secret values must never be stored in audit.
+OpenAI presets:
+
+- `gpt-5.5`
+- `gpt-5.4`
+- `gpt-5.4-mini`
+- `gpt-5.4-nano`
+
+Gemini presets:
+
+- `gemini-2.5-pro`
+- `gemini-2.5-flash`
+- `gemini-2.5-flash-lite`
+
+Fallback chain behavior:
+
+- `AI_MODEL_FALLBACKS` accepts a JSON array or comma-separated model IDs.
+- Up to five fallback model IDs are allowed.
+- Runtime fallback is stored and exposed now; actual fallback execution is provider/orchestration dependent and marked partially implemented in status.
+
+AI credential settings are encrypted when saved from the dashboard:
+
+- `AI_API_KEY`
+- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
+- `CUSTOM_AI_API_KEY`
+
+The dashboard shows configured/missing only and never displays saved values.
 
 ## Editable settings
 
 Editable non-secret settings:
+
+Operating mode and input:
+
+- `OPERATING_MODE`
+- `DEFAULT_CONTENT_SOURCE_MODE`
+
+AI:
+
+- `AI_PROVIDER`
+- `AI_MODEL`
+- `AI_MODEL_FALLBACKS`
+- `AI_OUTPUT_LANGUAGE`
+- `AI_TRANSLATION_ENABLED`
+- `AI_REWRITE_ENABLED`
+- `AI_SUMMARY_ENABLED`
+- `AI_TONE_PRESET`
+- `AI_CUSTOM_SYSTEM_PROMPT`
+- `AI_MAX_OUTPUT_TOKENS`
+- `AI_TEMPERATURE`
+- `AI_RETRY_ENABLED`
+- `AI_MAX_RETRIES`
 
 Telegram:
 
@@ -101,23 +141,26 @@ Providers:
 
 - `PROVIDERS_MODE`
 - `ENABLE_FIRECRAWL_PROVIDER`
+- `ENABLE_APIFY_PROVIDER`
+- `ENABLE_GETXAPI_PROVIDER`
 - `FIRECRAWL_BASE_URL`
 - `FIRECRAWL_TIMEOUT_MS`
 
-Scheduler safety:
+Scheduler and limits:
 
 - `SCHEDULER_DRY_RUN`
 - `SCHEDULER_MAX_SOURCES_PER_RUN`
 - `SCHEDULER_MAX_ITEMS_PER_RUN`
-
-Quotas:
-
 - `MAX_AI_ITEMS_PER_RUN`
 - `MAX_PROVIDER_ITEMS_PER_RUN`
 - `MAX_PUBLISH_ITEMS_PER_RUN`
 
-Editable encrypted integration secrets:
+Editable encrypted credentials:
 
+- `AI_API_KEY`
+- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
+- `CUSTOM_AI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `WORDPRESS_APPLICATION_PASSWORD`
@@ -125,11 +168,9 @@ Editable encrypted integration secrets:
 - `APIFY_TOKEN`
 - `GETXAPI_KEY`
 
-The dashboard never pre-fills secret inputs. After saving a secret, the input is cleared and the UI shows configured/missing only.
+## Non-editable protected settings
 
-## Protected non-editable settings
-
-These must not be edited from the dashboard:
+The dashboard rejects attempts to edit:
 
 - `INTERNAL_API_SECRET`
 - `CONFIG_ENCRYPTION_KEY`
@@ -138,31 +179,77 @@ These must not be edited from the dashboard:
 - D1 database IDs
 - deployment credentials
 - unknown keys
+- anything that enables public publishing
+- anything that enables final Telegram publishing
+- anything that enables scheduler publishing
 
-Set `INTERNAL_API_SECRET` and `CONFIG_ENCRYPTION_KEY` manually as Cloudflare Worker Secrets. Set Cloudflare account/deploy credentials only in GitHub Actions Secrets or Cloudflare, never in frontend code.
+Cloudflare API tokens belong outside the app, for example in GitHub Actions Secrets or Cloudflare deployment tooling. They must never be placed in frontend code or D1 admin config.
 
-## Validation and safety rules
+## Admin routes
 
-The admin config API validates every write:
+All admin config routes require `x-internal-api-secret` when `INTERNAL_API_SECRET` is configured.
 
-- booleans must be exactly `true` or `false`
-- URLs must be valid and HTTPS where required
-- integers must be within safe min/max ranges
-- `WORDPRESS_DEFAULT_STATUS` is restricted to `draft`
-- `MAX_PUBLISH_ITEMS_PER_RUN` is restricted to `0`
-- forbidden and unknown keys are rejected
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/internal/admin/config` | `GET` | List grouped editable settings, metadata, safe values, secret status, validation metadata, modes, and model presets. |
+| `/internal/admin/config` | `PUT` | Save one or more allowlisted config values. |
+| `/internal/admin/config/reset` | `POST` | Remove D1 overrides for allowed keys. |
+| `/internal/admin/config/audit` | `GET` | Return recent audit entries with redacted old/new values only. |
 
-The dashboard does not provide controls to enable scheduler publishing, final Telegram publishing, or public WordPress publishing.
+Secret values are never returned by these routes.
 
-## Effective config priority
+## D1 admin config storage
 
-Runtime config is resolved in this order where Phase 30 is implemented:
+Migration:
+
+- `packages/db/migrations/0030_admin_config.sql`
+
+Tables:
+
+- `admin_config`
+- `admin_config_audit`
+
+Secret values are encrypted with AES-GCM and a random IV per stored value. Audit rows store redacted values only.
+
+Effective config priority:
 
 1. D1 admin config override
 2. Cloudflare Worker environment variable or Worker Secret
 3. safe code default
 
-Effective config is used by:
+## Dashboard product areas
+
+The dashboard supports these areas:
+
+- Access & Security
+- Operating Mode
+- Content Input
+- AI Processing
+- Providers
+- Telegram Review
+- WordPress Drafts
+- Scheduler & Limits
+- Pilot Testing
+- Launch Readiness
+- Audit / Recent Changes
+
+Suggested setup path shown in the dashboard:
+
+1. Connect Worker
+2. Secure Admin Actions
+3. Choose Operating Mode
+4. Configure AI
+5. Configure Review Channel
+6. Configure Publishing Drafts
+7. Optional Providers
+8. Run Pilot Test
+9. Launch Readiness
+
+If operating mode is `manual_only`, provider setup is optional/skippable.
+
+## Runtime integration
+
+Effective D1-backed config is used by:
 
 - `/status`
 - `/ready`
@@ -172,34 +259,11 @@ Effective config is used by:
 - scheduler safety/manual dry-run summary
 - controlled pilot checks
 
-## Dashboard usage
+Dashboard controls do not enable scheduler publishing, final Telegram publishing, or public WordPress publishing.
 
-Use the dashboard after the Worker and dashboard are deployed.
+## Dashboard access protection
 
-1. Open the protected dashboard URL.
-2. Enter the Worker API base URL.
-3. Enter `INTERNAL_API_SECRET` for this page session.
-4. Open **Settings**.
-5. Edit safe non-secret values or rotate integration secrets.
-6. Configure `CONFIG_ENCRYPTION_KEY` if secret editing is disabled.
-7. Run safe pilot checks only after reviewing status.
-
-Production dashboard access should be protected with Cloudflare Access or an equivalent access-control layer. The app itself does not implement a weak shared default password.
-
-## Worker routes
-
-| Route | Purpose | Auth | Real-service behavior |
-| --- | --- | --- | --- |
-| `GET /health` | Liveness. | None. | No real calls. |
-| `GET /status` | Safe effective status summary. | None. | No real calls. |
-| `GET /ready` | Safe effective readiness summary. | None. | No real calls. |
-| `POST /internal/e2e/mock-pipeline` | Mock smoke flow. | Internal header when configured. | No real external calls. |
-| `POST /internal/providers/firecrawl/sandbox-fetch` | Firecrawl sandbox fetch. | Internal header when configured. | Explicit opt-in only. |
-| `POST /internal/telegram/review-dry-run` | Telegram review dry-run. | Internal header when configured. | Review only, no final publish. |
-| `POST /internal/wordpress/dry-run` | WordPress draft dry-run. | Internal header when configured. | Draft-only. |
-| `POST /internal/scheduler/run` | Manual scheduler dry-run. | Internal header when configured. | Dry-run-oriented; no publishing controls. |
-| `POST /internal/pilot/real-integrations` | Controlled pilot orchestration. | Internal header when configured. | Only requested/configured steps. |
-| `/internal/admin/config*` | Editable admin config. | Internal header when configured. | D1 config only; no Cloudflare API. |
+Protect production dashboard deployment with Cloudflare Access or an equivalent access-control layer. The app does not implement a weak shared default password.
 
 ## Local development
 
@@ -232,9 +296,6 @@ pnpm worker:dev
 pnpm worker:deploy
 pnpm d1:migrate:local
 pnpm d1:migrate:remote
-WORKER_BASE_URL=http://localhost:8787 pnpm worker:health
-WORKER_BASE_URL=http://localhost:8787 pnpm worker:smoke
-WORKER_BASE_URL=http://localhost:8787 pnpm worker:e2e:mock
 ```
 
 Dashboard:
@@ -245,24 +306,6 @@ pnpm dashboard:build
 pnpm dashboard:preview
 ```
 
-Setup and production readiness:
-
-```bash
-pnpm setup:cloudflare
-WORKER_BASE_URL=https://your-worker-url.example pnpm check:production
-```
-
-## Secrets policy
-
-- Real secrets must never be committed.
-- Local runtime values go in `.dev.vars`.
-- Production runtime secrets go in Cloudflare Worker Secrets.
-- CI/deploy secrets go in GitHub Actions Secrets.
-- The dashboard must not receive Cloudflare API tokens.
-- The dashboard must not mutate Cloudflare Worker Secrets directly.
-- Dashboard-submitted integration secrets are encrypted before D1 storage.
-- Secret names are okay in docs; secret values are not.
-
 ## Production readiness checklist
 
 - [ ] `pnpm lint` passes.
@@ -270,22 +313,22 @@ WORKER_BASE_URL=https://your-worker-url.example pnpm check:production
 - [ ] `pnpm test` passes.
 - [ ] `pnpm dashboard:build` passes.
 - [ ] D1 migrations are applied.
-- [ ] `INTERNAL_API_SECRET` is configured for deployed internal routes.
-- [ ] `CONFIG_ENCRYPTION_KEY` is configured before secret editing.
+- [ ] `INTERNAL_API_SECRET` is configured.
+- [ ] `CONFIG_ENCRYPTION_KEY` is configured before dashboard secret editing.
 - [ ] Dashboard is protected with Cloudflare Access or equivalent.
+- [ ] Operating mode is selected intentionally.
+- [ ] AI provider/model/credential state is reviewed.
 - [ ] Scheduler publishing remains disabled.
-- [ ] Final Telegram publishing remains disabled by default.
-- [ ] Public WordPress publishing remains disabled by default.
+- [ ] Final Telegram publishing remains disabled.
+- [ ] Public WordPress publishing remains disabled.
 - [ ] No sensitive runtime values appear in logs, responses, docs, tests, or frontend UI.
 
-## Contributor and AI agent rules
+## Contributor rules
 
-1. Keep changes scoped.
-2. Do not add real secrets.
-3. Do not enable real integrations by default.
-4. Do not enable scheduler side effects by default.
-5. Do not enable real publishing by default.
-6. Do not make real network calls in tests.
-7. Do not bypass dedupe, validation, lifecycle, scheduler, auth, redaction, or dashboard safety guards.
-8. Do not put Cloudflare API tokens or mutation flows in the dashboard.
-9. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm dashboard:build` before opening or merging PRs.
+1. Do not add real secrets.
+2. Do not enable real integrations by default.
+3. Do not enable scheduler side effects.
+4. Do not enable real publishing.
+5. Do not make real network calls in tests.
+6. Do not put Cloudflare API tokens or mutation flows in the dashboard.
+7. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm dashboard:build` before opening or merging PRs.
