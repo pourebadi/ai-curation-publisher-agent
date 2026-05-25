@@ -1,5 +1,7 @@
 # AI Curation Publisher Agent
 
+> This repository follows a PR-first workflow for automated and human-reviewed changes.
+
 A provider-agnostic social/web content curation, review, and draft-publishing pipeline for Cloudflare Workers, D1, Telegram review, WordPress drafts, and a safe operator dashboard.
 
 The project is mock-first and safety-first. Real providers, scheduler side effects, final Telegram publishing, public WordPress publishing, and real media download/upload are not enabled by default.
