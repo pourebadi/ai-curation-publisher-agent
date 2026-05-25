@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { WorkerApiClient } from "./api";
 import type { AdminAuditEntry, AdminConfigGroup, AdminConfigItem, AdminConfigResponse } from "./types";
 
-type AdminSettingsProps = { client: WorkerApiClient; enabled: boolean; onNotice: (message: string) => void; onRefreshStatus: () => Promise<void> };
 type SettingsTab = "setup" | "mode" | "ai" | "integrations" | "safety" | "audit";
+type AdminSettingsProps = { client: WorkerApiClient; enabled: boolean; initialTab?: SettingsTab; onNotice: (message: string) => void; onRefreshStatus: () => Promise<void> };
 
 const tabs: { id: SettingsTab; label: string }[] = [
   { id: "setup", label: "Setup path" },
@@ -25,17 +25,19 @@ const groupLabels: Record<AdminConfigGroup, string> = {
   quotas: "Quotas"
 };
 
-export function AdminSettings({ client, enabled, onNotice, onRefreshStatus }: AdminSettingsProps): JSX.Element {
+export function AdminSettings({ client, enabled, initialTab = "setup", onNotice, onRefreshStatus }: AdminSettingsProps): JSX.Element {
   const [config, setConfig] = useState<AdminConfigResponse | undefined>();
   const [audit, setAudit] = useState<AdminAuditEntry[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [secretDrafts, setSecretDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("setup");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   const items = useMemo(() => config?.items ?? [], [config]);
   const itemByKey = useMemo(() => new Map(items.map((item) => [item.key, item])), [items]);
   const activeMode = drafts.OPERATING_MODE ?? itemByKey.get("OPERATING_MODE")?.value ?? "manual_only";
+
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
 
   async function load(): Promise<void> {
     if (!enabled) return;
@@ -130,66 +132,21 @@ export function AdminSettings({ client, enabled, onNotice, onRefreshStatus }: Ad
 
 function SetupPath({ config, activeMode, onOpen }: { config: AdminConfigResponse | undefined; activeMode: string; onOpen: (tab: SettingsTab) => void }): JSX.Element {
   const providerText = activeMode === "manual_only" ? "Optional. Provider credentials are not required in Manual-only mode." : activeMode === "mock_demo" ? "Optional. Mock/demo mode can run without real provider credentials." : "Recommended. Provider-assisted mode needs at least one configured provider.";
-  const steps = [
-    ["1. Connect Worker", "Set the Worker URL and enter INTERNAL_API_SECRET for this page session.", "setup"],
-    ["2. Secure Admin Actions", "Use Cloudflare Worker Secrets for INTERNAL_API_SECRET and CONFIG_ENCRYPTION_KEY.", "setup"],
-    ["3. Choose Operating Mode", modeCopy(activeMode), "mode"],
-    ["4. Configure AI", "Choose provider, model, output behavior, and API credentials.", "ai"],
-    ["5. Configure Review Channel", "Set Telegram review chat and bot credential if review dry-run is needed.", "integrations"],
-    ["6. Configure Publishing Drafts", "Set WordPress draft-only credentials if drafts are needed.", "integrations"],
-    ["7. Optional Providers", providerText, "integrations"],
-    ["8. Run Pilot Test", "Run readiness-only first, then selected safe dry-runs.", "setup"],
-    ["9. Launch Readiness", "Scheduler and publishing controls must remain safe.", "safety"]
-  ] as const;
+  const steps = [["1. Connect Worker", "Set the Worker URL and enter INTERNAL_API_SECRET for this page session.", "setup"], ["2. Secure Admin Actions", "Use Cloudflare Worker Secrets for INTERNAL_API_SECRET and CONFIG_ENCRYPTION_KEY.", "setup"], ["3. Choose Operating Mode", modeCopy(activeMode), "mode"], ["4. Configure AI", "Choose provider, model, output behavior, and API credentials.", "ai"], ["5. Configure Review Channel", "Set Telegram review chat and bot credential if review dry-run is needed.", "integrations"], ["6. Configure Publishing Drafts", "Set WordPress draft-only credentials if drafts are needed.", "integrations"], ["7. Optional Providers", providerText, "integrations"], ["8. Run Pilot Test", "Run readiness-only first, then selected safe dry-runs.", "setup"], ["9. Launch Readiness", "Scheduler and publishing controls must remain safe.", "safety"]] as const;
   return <div className="settingsList"><ModeSummary config={config} activeMode={activeMode} />{steps.map(([title, text, tab]) => <div className="settingRow" key={title}><div><strong>{title}</strong><p>{text}</p></div><div><button type="button" className="secondary" onClick={() => onOpen(tab as SettingsTab)}>Open</button></div></div>)}</div>;
 }
 
-function ModeCards({ config, activeMode, onSelect }: { config: AdminConfigResponse | undefined; activeMode: string; onSelect: (mode: string) => void }): JSX.Element {
-  const modes = config?.modes ?? [];
-  return <div className="grid three">{modes.map((mode) => <button type="button" key={mode.key} className={activeMode === mode.key ? "active modeCard" : "secondary modeCard"} onClick={() => onSelect(mode.key)}><strong>{mode.label}</strong><span>{mode.description}</span></button>)}</div>;
-}
-
-function ModeSummary({ config, activeMode }: { config: AdminConfigResponse | undefined; activeMode: string }): JSX.Element {
-  const label = config?.modes.find((mode) => mode.key === activeMode)?.label ?? activeMode;
-  return <div className="launchStatus safe"><strong>{label}</strong><span>{modeCopy(activeMode)}</span></div>;
-}
-
-function AiGuidance(): JSX.Element {
-  return <div className="subcard"><h3>AI model guidance</h3><p>Choose larger models for quality and reasoning. Choose flash, mini, or nano models for cost and speed. Manual model IDs are allowed so new provider models do not require a code change.</p><p className="muted">If the first model fails, the configured fallback chain can be used by backend AI orchestration where implemented. This phase stores and exposes the chain; runtime fallback is marked partially implemented.</p></div>;
-}
-
-function GroupCard({ title, items }: { title: string; items: Array<JSX.Element | null> }): JSX.Element {
-  return <div className="subcard"><h3>{title}</h3><div className="settingsList">{items}</div></div>;
-}
-
-function AuditView({ audit, items, onLoad }: { audit: AdminAuditEntry[]; items: AdminConfigItem[]; onLoad: () => void }): JSX.Element {
-  const groupByKey = new Map(items.map((item) => [item.key, groupLabels[item.group]]));
-  return <div className="settingsList"><div className="buttonRow"><p className="muted">Recent changes show redacted old/new values only.</p><button type="button" onClick={onLoad}>Refresh audit</button></div>{audit.length === 0 ? <p className="muted">No audit entries loaded.</p> : audit.map((entry) => <div className="historyItem" key={entry.id}><strong>{entry.key}</strong> <span className="configLabel">{groupByKey.get(entry.key) ?? "Unknown"}</span><p>{entry.action} · {new Date(entry.changed_at).toLocaleString()}</p><p className="muted">Previous: {entry.previous_value_redacted ?? "[missing]"} / New: {entry.new_value_redacted ?? "[missing]"}</p></div>)}</div>;
-}
-
-function SettingRow({ item, value, disabled, presets, onChange, onSave, onReset }: { item: AdminConfigItem; value: string; disabled: boolean; presets?: AdminConfigResponse["presets"]; onChange: (value: string) => void; onSave: () => void; onReset: () => void }): JSX.Element {
-  return <div className={`settingRow ${item.safetyLevel}`}><div><span className="configLabel">{sourceLabel(item.source)}</span><span className="configLabel">{item.safetyLevel}</span><strong>{item.label}</strong><p>{item.description}</p><p className="muted">Used in: {item.whereUsed}</p><small>{item.key} · {item.type} · {item.isSecret ? item.valueRedacted : item.value}</small>{item.updatedAt && <small>Updated: {new Date(item.updatedAt).toLocaleString()}</small>}<small>No redeploy required.</small></div><div>{inputFor(item, value, disabled, onChange, presets)}<div className="buttonRow"><button type="button" onClick={onSave} disabled={disabled}>Save</button><button type="button" className="secondary" onClick={onReset} disabled={disabled}>Reset</button></div>{item.isSecret && <p className="muted">Saved securely. It will not be shown again.</p>}</div></div>;
-}
-
-function inputFor(item: AdminConfigItem, value: string, disabled: boolean, onChange: (value: string) => void, presets?: AdminConfigResponse["presets"]): JSX.Element {
-  if (item.isSecret) return <input type="password" value={value} disabled={disabled} placeholder="Enter new value" onChange={(event) => onChange(event.target.value)} />;
-  if (item.key === "AI_MODEL") return <ModelInput value={value} disabled={disabled} presets={presets} onChange={onChange} />;
-  if (item.key === "AI_MODEL_FALLBACKS") return <textarea value={value} disabled={disabled} placeholder="gpt-5.4-mini, gemini-2.5-flash" onChange={(event) => onChange(event.target.value)} />;
-  if (item.key === "AI_CUSTOM_SYSTEM_PROMPT") return <textarea value={value} disabled={disabled} placeholder="Optional non-secret prompt guidance" onChange={(event) => onChange(event.target.value)} />;
-  if (item.validation.enumValues !== undefined) return <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{item.validation.enumValues.map((option) => <option key={option} value={option}>{option}</option>)}</select>;
-  if (item.type === "boolean") return <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="false">false</option><option value="true">true</option></select>;
-  return <input value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />;
-}
-
-function ModelInput({ value, disabled, presets, onChange }: { value: string; disabled: boolean; presets?: AdminConfigResponse["presets"]; onChange: (value: string) => void }): JSX.Element {
-  const options = [...(presets?.openai ?? []), ...(presets?.gemini ?? [])];
-  return <div><select value={options.includes(value) ? value : "custom"} disabled={disabled} onChange={(event) => event.target.value !== "custom" && onChange(event.target.value)}><option value="custom">Custom model ID</option><optgroup label="OpenAI">{(presets?.openai ?? []).map((model) => <option key={model} value={model}>{model}</option>)}</optgroup><optgroup label="Gemini">{(presets?.gemini ?? []).map((model) => <option key={model} value={model}>{model}</option>)}</optgroup></select><input value={value} disabled={disabled} placeholder="Custom model ID" onChange={(event) => onChange(event.target.value)} /></div>;
-}
-
+function ModeCards({ config, activeMode, onSelect }: { config: AdminConfigResponse | undefined; activeMode: string; onSelect: (mode: string) => void }): JSX.Element { const modes = config?.modes ?? []; return <div className="grid three">{modes.map((mode) => <button type="button" key={mode.key} className={activeMode === mode.key ? "active modeCard" : "secondary modeCard"} onClick={() => onSelect(mode.key)}><strong>{mode.label}</strong><span>{mode.description}</span></button>)}</div>; }
+function ModeSummary({ config, activeMode }: { config: AdminConfigResponse | undefined; activeMode: string }): JSX.Element { const label = config?.modes.find((mode) => mode.key === activeMode)?.label ?? activeMode; return <div className="launchStatus safe"><strong>{label}</strong><span>{modeCopy(activeMode)}</span></div>; }
+function AiGuidance(): JSX.Element { return <div className="subcard"><h3>AI model guidance</h3><p>Choose larger models for quality and reasoning. Choose flash, mini, or nano models for cost and speed. Manual model IDs are allowed so new provider models do not require a code change.</p><p className="muted">If the first model fails, the configured fallback chain can be used by backend AI orchestration where implemented. This phase stores and exposes the chain; runtime fallback is marked partially implemented.</p></div>; }
+function GroupCard({ title, items }: { title: string; items: Array<JSX.Element | null> }): JSX.Element { return <div className="subcard"><h3>{title}</h3><div className="settingsList">{items}</div></div>; }
+function AuditView({ audit, items, onLoad }: { audit: AdminAuditEntry[]; items: AdminConfigItem[]; onLoad: () => void }): JSX.Element { const groupByKey = new Map(items.map((item) => [item.key, groupLabels[item.group]])); return <div className="settingsList"><div className="buttonRow"><p className="muted">Recent changes show redacted old/new values only.</p><button type="button" onClick={onLoad}>Refresh audit</button></div>{audit.length === 0 ? <p className="muted">No audit entries loaded.</p> : audit.map((entry) => <div className="historyItem" key={entry.id}><strong>{entry.key}</strong> <span className="configLabel">{groupByKey.get(entry.key) ?? "Unknown"}</span><p>{entry.action} · {new Date(entry.changed_at).toLocaleString()}</p><p className="muted">Previous: {entry.previous_value_redacted ?? "[missing]"} / New: {entry.new_value_redacted ?? "[missing]"}</p></div>)}</div>; }
+function SettingRow({ item, value, disabled, presets, onChange, onSave, onReset }: { item: AdminConfigItem; value: string; disabled: boolean; presets?: AdminConfigResponse["presets"]; onChange: (value: string) => void; onSave: () => void; onReset: () => void }): JSX.Element { return <div className={`settingRow ${item.safetyLevel}`}><div><span className="configLabel">{sourceLabel(item.source)}</span><span className="configLabel">{item.safetyLevel}</span><strong>{item.label}</strong><p>{item.description}</p><p className="muted">Used in: {item.whereUsed}</p><small>{item.key} · {item.type} · {item.isSecret ? item.valueRedacted : item.value}</small>{item.updatedAt && <small>Updated: {new Date(item.updatedAt).toLocaleString()}</small>}<small>No redeploy required.</small></div><div>{inputFor(item, value, disabled, onChange, presets)}<div className="buttonRow"><button type="button" onClick={onSave} disabled={disabled}>Save</button><button type="button" className="secondary" onClick={onReset} disabled={disabled}>Reset</button></div>{item.isSecret && <p className="muted">Saved securely. It will not be shown again.</p>}</div></div>; }
+function inputFor(item: AdminConfigItem, value: string, disabled: boolean, onChange: (value: string) => void, presets?: AdminConfigResponse["presets"]): JSX.Element { if (item.isSecret) return <input type="password" value={value} disabled={disabled} placeholder="Enter new value" onChange={(event) => onChange(event.target.value)} />; if (item.key === "AI_MODEL") return <ModelInput value={value} disabled={disabled} presets={presets} onChange={onChange} />; if (item.key === "AI_MODEL_FALLBACKS") return <textarea value={value} disabled={disabled} placeholder="gpt-5.4-mini, gemini-2.5-flash" onChange={(event) => onChange(event.target.value)} />; if (item.key === "AI_CUSTOM_SYSTEM_PROMPT") return <textarea value={value} disabled={disabled} placeholder="Optional non-secret prompt guidance" onChange={(event) => onChange(event.target.value)} />; if (item.validation.enumValues !== undefined) return <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{item.validation.enumValues.map((option) => <option key={option} value={option}>{option}</option>)}</select>; if (item.type === "boolean") return <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="false">false</option><option value="true">true</option></select>; return <input value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />; }
+function ModelInput({ value, disabled, presets, onChange }: { value: string; disabled: boolean; presets?: AdminConfigResponse["presets"]; onChange: (value: string) => void }): JSX.Element { const options = [...(presets?.openai ?? []), ...(presets?.gemini ?? [])]; return <div><select value={options.includes(value) ? value : "custom"} disabled={disabled} onChange={(event) => event.target.value !== "custom" && onChange(event.target.value)}><option value="custom">Custom model ID</option><optgroup label="OpenAI">{(presets?.openai ?? []).map((model) => <option key={model} value={model}>{model}</option>)}</optgroup><optgroup label="Gemini">{(presets?.gemini ?? []).map((model) => <option key={model} value={model}>{model}</option>)}</optgroup></select><input value={value} disabled={disabled} placeholder="Custom model ID" onChange={(event) => onChange(event.target.value)} /></div>; }
 export function providerSetupSkippedInManualOnly(mode: string): boolean { return mode === "manual_only"; }
 export function settingsSourceLabel(source: AdminConfigItem["source"]): string { return sourceLabel(source); }
 export function secretStatusLabel(item: Pick<AdminConfigItem, "isSecret" | "configured">): string { return item.isSecret ? item.configured ? "Configured" : "Missing" : "Not secret"; }
 export function aiMissingNextAction(provider: string, configured: boolean): string { return configured || provider === "mock" ? "AI settings are usable." : "Configure an AI model and provider credential in Settings -> AI."; }
-
 function sourceLabel(source: AdminConfigItem["source"]): string { return source === "d1" ? "Dashboard" : source === "env" ? "Cloudflare env" : source === "default" ? "Default" : "Missing"; }
 function modeCopy(mode: string): string { return mode === "manual_only" ? "I will add content manually. Provider credentials are not required." : mode === "mock_demo" ? "Mock providers and demo checks are expected. Real credentials are optional." : "Provider-assisted mode expects at least one configured provider."; }
