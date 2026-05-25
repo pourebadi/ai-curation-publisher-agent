@@ -47,7 +47,7 @@ The Admin Control Center supports:
 | `mock_demo` | Use mock providers and mock E2E checks for demos/testing. | Not required. |
 | `provider_assisted` | Use configured providers such as Firecrawl, Apify, or GetXAPI. | At least one provider should be configured. |
 
-Readiness and dashboard setup guidance respect the selected mode. Manual-only mode does not block setup on missing provider credentials, because apparently the product should not nag users about features they are not using.
+Readiness and dashboard setup guidance respect the selected mode. Manual-only mode does not block setup on missing provider credentials.
 
 ## AI configuration
 
@@ -88,7 +88,15 @@ Fallback chain behavior:
 
 - `AI_MODEL_FALLBACKS` accepts a JSON array or comma-separated model IDs.
 - Up to five fallback model IDs are allowed.
+- Admin config GET responses normalize fallback chains to a JSON string.
 - Runtime fallback is stored and exposed now; actual fallback execution is provider/orchestration dependent and marked partially implemented in status.
+
+Current AI runtime limitation:
+
+- The dashboard can store AI provider, model, fallback chain, output behavior, and encrypted provider credentials.
+- `/status` and `/ready` reflect the effective AI configuration.
+- Full runtime provider switching and fallback execution are not claimed as fully active in this phase.
+- Existing AI output behavior remains safe and mock-first unless later phases explicitly wire real provider execution.
 
 AI credential settings are encrypted when saved from the dashboard:
 
@@ -217,6 +225,8 @@ Effective config priority:
 2. Cloudflare Worker environment variable or Worker Secret
 3. safe code default
 
+If the admin config table or audit table is missing or inaccessible, the admin API reports a clear store warning. Read-only status remains resilient, but the dashboard should apply D1 migrations before relying on overrides or audit history.
+
 ## Dashboard product areas
 
 The dashboard supports these areas:
@@ -258,6 +268,8 @@ Effective D1-backed config is used by:
 - Firecrawl sandbox fetch
 - scheduler safety/manual dry-run summary
 - controlled pilot checks
+
+`/status` reports publishing as an object. `publishing.available: true` means publishing code exists. It does not mean public publishing is enabled. Public publishing remains disabled, and scheduler publishing must remain disabled.
 
 Dashboard controls do not enable scheduler publishing, final Telegram publishing, or public WordPress publishing.
 
