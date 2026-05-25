@@ -387,6 +387,6 @@ pnpm dashboard:preview
 2. Do not enable real integrations by default.
 3. Do not enable scheduler side effects.
 4. Do not enable real publishing by default.
-5. Do not make real network calls in tests.
+5. Do not make real network calls in tests..
 6. Do not put Cloudflare API tokens or mutation flows in the dashboard.
 7. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm dashboard:build` before opening or merging PRs.
