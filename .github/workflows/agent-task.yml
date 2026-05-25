@@ -8,19 +8,27 @@ on:
         required: true
         type: string
       task_body:
-        description: "Detailed task instructions"
+        description: "Detailed task instructions or README note text"
         required: true
         type: string
       branch_prefix:
         description: "Branch prefix"
         required: true
-        default: "agent"
+        default: "docs"
         type: choice
         options:
-          - agent
+          - docs
           - fix
           - feature
           - restore
+      change_mode:
+        description: "What the workflow should change"
+        required: true
+        default: "task_file"
+        type: choice
+        options:
+          - task_file
+          - readme_note
 
 permissions:
   contents: write
@@ -61,14 +69,16 @@ jobs:
           BRANCH="${{ inputs.branch_prefix }}-${SLUG}-${{ github.run_number }}"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
-      - name: Create task file
+      - name: Apply requested change
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p .github/agent-tasks
+          case "${{ inputs.change_mode }}" in
+            task_file)
+              mkdir -p .github/agent-tasks
 
-          cat > ".github/agent-tasks/${{ steps.branch.outputs.branch }}.md" <<'EOF'
+              cat > ".github/agent-tasks/${{ steps.branch.outputs.branch }}.md" <<'EOF'
           # ${{ inputs.task_title }}
 
           ${{ inputs.task_body }}
@@ -87,6 +97,39 @@ jobs:
           - Open a pull request to main.
           - Merge only after CI passes.
           EOF
+              ;;
+
+            readme_note)
+              python - <<'PY'
+          from pathlib import Path
+
+          path = Path("README.md")
+          note = """${{ inputs.task_body }}""".strip()
+          text = path.read_text()
+
+          marker = "# AI Curation Publisher Agent\n"
+          insert = f"\n> {note}\n"
+
+          if not note:
+              raise SystemExit("README note cannot be empty.")
+
+          if note in text:
+              raise SystemExit("README already contains the requested note.")
+
+          if marker not in text:
+              raise SystemExit("README title marker not found.")
+
+          path.write_text(text.replace(marker, marker + insert, 1))
+          PY
+              ;;
+
+            *)
+              echo "Unsupported change mode: ${{ inputs.change_mode }}"
+              exit 1
+              ;;
+          esac
+
+          git diff -- README.md .github/agent-tasks || true
 
       - name: Commit task branch
         shell: bash
@@ -97,7 +140,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "${{ steps.branch.outputs.branch }}"
-          git add ".github/agent-tasks/${{ steps.branch.outputs.branch }}.md"
+
+          git add README.md .github/agent-tasks || true
+
+          if git diff --cached --quiet; then
+            echo "No changes staged."
+            exit 1
+          fi
+
           git commit -m "chore: create agent task ${{ inputs.task_title }}"
           git push origin "${{ steps.branch.outputs.branch }}"
 
@@ -108,11 +158,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh pr create \
-            --base main \
-            --head "${{ steps.branch.outputs.branch }}" \
-            --title "${{ inputs.task_title }}" \
-            --body "${{ inputs.task_body }}
+          cat > pr-body.md <<'EOF'
+          ${{ inputs.task_body }}
 
           ## Validation
 
@@ -120,4 +167,11 @@ jobs:
 
           ## Created by
 
-          Agent Task PR workflow."
+          Agent Task PR workflow.
+          EOF
+
+          gh pr create \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "${{ inputs.task_title }}" \
+            --body-file pr-body.md
