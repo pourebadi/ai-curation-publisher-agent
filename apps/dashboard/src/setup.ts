@@ -12,16 +12,17 @@ type StatusData = {
 
 export function deriveSetupCenter(bundle: StatusBundle, hasLocalInternalCredential: boolean): SetupCenterModel {
   const data = readStatusData(bundle);
-  const workerReachable = data.healthOk && data.statusOk && data.readyOk;
+  const workerReachable = data.healthOk && data.statusOk;
   const backendHasInternalSecret = readBoolean(data.readySummary, ["hasInternalSecret"]);
   const scheduler = deriveSchedulerSafety(bundle);
-  const telegramReady = readBoolean(data.readySummary, ["hasTelegramConfig"]) === true;
-  const wordpressReady = readBoolean(data.readySummary, ["hasWordPressConfig"]) === true;
+  const telegramReady = readBoolean(data.readySummary, ["productionReviewReady"]) === true || readBoolean(data.readySummary, ["hasTelegramConfig"]) === true;
+  const wordpressReady = readBoolean(data.readySummary, ["wordpressDraftReady"]) === true || readBoolean(data.readySummary, ["hasWordPressConfig"]) === true;
   const firecrawlReady = readBoolean(data.readySummary, ["hasProviderCredentials", "firecrawl"]) === true && readBoolean(data.status, ["providers", "firecrawl", "enabled"]) === true;
   const riskyConfig = scheduler.riskLabel === "Risky";
+  const readinessIncomplete = workerReachable && !data.readyOk;
 
   return {
-    workerConnection: status(workerReachable, "Worker reachable", "Worker connection needs attention", data.healthOk ? "The dashboard can reach the deployed Worker." : "Set the Worker API base URL, then refresh status.", data.healthOk ? "Continue to internal security." : "Enter the deployed Worker URL and check /health."),
+    workerConnection: status(workerReachable, "Worker reachable", "Worker connection needs attention", workerReachable ? "The dashboard can reach the deployed Worker. Launch readiness is checked separately." : "Set the Worker API base URL, then refresh status.", workerReachable ? "Continue to readiness checks." : "Enter the deployed Worker URL and check /health and /status."),
     internalSecurity: status(backendHasInternalSecret === true && hasLocalInternalCredential, "Internal routes protected and dashboard credential entered", backendHasInternalSecret === true ? "Backend is protected; dashboard credential is missing" : "Backend internal secret is missing", backendHasInternalSecret === true ? "The Worker reports internal route protection. Enter the value locally to run protected checks." : "Configure INTERNAL_API_SECRET as a Cloudflare Worker Secret before using protected operations.", backendHasInternalSecret === true && hasLocalInternalCredential ? "Run the internal auth check." : "Configure the Worker Secret and enter the same value locally in this browser."),
     cloudflareRuntime: buildRuntimeChecklist(bundle),
     telegram: buildTelegramChecklist(bundle),
@@ -29,15 +30,15 @@ export function deriveSetupCenter(bundle: StatusBundle, hasLocalInternalCredenti
     firecrawl: buildFirecrawlChecklist(bundle),
     scheduler,
     launchSummary: {
-      overallStatus: riskyConfig ? "Risky config" : !workerReachable || backendHasInternalSecret !== true ? "Not ready" : telegramReady || wordpressReady || firecrawlReady ? "Pilot-ready" : "Setup in progress",
-      workerReachable: data.healthOk ? "Ready" : "Needs setup",
+      overallStatus: riskyConfig ? "Risky config" : !workerReachable || backendHasInternalSecret !== true ? "Not ready" : telegramReady || wordpressReady || firecrawlReady || data.readyOk ? "Pilot-ready" : "Setup in progress",
+      workerReachable: workerReachable ? "Ready" : "Needs setup",
       internalSecurity: backendHasInternalSecret === true && hasLocalInternalCredential ? "Ready" : "Needs setup",
       telegramReadiness: telegramReady ? "Ready for review dry-run" : "Optional setup incomplete",
       wordpressReadiness: wordpressReady ? "Ready for draft dry-run" : "Optional setup incomplete",
       firecrawlReadiness: firecrawlReady ? "Ready for sandbox fetch" : "Optional setup incomplete",
       schedulerSafety: scheduler.riskLabel,
       publishingSafety: scheduler.publishingAllowed === true ? "Risky" : "Safe",
-      recommendedNextStep: chooseLaunchNextStep({ workerReachable, backendHasInternalSecret, hasLocalInternalCredential, riskyConfig, telegramReady, wordpressReady, firecrawlReady })
+      recommendedNextStep: readinessIncomplete ? "Worker is online. Continue fixing readiness warnings instead of changing the Worker URL." : chooseLaunchNextStep({ workerReachable, backendHasInternalSecret, hasLocalInternalCredential, riskyConfig, telegramReady, wordpressReady, firecrawlReady })
     }
   };
 }
