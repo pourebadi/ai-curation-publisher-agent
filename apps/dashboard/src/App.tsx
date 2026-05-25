@@ -290,7 +290,17 @@ function JsonPanel({ title, result }: { title: string; result: ApiResult | undef
 function badgeTone(value: string): string { return value === "Connected" || value === "Safe" ? "safe" : value === "Optional" ? "neutral" : "warning"; }
 function feedbackFromBundle(bundle: StatusBundle): ConnectionFeedback { const state = describeConnectionBundle(bundle); if (state === "connected") return { state, title: "Worker connected", detail: "Worker health, status, and readiness are reachable.", guidance: [] }; if (state === "reachable_not_ready") return { state, title: "Worker reachable, setup incomplete", detail: "The Worker responded, but readiness has warnings.", guidance: ["Open Setup Wizard.", "Check Technical for raw readiness details."] }; if (state === "cors_blocked") return { state, title: "Browser blocked the request", detail: "Likely CORS or network configuration.", guidance: connectionGuidance() }; return { state, title: "Worker unreachable", detail: "The dashboard could not reach the Worker.", guidance: connectionGuidance() }; }
 function connectionGuidance(): string[] { return ["Use the deployed Worker URL, including https://.", "For local development, use http://localhost:8787.", "Check CORS settings if the Worker opens but dashboard calls fail."]; }
-function resultToJson(result: ApiResult | undefined): JsonValue { return result === undefined ? null : result.ok ? result.data : { error: result.error, message: result.message, status: result.status, data: result.data }; }
+function resultToJson(result: ApiResult | undefined): JsonValue {
+  if (result === undefined) return null;
+  if (result.ok) return result.data;
+  const payload: JsonObject = {
+    error: result.error,
+    message: result.message
+  };
+  if (typeof result.status === "number") payload.status = result.status;
+  if (result.data !== undefined) payload.data = result.data;
+  return payload;
+}
 function readObject(value: unknown, key: string): JsonObject | undefined { return typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as JsonObject)[key] === "object" && (value as JsonObject)[key] !== null && !Array.isArray((value as JsonObject)[key]) ? (value as JsonObject)[key] as JsonObject : undefined; }
 function readString(value: unknown, key: string): string | undefined { const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : undefined; const raw = record?.[key]; return typeof raw === "string" ? raw : undefined; }
 function readBoolean(value: unknown, key: string): boolean | undefined { const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : undefined; const raw = record?.[key]; return typeof raw === "boolean" ? raw : undefined; }
