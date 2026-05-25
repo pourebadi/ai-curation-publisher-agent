@@ -9,6 +9,7 @@ export type OperationRecord = { id: string; name: OperationName; label: string; 
 export type StatusBundle = { health?: ApiResult; status?: ApiResult; ready?: ApiResult };
 export type PilotInput = { runFirecrawl?: boolean; runTelegramReview?: boolean; runWordPressDraft?: boolean; firecrawlUrl?: string; telegramText?: string; wordpressTitle?: string; wordpressContent?: string; sourceUrl?: string };
 
+export type ChecklistItem = { name: string; purpose: string; where: string; sensitive: boolean; configured?: boolean };
 export type SetupTone = "safe" | "warning" | "risky";
 export type SetupStatus = { label: string; tone: SetupTone; detail: string; nextAction: string };
 export type RuntimeChecklistItem = { name: string; purpose: string; where: string; sensitive: boolean; safeDefault: string; backendStatus: string; safe?: boolean; nextAction: string };
@@ -44,6 +45,7 @@ export type AdminConfigItem = {
 };
 export type AdminConfigResponse = {
   ok: true;
+  adminConfigStore?: { available: boolean; warning?: string };
   encryption: { configured: boolean; valid: boolean; secretEditingEnabled: boolean; message?: string };
   groups: Record<AdminConfigGroup, AdminConfigItem[]>;
   items: AdminConfigItem[];
