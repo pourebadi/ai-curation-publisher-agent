@@ -70,12 +70,13 @@ export class RealTelegramClient implements TelegramClient {
   async sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage> {
     const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
       chat_id: input.chatId,
+      ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
       text: input.text,
       reply_markup: input.replyMarkup,
       disable_web_page_preview: true
     });
 
-    return toTelegramClientMessage(result, input.chatId, input.text, input.replyMarkup);
+    return toTelegramClientMessage(result, input.chatId, input.text, input.replyMarkup, input.messageThreadId);
   }
 
   async editReviewMessage(input: EditReviewMessageInput): Promise<TelegramClientMessage> {
@@ -165,7 +166,8 @@ function toTelegramClientMessage(
   result: TelegramApiMessage,
   fallbackChatId: string,
   text: string,
-  replyMarkup: TelegramClientMessage["replyMarkup"]
+  replyMarkup: TelegramClientMessage["replyMarkup"],
+  messageThreadId?: number
 ): TelegramClientMessage {
   if (typeof result.message_id !== "number") {
     throw new TelegramClientError({
@@ -180,6 +182,7 @@ function toTelegramClientMessage(
     chatId,
     messageId: String(result.message_id),
     text: typeof result.text === "string" ? result.text : text,
+    ...(messageThreadId === undefined ? {} : { messageThreadId }),
     ...(replyMarkup === undefined ? {} : { replyMarkup })
   };
 }
