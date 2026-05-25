@@ -9,6 +9,7 @@ import { handleInternalRealIntegrationsPilot } from "./routes/internal-real-inte
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleInternalSchedulerRun } from "./routes/internal-scheduler-run";
 import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
+import { handleInternalTelegramPublishRetry } from "./routes/internal-telegram-publish-retry";
 import { handleInternalTelegramTopicRoutes } from "./routes/internal-telegram-topic-routes";
 import { handleInternalWordPressDryRun } from "./routes/internal-wordpress-dry-run";
 import { handleReady } from "./routes/ready";
@@ -73,6 +74,10 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/internal/telegram/topic-routes/seed") {
     return handleInternalTelegramTopicRoutes(request, env);
+  }
+
+  if (url.pathname === "/internal/telegram/publish/retry") {
+    return handleInternalTelegramPublishRetry(request, env);
   }
 
   if (url.pathname === "/internal/wordpress/dry-run") {
