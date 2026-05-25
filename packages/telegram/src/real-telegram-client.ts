@@ -6,6 +6,7 @@ import type {
   TelegramClient,
   TelegramClientMessage
 } from "./client";
+import type { ParsedTelegramMedia } from "./index";
 
 export type TelegramClientErrorCategory =
   | "missing_credentials"
@@ -54,6 +55,7 @@ type TelegramApiMessage = {
     id?: unknown;
   };
   text?: unknown;
+  caption?: unknown;
 };
 
 export class RealTelegramClient implements TelegramClient {
@@ -91,11 +93,28 @@ export class RealTelegramClient implements TelegramClient {
     return toTelegramClientMessage(result, input.chatId, input.text, input.replyMarkup);
   }
 
-  async publishFinalMessage(_input: PublishFinalMessageInput): Promise<TelegramClientMessage> {
-    throw new TelegramClientError({
-      category: "telegram_api_error",
-      message: "Real final Telegram publishing is not enabled by this client path."
+  async publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage> {
+    const firstMedia = input.media?.[0];
+    if (!firstMedia) {
+      const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
+        chat_id: input.chatId,
+        ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+        text: input.text,
+        disable_web_page_preview: true
+      });
+      return toTelegramClientMessage(result, input.chatId, input.text, undefined, input.messageThreadId);
+    }
+
+    const method = telegramMethodForMedia(firstMedia);
+    const mediaField = telegramMediaFieldForMedia(firstMedia);
+    const result = await this.callTelegramApi<TelegramApiMessage>(method, {
+      chat_id: input.chatId,
+      ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+      [mediaField]: firstMedia.fileId,
+      caption: input.text
     });
+
+    return toTelegramClientMessage(result, input.chatId, input.text, undefined, input.messageThreadId);
   }
 
   async answerCallbackQuery(input: AnswerCallbackQueryInput): Promise<void> {
@@ -145,7 +164,7 @@ export class RealTelegramClient implements TelegramClient {
     if (!response.ok || payload.ok !== true) {
       throw new TelegramClientError({
         category: "telegram_api_error",
-        message: "Telegram Bot API returned an error.",
+        message: redactTelegramApiError(payload.description),
         statusCode: response.status
       });
     }
@@ -160,6 +179,28 @@ export class RealTelegramClient implements TelegramClient {
 
     return payload.result as T;
   }
+}
+
+function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "sendVideo" | "sendDocument" {
+  if (media.kind === "photo") return "sendPhoto";
+  if (media.kind === "video" || media.kind === "animation") return "sendVideo";
+  return "sendDocument";
+}
+
+function telegramMediaFieldForMedia(media: ParsedTelegramMedia): "photo" | "video" | "document" {
+  if (media.kind === "photo") return "photo";
+  if (media.kind === "video" || media.kind === "animation") return "video";
+  return "document";
+}
+
+export function redactTelegramApiError(description: unknown): string {
+  if (typeof description !== "string" || description.trim().length === 0) {
+    return "Telegram Bot API returned an error.";
+  }
+  return description
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot[redacted]")
+    .replace(/\d{6,}:[A-Za-z0-9_-]+/g, "[redacted-token]")
+    .slice(0, 240);
 }
 
 function toTelegramClientMessage(
@@ -181,7 +222,7 @@ function toTelegramClientMessage(
   return {
     chatId,
     messageId: String(result.message_id),
-    text: typeof result.text === "string" ? result.text : text,
+    text: typeof result.text === "string" ? result.text : typeof result.caption === "string" ? result.caption : text,
     ...(messageThreadId === undefined ? {} : { messageThreadId }),
     ...(replyMarkup === undefined ? {} : { replyMarkup })
   };
