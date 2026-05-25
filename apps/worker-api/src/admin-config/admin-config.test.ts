@@ -32,6 +32,8 @@ describe("admin config allowlist and validation", () => {
     expect(validateAdminConfigValue(findAdminConfigDefinition("TELEGRAM_REAL_REVIEW_ENABLED")!, "yes").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("FIRECRAWL_TIMEOUT_MS")!, "abc").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("WORDPRESS_BASE_URL")!, "http://example.com").ok).toBe(false);
+    expect(validateAdminConfigValue(findAdminConfigDefinition("WORDPRESS_BASE_URL")!, "http://localhost:8080").ok).toBe(true);
+    expect(validateAdminConfigValue(findAdminConfigDefinition("FIRECRAWL_BASE_URL")!, "http://127.0.0.1:8787/scrape").ok).toBe(true);
     expect(validateAdminConfigValue(findAdminConfigDefinition("WORDPRESS_DEFAULT_STATUS")!, "publish").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("MAX_PUBLISH_ITEMS_PER_RUN")!, "1").ok).toBe(false);
     expect(validateAdminConfigValue(findAdminConfigDefinition("OPERATING_MODE")!, "auto_publish").ok).toBe(false);
@@ -49,6 +51,7 @@ describe("admin config allowlist and validation", () => {
     const mode = listed.items.find((item) => item.key === "OPERATING_MODE");
     const provider = listed.items.find((item) => item.key === "FIRECRAWL_API_KEY");
     const ai = listed.items.find((item) => item.key === "AI_PROVIDER");
+    expect(listed.adminConfigStore.available).toBe(true);
     expect(mode).toMatchObject({ group: "operating_mode", setupVisible: true, safetyLevel: "safe", requiredForProduction: true });
     expect(provider).toMatchObject({ group: "providers", optionalInManualOnly: true });
     expect(ai).toMatchObject({ group: "ai", setupVisible: true });
