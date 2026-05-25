@@ -71,60 +71,66 @@ jobs:
 
       - name: Apply requested change
         shell: bash
+        env:
+          TASK_TITLE: ${{ inputs.task_title }}
+          TASK_BODY: ${{ inputs.task_body }}
+          CHANGE_MODE: ${{ inputs.change_mode }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch }}
         run: |
           set -euo pipefail
 
-          case "${{ inputs.change_mode }}" in
+          case "${CHANGE_MODE}" in
             task_file)
               mkdir -p .github/agent-tasks
 
-              cat > ".github/agent-tasks/${{ steps.branch.outputs.branch }}.md" <<'EOF'
-          # ${{ inputs.task_title }}
+              cat > ".github/agent-tasks/${BRANCH_NAME}.md" <<EOF
+# ${TASK_TITLE}
 
-          ${{ inputs.task_body }}
+${TASK_BODY}
 
-          ## Required validation
+## Required validation
 
-          - pnpm lint
-          - pnpm typecheck
-          - pnpm test
-          - pnpm build
+- pnpm lint
+- pnpm typecheck
+- pnpm test
+- pnpm build
 
-          ## Safety rules
+## Safety rules
 
-          - Do not push directly to main.
-          - Keep all changes in this branch.
-          - Open a pull request to main.
-          - Merge only after CI passes.
-          EOF
+- Do not push directly to main.
+- Keep all changes in this branch.
+- Open a pull request to main.
+- Merge only after CI passes.
+EOF
               ;;
 
             readme_note)
               python - <<'PY'
-          from pathlib import Path
+import os
+from pathlib import Path
 
-          path = Path("README.md")
-          note = """${{ inputs.task_body }}""".strip()
-          text = path.read_text()
+path = Path("README.md")
+note = os.environ["TASK_BODY"].strip()
+text = path.read_text()
 
-          marker = "# AI Curation Publisher Agent\n"
-          insert = f"\n> {note}\n"
+marker = "# AI Curation Publisher Agent\n"
+insert = f"\n> {note}\n"
 
-          if not note:
-              raise SystemExit("README note cannot be empty.")
+if not note:
+    raise SystemExit("README note cannot be empty.")
 
-          if note in text:
-              raise SystemExit("README already contains the requested note.")
+if note in text:
+    raise SystemExit("README already contains the requested note.")
 
-          if marker not in text:
-              raise SystemExit("README title marker not found.")
+if marker not in text:
+    raise SystemExit("README title marker not found.")
 
-          path.write_text(text.replace(marker, marker + insert, 1))
-          PY
+path.write_text(text.replace(marker, marker + insert, 1))
+PY
               ;;
 
             *)
-              echo "Unsupported change mode: ${{ inputs.change_mode }}"
+              echo "Unsupported change mode: ${CHANGE_MODE}"
               exit 1
               ;;
           esac
@@ -158,17 +164,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat > pr-body.md <<'EOF'
-          ${{ inputs.task_body }}
+          cat > pr-body.md <<EOF
+${{ inputs.task_body }}
 
-          ## Validation
+## Validation
 
-          CI must pass before merge.
+CI must pass before merge.
 
-          ## Created by
+## Created by
 
-          Agent Task PR workflow.
-          EOF
+Agent Task PR workflow.
+EOF
 
           gh pr create \
             --base main \
