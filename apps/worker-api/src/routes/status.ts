@@ -1,6 +1,7 @@
 import { getEffectiveEnv } from "../admin-config/service";
 import { readOperationalConfig } from "../config";
 import { jsonResponse } from "../http/json";
+import { readTelegramTopicWorkflowSummary } from "../telegram-topic-workflow/status";
 import { methodNotAllowed, timestamp } from "./response";
 import type { Env } from "../types";
 
@@ -11,7 +12,9 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
 
   const effectiveEnv = await getEffectiveEnv(env);
   const config = readOperationalConfig(effectiveEnv);
+  const telegramTopicWorkflow = await readTelegramTopicWorkflowSummary(effectiveEnv);
   const integrationReady = config.readiness.productionReviewReady
+    || telegramTopicWorkflow.topicWorkflowConfigured
     || config.readiness.wordpressDraftReady
     || config.readiness.hasProviderCredentials.firecrawl;
   const pilotReady = config.readiness.setupSafe
@@ -49,14 +52,16 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
       reviewChatConfigured: config.telegram.reviewChatConfigured,
       finalChatConfigured: config.telegram.finalChatConfigured,
       botTokenConfigured: config.telegram.botTokenConfigured,
-      realReviewEnabled: config.telegram.realReviewEnabled
+      realReviewEnabled: config.telegram.realReviewEnabled,
+      topicWorkflow: telegramTopicWorkflow
     },
     wordpress: {
       configured: config.wordpress.configured,
       baseUrlConfigured: config.wordpress.baseUrlConfigured,
       credentialsConfigured: config.wordpress.credentialsConfigured,
       realDryRunEnabled: config.wordpress.realDryRunEnabled,
-      defaultStatus: config.wordpress.defaultStatus
+      defaultStatus: config.wordpress.defaultStatus,
+      optionalForTelegramTopicWorkflow: true
     },
     pilot: {
       ready: pilotReady,
@@ -64,6 +69,7 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
       setupSafe: config.readiness.setupSafe,
       firecrawlConfigured: config.readiness.hasProviderCredentials.firecrawl,
       telegramReviewConfigured: config.readiness.productionReviewReady,
+      telegramTopicWorkflowConfigured: telegramTopicWorkflow.topicWorkflowConfigured,
       telegramRealReviewEnabled: config.readiness.telegramRealReviewEnabled,
       wordpressConfigured: config.readiness.wordpressDraftReady,
       wordpressRealDryRunEnabled: config.readiness.wordpressRealDryRunEnabled,
