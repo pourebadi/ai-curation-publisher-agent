@@ -1,3 +1,4 @@
+import { getEffectiveEnv } from "../admin-config/service";
 import { runScheduledPollOperation } from "../operations/scheduled-poll";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
@@ -36,7 +37,8 @@ export async function handleInternalSchedulerRun(
   }
 
   try {
-    const result = await runScheduledPollOperation(env, {
+    const effectiveEnv = await getEffectiveEnv(env);
+    const result = await runScheduledPollOperation(effectiveEnv, {
       mode: "manual",
       respectEnabled: false,
       ...(parsed.value.dryRun === undefined ? {} : { dryRun: parsed.value.dryRun }),

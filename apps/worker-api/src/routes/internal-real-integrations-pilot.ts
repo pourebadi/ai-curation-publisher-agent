@@ -1,6 +1,7 @@
 import type { ProviderHttpClient } from "@curator/providers";
 import type { TelegramClient } from "@curator/telegram";
 import type { WordPressClient } from "@curator/wordpress";
+import { getEffectiveEnv } from "../admin-config/service";
 import { runControlledRealIntegrationsPilot, type ControlledRealIntegrationsPilotInput } from "../operations/controlled-real-integrations-pilot";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
@@ -44,8 +45,9 @@ export async function handleInternalRealIntegrationsPilot(
     return badRequest(validation.error, validation.message, request);
   }
 
+  const effectiveEnv = await getEffectiveEnv(env);
   const result = await runControlledRealIntegrationsPilot({
-    env,
+    env: effectiveEnv,
     input: parsed.value,
     ...(dependencies.httpClient === undefined ? {} : { httpClient: dependencies.httpClient }),
     ...(dependencies.telegramClient === undefined ? {} : { telegramClient: dependencies.telegramClient }),

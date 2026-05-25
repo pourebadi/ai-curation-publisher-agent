@@ -1,22 +1,21 @@
 import type { DashboardSettings, OperationRecord } from "./types";
 
 const apiBaseUrlKey = "curator.dashboard.apiBaseUrl";
-const internalCredentialSessionKey = "curator.dashboard.internalCredential.session";
-const internalCredentialLocalKey = "curator.dashboard.internalCredential.local";
+const oldInternalCredentialSessionKey = "curator.dashboard.internalCredential.session";
+const oldInternalCredentialLocalKey = "curator.dashboard.internalCredential.local";
 const rememberInternalCredentialKey = "curator.dashboard.rememberInternalCredential";
 const operationHistoryKey = "curator.dashboard.operationHistory";
 
+let inMemoryInternalCredential: string | undefined;
+
 export function loadSettings(): DashboardSettings {
   const apiBaseUrl = globalThis.localStorage?.getItem(apiBaseUrlKey) ?? "";
-  const rememberInternalCredential = globalThis.localStorage?.getItem(rememberInternalCredentialKey) === "true";
-  const storedCredential = rememberInternalCredential
-    ? globalThis.localStorage?.getItem(internalCredentialLocalKey)
-    : globalThis.sessionStorage?.getItem(internalCredentialSessionKey);
+  removeLegacyStoredCredential();
 
   return {
     apiBaseUrl,
-    hasInternalCredential: Boolean(storedCredential),
-    rememberInternalCredential
+    hasInternalCredential: inMemoryInternalCredential !== undefined,
+    rememberInternalCredential: false
   };
 }
 
@@ -24,39 +23,23 @@ export function saveApiBaseUrl(value: string): void {
   globalThis.localStorage?.setItem(apiBaseUrlKey, value.trim());
 }
 
-export function saveInternalCredential(value: string, remember: boolean): void {
-  clearInternalCredential();
-  globalThis.localStorage?.setItem(rememberInternalCredentialKey, remember ? "true" : "false");
-
-  if (value.trim().length === 0) {
-    return;
-  }
-
-  if (remember) {
-    globalThis.localStorage?.setItem(internalCredentialLocalKey, value);
-    return;
-  }
-
-  globalThis.sessionStorage?.setItem(internalCredentialSessionKey, value);
+export function saveInternalCredential(value: string, _remember: boolean): void {
+  removeLegacyStoredCredential();
+  const trimmed = value.trim();
+  inMemoryInternalCredential = trimmed.length === 0 ? undefined : trimmed;
 }
 
 export function getInternalCredential(): string | undefined {
-  const rememberInternalCredential = globalThis.localStorage?.getItem(rememberInternalCredentialKey) === "true";
-  const value = rememberInternalCredential
-    ? globalThis.localStorage?.getItem(internalCredentialLocalKey)
-    : globalThis.sessionStorage?.getItem(internalCredentialSessionKey);
-
-  return value === null || value === undefined || value.length === 0 ? undefined : value;
+  return inMemoryInternalCredential;
 }
 
 export function clearInternalCredential(): void {
-  globalThis.sessionStorage?.removeItem(internalCredentialSessionKey);
-  globalThis.localStorage?.removeItem(internalCredentialLocalKey);
+  inMemoryInternalCredential = undefined;
+  removeLegacyStoredCredential();
 }
 
 export function clearSettings(): void {
   globalThis.localStorage?.removeItem(apiBaseUrlKey);
-  globalThis.localStorage?.removeItem(rememberInternalCredentialKey);
   clearInternalCredential();
 }
 
@@ -82,4 +65,10 @@ export function saveOperationRecord(record: OperationRecord): OperationRecord[] 
 
 export function clearOperationHistory(): void {
   globalThis.localStorage?.removeItem(operationHistoryKey);
+}
+
+function removeLegacyStoredCredential(): void {
+  globalThis.sessionStorage?.removeItem(oldInternalCredentialSessionKey);
+  globalThis.localStorage?.removeItem(oldInternalCredentialLocalKey);
+  globalThis.localStorage?.removeItem(rememberInternalCredentialKey);
 }

@@ -27,7 +27,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 describe("WordPress dry-run status redaction", () => {
   it("status exposes booleans without WordPress credential values", async () => {
-    const response = handleStatus(new Request("https://worker.local/status"), makeEnv());
+    const response = await handleStatus(new Request("https://worker.local/status"), makeEnv());
     const body = await json(response);
 
     expect(response.status).toBe(200);
@@ -44,7 +44,7 @@ describe("WordPress dry-run status redaction", () => {
   });
 
   it("readiness exposes safe WordPress summary without credential values", async () => {
-    const response = handleReady(new Request("https://worker.local/ready"), makeEnv());
+    const response = await handleReady(new Request("https://worker.local/ready"), makeEnv());
     const body = await json(response);
 
     expect(response.status).toBe(200);

@@ -1,5 +1,6 @@
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
+import { handleInternalAdminConfig } from "./routes/internal-admin-config";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalPoll } from "./routes/internal-poll";
@@ -28,6 +29,10 @@ const worker: ExportedHandler<Env> = {
 
     if (url.pathname === "/status") {
       return handleStatus(request, env);
+    }
+
+    if (url.pathname === "/internal/admin/config" || url.pathname === "/internal/admin/config/reset" || url.pathname === "/internal/admin/config/audit") {
+      return handleInternalAdminConfig(request, env);
     }
 
     if (url.pathname === "/internal/poll") {
