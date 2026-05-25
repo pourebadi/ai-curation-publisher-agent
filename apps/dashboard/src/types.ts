@@ -49,7 +49,7 @@ export type AdminConfigResponse = {
   encryption: { configured: boolean; valid: boolean; secretEditingEnabled: boolean; message?: string };
   groups: Record<AdminConfigGroup, AdminConfigItem[]>;
   items: AdminConfigItem[];
-  presets: { openai: string[]; gemini: string[] };
+  presets: { openai: string[]; gemini: string[] } | undefined;
   modes: { key: string; label: string; description: string }[];
 };
 export type AdminAuditEntry = { id: string; key: string; value_type: string; is_secret: number; action: string; changed_at: string; changed_by: string | null; request_id: string | null; previous_value_redacted: string | null; new_value_redacted: string | null };
