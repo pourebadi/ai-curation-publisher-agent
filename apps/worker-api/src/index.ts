@@ -72,7 +72,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramReviewDryRun(request, env);
   }
 
-  if (url.pathname === "/internal/telegram/topic-routes/seed") {
+  if (isTelegramTopicRoutesPath(url.pathname)) {
     return handleInternalTelegramTopicRoutes(request, env);
   }
 
@@ -97,6 +97,14 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   }
 
   return jsonResponse({ ok: false, error: "not_found" }, { status: 404 });
+}
+
+function isTelegramTopicRoutesPath(pathname: string): boolean {
+  return pathname === "/internal/telegram/topic-routes"
+    || pathname === "/internal/telegram/topic-routes/seed"
+    || pathname === "/internal/telegram/topic-routes/validate"
+    || pathname.startsWith("/internal/telegram/topic-routes/")
+    || pathname.startsWith("/internal/telegram/topic-route-outputs/");
 }
 
 export default worker;
