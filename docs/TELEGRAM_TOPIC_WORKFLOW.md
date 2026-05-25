@@ -57,7 +57,7 @@ final channel: @crypto_fa
 
 ## Route manager
 
-The dashboard route manager under Settings -> Telegram should show an operator-friendly summary:
+The dashboard route manager under Settings -> Telegram shows an operator-friendly summary:
 
 - Telegram bot status: Configured or Missing
 - Final publishing: Disabled or Enabled
@@ -66,7 +66,7 @@ The dashboard route manager under Settings -> Telegram should show an operator-f
 - Media mode
 - WordPress: Optional
 
-Route cards should show:
+Route cards show:
 
 - category
 - source chat ID
@@ -76,7 +76,7 @@ Route cards should show:
 - output count
 - warning if an enabled route has no enabled outputs
 
-Output summaries should show:
+Output summaries show:
 
 - language
 - review chat ID
@@ -166,7 +166,7 @@ The response includes item ID, category, language, review status, publish queue 
 
 ## Safe tests
 
-Dashboard safe tests should include:
+Dashboard safe tests include:
 
 1. Check Telegram route config: validates stored route tables, does not call Telegram, does not publish.
 2. Telegram publish queue dry-run: reviews queue safety and retry eligibility, does not send a final post.
@@ -259,7 +259,7 @@ Current final publish can reuse Telegram `file_id` for:
 - video or animation -> `sendVideo`
 - document -> `sendDocument`
 
-Known limitations:
+Known limitations now explicitly moved to Phase 36:
 
 - R2 download/upload is not implemented yet.
 - `sendMediaGroup` is reported as unsupported by `/status` for this branch.
@@ -270,6 +270,7 @@ Status warning:
 
 ```text
 Media storage is not configured. Telegram file_id reuse is active.
+sendMediaGroup is not enabled in this Worker path yet; mixed albums publish one safe file or fail clearly.
 ```
 
 ## Status and readiness
@@ -303,14 +304,18 @@ WordPress remains optional for the Telegram topic workflow.
 | Review message is not sent | Bot token is configured, real review flag is intended, bot can post in review topic. |
 | Send only queues | `TELEGRAM_FINAL_PUBLISH_ENABLED=false` is active. This is safe. |
 | Publish retry returns skipped | Final publishing is still disabled. Enable only server-side and intentionally. |
-| Media album does not publish as album | `sendMediaGroup` is not enabled in this branch; use single-file reuse or plan Phase 36. |
+| Media album does not publish as album | `sendMediaGroup` is not enabled in this branch; plan Phase 36. |
 | WordPress missing | Safe for Telegram-only flow. WordPress is optional. |
 
-## Intentionally not included yet
+## Phase 36 candidates
 
 - R2 media download/upload.
 - Full `sendMediaGroup` final publishing.
 - Provider automation from Apify/X/Instagram into route IDs.
+- Deeper album and mixed-media handling.
+
+## Intentionally not included
+
 - One-click public final publish controls.
 - Scheduler publishing.
 - Public WordPress publishing.
