@@ -11,12 +11,12 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
 
   const effectiveEnv = await getEffectiveEnv(env);
   const config = readOperationalConfig(effectiveEnv);
-  const pilotReady = config.operatingMode === "manual_only"
-    || config.operatingMode === "mock_demo"
-    || config.readiness.providerSetupSatisfied
-    || config.readiness.hasProviderCredentials.firecrawl
-    || (config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken)
-    || config.readiness.hasWordPressConfig;
+  const integrationReady = config.readiness.productionReviewReady
+    || config.readiness.wordpressDraftReady
+    || config.readiness.hasProviderCredentials.firecrawl;
+  const pilotReady = config.readiness.setupSafe
+    && config.readiness.hasInternalSecret
+    && (config.operatingMode === "mock_demo" || integrationReady || config.readiness.ai.ready);
 
   return jsonResponse({
     ok: true,
@@ -32,7 +32,12 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
       providers: true,
       media: true,
       wordpress: true,
-      publishing: true
+      publishing: {
+        available: true,
+        publicPublishingEnabled: false,
+        schedulerPublishingAllowed: config.scheduler.publishingAllowed,
+        note: "Publishing code is present, but public publishing and scheduler publishing remain disabled by this phase."
+      }
     },
     ai: config.ai,
     providers: {
@@ -55,10 +60,12 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
     },
     pilot: {
       ready: pilotReady,
+      modeAllowsPilot: config.operatingMode === "manual_only" || config.operatingMode === "mock_demo" || config.readiness.providerSetupSatisfied,
+      setupSafe: config.readiness.setupSafe,
       firecrawlConfigured: config.readiness.hasProviderCredentials.firecrawl,
-      telegramReviewConfigured: config.readiness.hasTelegramConfig && config.readiness.hasTelegramBotToken,
+      telegramReviewConfigured: config.readiness.productionReviewReady,
       telegramRealReviewEnabled: config.readiness.telegramRealReviewEnabled,
-      wordpressConfigured: config.readiness.hasWordPressConfig,
+      wordpressConfigured: config.readiness.wordpressDraftReady,
       wordpressRealDryRunEnabled: config.readiness.wordpressRealDryRunEnabled,
       schedulerEnabled: config.readiness.scheduler.enabled,
       schedulerDryRun: config.readiness.scheduler.dryRun
