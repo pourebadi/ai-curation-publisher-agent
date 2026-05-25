@@ -1,7 +1,10 @@
-import { parseAllowedReviewerIds, parseTelegramUpdate, isReviewerAllowed, type TelegramUpdate, type TelegramWebhookAck } from "@curator/telegram";
+import { parseAllowedReviewerIds, parseTelegramUpdate, isReviewerAllowed, MockTelegramClient, RealTelegramClient, type TelegramUpdate, type TelegramWebhookAck } from "@curator/telegram";
 import { handleManualIngest, type ManualIngestOptions } from "../handlers/manual-ingest";
 import { handleReviewCallback } from "../handlers/review-callback";
 import { jsonResponse } from "../http/json";
+import { handleTelegramOutputCallback } from "../telegram-topic-workflow/callback-orchestrator";
+import { resolveTelegramTopicRoute } from "../telegram-topic-workflow/route-resolver";
+import { handleTelegramTopicIngest } from "../telegram-topic-workflow/topic-ingest-orchestrator";
 import type { Env } from "../types";
 
 export async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
@@ -40,7 +43,45 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
     }, { status: 403 });
   }
 
+  if (parsed.kind === "output_callback") {
+    const callbackResult = await handleTelegramOutputCallback(parsed, env, createCallbackAnswerClient(env));
+    return jsonResponse({
+      ok: callbackResult.ok,
+      ...updateIdFields,
+      kind: parsed.kind,
+      callbackAction: callbackResult.action,
+      generatedOutputId: callbackResult.generatedOutputId,
+      callbackResult
+    }, { status: callbackResult.ok ? 200 : 404 });
+  }
+
   if (parsed.kind === "manual_message") {
+    if (parsed.threadId !== undefined) {
+      const resolution = await resolveTelegramTopicRoute(env, parsed);
+      if (resolution.ok) {
+        const topicResult = await handleTelegramTopicIngest({
+          env,
+          parsed,
+          route: resolution.routeWithOutputs.route,
+          outputs: resolution.routeWithOutputs.outputs
+        });
+        return jsonResponse({
+          ok: true,
+          ...updateIdFields,
+          kind: parsed.kind,
+          itemId: topicResult.itemId,
+          topicWorkflow: topicResult
+        });
+      }
+
+      return jsonResponse({
+        ok: true,
+        ...updateIdFields,
+        kind: "ignored",
+        ignoredReason: resolution.reason
+      });
+    }
+
     const ingestOptions: ManualIngestOptions = env.TELEGRAM_REVIEW_CHAT_ID === undefined ? {} : {
       reviewChatId: env.TELEGRAM_REVIEW_CHAT_ID
     };
@@ -68,4 +109,11 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
   };
 
   return jsonResponse(body);
+}
+
+function createCallbackAnswerClient(env: Env): MockTelegramClient | RealTelegramClient {
+  if (env.TELEGRAM_REAL_REVIEW_ENABLED === "true") {
+    return new RealTelegramClient({ botToken: env.TELEGRAM_BOT_TOKEN });
+  }
+  return new MockTelegramClient();
 }
