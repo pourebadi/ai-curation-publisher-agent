@@ -18,6 +18,12 @@ export type MediaAssetRecord = {
   height?: number;
   durationSeconds?: number;
   errorMessage?: string;
+  telegramFileId?: string;
+  telegramFileUniqueId?: string;
+  telegramMediaGroupId?: string;
+  telegramFileType?: string;
+  telegramMimeType?: string;
+  telegramFileSize?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -37,6 +43,12 @@ export type CreateMediaAssetInput = {
   height?: number;
   durationSeconds?: number;
   errorMessage?: string;
+  telegramFileId?: string;
+  telegramFileUniqueId?: string;
+  telegramMediaGroupId?: string;
+  telegramFileType?: string;
+  telegramMimeType?: string;
+  telegramFileSize?: number;
 };
 
 export class MediaAssetsRepository {
@@ -45,8 +57,8 @@ export class MediaAssetsRepository {
   async createMany(assets: CreateMediaAssetInput[]): Promise<void> {
     for (const asset of assets) {
       await this.db.prepare(
-        `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, telegram_file_id, telegram_file_unique_id, telegram_media_group_id, telegram_file_type, telegram_mime_type, telegram_file_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
       ).bind(
         asset.id,
         asset.itemId,
@@ -62,7 +74,13 @@ export class MediaAssetsRepository {
         asset.width ?? null,
         asset.height ?? null,
         asset.durationSeconds ?? null,
-        asset.errorMessage ?? null
+        asset.errorMessage ?? null,
+        asset.telegramFileId ?? null,
+        asset.telegramFileUniqueId ?? null,
+        asset.telegramMediaGroupId ?? null,
+        asset.telegramFileType ?? null,
+        asset.telegramMimeType ?? null,
+        asset.telegramFileSize ?? null
       ).run();
     }
   }
@@ -100,6 +118,12 @@ type MediaAssetRow = {
   height: number | null;
   duration_seconds: number | null;
   error_message: string | null;
+  telegram_file_id?: string | null;
+  telegram_file_unique_id?: string | null;
+  telegram_media_group_id?: string | null;
+  telegram_file_type?: string | null;
+  telegram_mime_type?: string | null;
+  telegram_file_size?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -121,6 +145,12 @@ function toMediaAssetRecord(row: MediaAssetRow): MediaAssetRecord {
     ...(row.height === null ? {} : { height: row.height }),
     ...(row.duration_seconds === null ? {} : { durationSeconds: row.duration_seconds }),
     ...(row.error_message === null ? {} : { errorMessage: row.error_message }),
+    ...(row.telegram_file_id === undefined || row.telegram_file_id === null ? {} : { telegramFileId: row.telegram_file_id }),
+    ...(row.telegram_file_unique_id === undefined || row.telegram_file_unique_id === null ? {} : { telegramFileUniqueId: row.telegram_file_unique_id }),
+    ...(row.telegram_media_group_id === undefined || row.telegram_media_group_id === null ? {} : { telegramMediaGroupId: row.telegram_media_group_id }),
+    ...(row.telegram_file_type === undefined || row.telegram_file_type === null ? {} : { telegramFileType: row.telegram_file_type }),
+    ...(row.telegram_mime_type === undefined || row.telegram_mime_type === null ? {} : { telegramMimeType: row.telegram_mime_type }),
+    ...(row.telegram_file_size === undefined || row.telegram_file_size === null ? {} : { telegramFileSize: row.telegram_file_size }),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
