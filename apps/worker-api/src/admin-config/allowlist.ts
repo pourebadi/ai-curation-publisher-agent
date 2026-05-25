@@ -66,7 +66,7 @@ export const ADMIN_CONFIG_DEFINITIONS = [
   def("TELEGRAM_FINAL_CHAT_ID", "telegram", "Telegram final chat", "Final chat id is tracked for readiness only. Dashboard does not publish to it.", "Used only for safe readiness status in this phase.", "string", { safetyLevel: "warning" }),
   def("TELEGRAM_REAL_REVIEW_ENABLED", "telegram", "Telegram review dry-run", "Allows review-channel dry-run when the backend is configured.", "Used by Telegram review dry-run only, not final publishing.", "boolean", { defaultValue: "false", safetyLevel: "warning", setupVisible: true }),
 
-  def("WORDPRESS_BASE_URL", "wordpress", "WordPress site URL", "WordPress site used for draft-only checks.", "Used by WordPress draft dry-run.", "url", { preferHttps: true, setupVisible: true }),
+  def("WORDPRESS_BASE_URL", "wordpress", "WordPress site URL", "WordPress site used for draft-only checks.", "Used by WordPress draft dry-run.", "url", { preferHttps: true, allowLocalHttp: true, setupVisible: true }),
   def("WORDPRESS_USERNAME", "wordpress", "WordPress username", "WordPress REST username for draft-only checks.", "Used by WordPress draft dry-run.", "string", { setupVisible: true }),
   def("WORDPRESS_DEFAULT_STATUS", "wordpress", "WordPress default status", "WordPress status must remain draft for now.", "Used by WordPress post payload preparation.", "enum", { defaultValue: "draft", enumValues: ["draft"] }),
   def("WORDPRESS_REAL_DRY_RUN_ENABLED", "wordpress", "WordPress draft dry-run", "Allows explicit WordPress draft-only dry-run.", "Used by WordPress draft dry-run only.", "boolean", { defaultValue: "false", safetyLevel: "warning" }),
@@ -75,7 +75,7 @@ export const ADMIN_CONFIG_DEFINITIONS = [
   def("ENABLE_FIRECRAWL_PROVIDER", "providers", "Enable Firecrawl", "Allows Firecrawl sandbox provider when provider mode permits it.", "Used by provider runtime selection.", "boolean", { defaultValue: "false", safetyLevel: "warning", optionalInManualOnly: true }),
   def("ENABLE_APIFY_PROVIDER", "providers", "Enable Apify", "Allows Apify provider when provider mode permits it.", "Used by provider runtime selection.", "boolean", { defaultValue: "false", safetyLevel: "warning", optionalInManualOnly: true }),
   def("ENABLE_GETXAPI_PROVIDER", "providers", "Enable GetXAPI", "Allows GetXAPI provider when provider mode permits it.", "Used by provider runtime selection.", "boolean", { defaultValue: "false", safetyLevel: "warning", optionalInManualOnly: true }),
-  def("FIRECRAWL_BASE_URL", "providers", "Firecrawl endpoint", "Optional Firecrawl endpoint override.", "Used by Firecrawl sandbox fetch.", "url", { defaultValue: "https://api.firecrawl.dev/v1/scrape", preferHttps: true, optionalInManualOnly: true }),
+  def("FIRECRAWL_BASE_URL", "providers", "Firecrawl endpoint", "Optional Firecrawl endpoint override.", "Used by Firecrawl sandbox fetch.", "url", { defaultValue: "https://api.firecrawl.dev/v1/scrape", preferHttps: true, allowLocalHttp: true, optionalInManualOnly: true }),
   def("FIRECRAWL_TIMEOUT_MS", "providers", "Firecrawl timeout", "Timeout for Firecrawl sandbox requests in milliseconds.", "Used by Firecrawl HTTP client and cost safety.", "integer", { defaultValue: "10000", min: 1000, max: 30000, optionalInManualOnly: true }),
 
   def("SCHEDULER_DRY_RUN", "scheduler", "Scheduler dry-run", "Keeps scheduler work safe.", "Used by scheduler safety summary and manual dry-run.", "boolean", { defaultValue: "true", requiredForProduction: true }),
