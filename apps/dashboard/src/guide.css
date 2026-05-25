@@ -118,28 +118,82 @@
   font-weight: 820;
 }
 
-@media (max-width: 1180px) {
-  .guideGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.stepRail button {
+  min-height: 4.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid transparent;
+  box-shadow: none;
+  transform: none;
 }
 
-@media (max-width: 900px) {
-  .helpGrid {
-    grid-template-columns: 1fr;
-  }
+.stepRail button:hover:not(:disabled) {
+  transform: none;
 }
 
-@media (max-width: 640px) {
-  .guideGrid {
-    grid-template-columns: 1fr;
-  }
+.stepRail .step-active {
+  background: #172554;
+  color: #ffffff;
+  border-color: #172554;
+}
 
-  .copyCommand {
-    grid-template-columns: 1fr;
-  }
+.stepRail .step-complete {
+  background: #ecfdf3;
+  color: #166534;
+  border-color: #bbf7d0;
+}
 
-  .copyCommand button {
-    width: 100%;
-  }
+.stepRail .step-needs-action {
+  background: #fff7ed;
+  color: #9a3412;
+  border-color: #fed7aa;
+}
+
+.stepRail .step-optional {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+
+.stepRail .step-locked {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #e2e8f0;
+  opacity: 0.85;
+}
+
+.stepRail button span,
+.stepRail button small {
+  display: block;
+  line-height: 1.25;
+}
+
+.stepRail button small {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 720;
+}
+
+.settingsForm.compact {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.wizardContent,
+.readinessList {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.readinessRow {
+  padding: var(--space-4);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.readinessRow p {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
 }
