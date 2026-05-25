@@ -1,7 +1,8 @@
-import type { TelegramInlineKeyboardMarkup } from "./index";
+import type { ParsedTelegramMedia, TelegramInlineKeyboardMarkup } from "./index";
 
 export type SendReviewMessageInput = {
   chatId: string;
+  messageThreadId?: number;
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
 };
@@ -15,7 +16,9 @@ export type EditReviewMessageInput = {
 
 export type PublishFinalMessageInput = {
   chatId: string;
+  messageThreadId?: number;
   text: string;
+  media?: ParsedTelegramMedia[];
 };
 
 export type AnswerCallbackQueryInput = {
@@ -27,6 +30,7 @@ export type TelegramClientMessage = {
   chatId: string;
   messageId: string;
   text: string;
+  messageThreadId?: number;
   replyMarkup?: TelegramInlineKeyboardMarkup;
 };
 
@@ -50,6 +54,7 @@ export class MockTelegramClient implements TelegramClient {
       chatId: input.chatId,
       messageId: `mock_telegram_review_${this.nextMessageNumber}`,
       text: input.text,
+      ...(input.messageThreadId === undefined ? {} : { messageThreadId: input.messageThreadId }),
       replyMarkup: input.replyMarkup
     };
     this.nextMessageNumber += 1;
@@ -72,7 +77,8 @@ export class MockTelegramClient implements TelegramClient {
     const message: TelegramClientMessage = {
       chatId: input.chatId,
       messageId: `mock_telegram_final_${this.nextMessageNumber}`,
-      text: input.text
+      text: input.text,
+      ...(input.messageThreadId === undefined ? {} : { messageThreadId: input.messageThreadId })
     };
     this.nextMessageNumber += 1;
     this.publishedFinalMessages.push(message);
