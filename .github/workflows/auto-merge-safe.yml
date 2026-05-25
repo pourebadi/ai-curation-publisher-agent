@@ -53,7 +53,7 @@ jobs:
           fi
 
           case "${PR_HEAD_REF}" in
-            agent-*|fix-*|feature-*|restore-*)
+            docs-*|fix-*|feature-*|restore-*)
               echo "Allowed branch: ${PR_HEAD_REF}"
               ;;
             *)
@@ -103,7 +103,7 @@ jobs:
           fi
 
           case "${HEAD_REF}" in
-            agent-*|fix-*|feature-*|restore-*)
+            docs-*|fix-*|feature-*|restore-*)
               echo "Allowed branch: ${HEAD_REF}"
               ;;
             *)
