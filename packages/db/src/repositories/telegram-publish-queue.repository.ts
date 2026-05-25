@@ -1,6 +1,6 @@
 import type { D1DatabaseLike } from "../client";
 
-export const TELEGRAM_PUBLISH_QUEUE_STATUSES = ["pending", "scheduled", "published", "failed"] as const;
+export const TELEGRAM_PUBLISH_QUEUE_STATUSES = ["pending", "scheduled", "publishing", "published", "failed"] as const;
 export type TelegramPublishQueueStatus = typeof TELEGRAM_PUBLISH_QUEUE_STATUSES[number];
 
 export type TelegramPublishQueueRecord = {
@@ -106,6 +106,12 @@ export class TelegramPublishQueueRepository {
     return row ? toRecord(row) : null;
   }
 
+  async markPublishing(id: string): Promise<void> {
+    await this.db.prepare("UPDATE telegram_publish_queue SET status = 'publishing', attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(id)
+      .run();
+  }
+
   async markPublished(id: string, finalMessageId: string): Promise<void> {
     await this.db.prepare("UPDATE telegram_publish_queue SET status = 'published', final_message_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .bind(finalMessageId, id)
@@ -113,7 +119,7 @@ export class TelegramPublishQueueRepository {
   }
 
   async markFailed(id: string, errorMessage: string): Promise<void> {
-    await this.db.prepare("UPDATE telegram_publish_queue SET status = 'failed', attempt_count = attempt_count + 1, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    await this.db.prepare("UPDATE telegram_publish_queue SET status = 'failed', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .bind(errorMessage, id)
       .run();
   }
