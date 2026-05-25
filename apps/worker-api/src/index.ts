@@ -1,3 +1,4 @@
+import { corsPreflightResponse, withCors } from "./http/cors";
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
 import { handleInternalAdminConfig } from "./routes/internal-admin-config";
@@ -17,66 +18,75 @@ import type { Env } from "./types";
 
 const worker: ExportedHandler<Env> = {
   async fetch(request, env) {
-    const url = new URL(request.url);
-
-    if (url.pathname === "/" || url.pathname === "/health") {
-      return handleHealth(request, env);
+    if (request.method === "OPTIONS") {
+      return corsPreflightResponse(request);
     }
 
-    if (url.pathname === "/ready") {
-      return handleReady(request, env);
-    }
-
-    if (url.pathname === "/status") {
-      return handleStatus(request, env);
-    }
-
-    if (url.pathname === "/internal/admin/config" || url.pathname === "/internal/admin/config/reset" || url.pathname === "/internal/admin/config/audit") {
-      return handleInternalAdminConfig(request, env);
-    }
-
-    if (url.pathname === "/internal/poll") {
-      return handleInternalPoll(request, env);
-    }
-
-    if (url.pathname === "/internal/scheduler/run") {
-      return handleInternalSchedulerRun(request, env);
-    }
-
-    if (url.pathname === "/internal/pilot/real-integrations") {
-      return handleInternalRealIntegrationsPilot(request, env);
-    }
-
-    if (url.pathname === "/internal/providers/firecrawl/sandbox-fetch") {
-      return handleInternalFirecrawlSandbox(request, env);
-    }
-
-    if (url.pathname === "/internal/telegram/review-dry-run") {
-      return handleInternalTelegramReviewDryRun(request, env);
-    }
-
-    if (url.pathname === "/internal/wordpress/dry-run") {
-      return handleInternalWordPressDryRun(request, env);
-    }
-
-    if (url.pathname === "/internal/e2e/mock-pipeline") {
-      return handleInternalE2EMockPipeline(request, env);
-    }
-
-    if (url.pathname === "/internal/publish/telegram") {
-      return handleInternalTelegramPublish(request, env);
-    }
-
-    if (url.pathname === "/telegram/webhook") {
-      return handleTelegramWebhook(request, env);
-    }
-
-    return jsonResponse({ ok: false, error: "not_found" }, { status: 404 });
+    const response = await routeRequest(request, env);
+    return withCors(request, response);
   },
 
   async scheduled(controller, env) {
     await handleScheduledPoll(controller, env);
   }
 };
+
+async function routeRequest(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+
+  if (url.pathname === "/" || url.pathname === "/health") {
+    return handleHealth(request, env);
+  }
+
+  if (url.pathname === "/ready") {
+    return handleReady(request, env);
+  }
+
+  if (url.pathname === "/status") {
+    return handleStatus(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/config" || url.pathname === "/internal/admin/config/reset" || url.pathname === "/internal/admin/config/audit") {
+    return handleInternalAdminConfig(request, env);
+  }
+
+  if (url.pathname === "/internal/poll") {
+    return handleInternalPoll(request, env);
+  }
+
+  if (url.pathname === "/internal/scheduler/run") {
+    return handleInternalSchedulerRun(request, env);
+  }
+
+  if (url.pathname === "/internal/pilot/real-integrations") {
+    return handleInternalRealIntegrationsPilot(request, env);
+  }
+
+  if (url.pathname === "/internal/providers/firecrawl/sandbox-fetch") {
+    return handleInternalFirecrawlSandbox(request, env);
+  }
+
+  if (url.pathname === "/internal/telegram/review-dry-run") {
+    return handleInternalTelegramReviewDryRun(request, env);
+  }
+
+  if (url.pathname === "/internal/wordpress/dry-run") {
+    return handleInternalWordPressDryRun(request, env);
+  }
+
+  if (url.pathname === "/internal/e2e/mock-pipeline") {
+    return handleInternalE2EMockPipeline(request, env);
+  }
+
+  if (url.pathname === "/internal/publish/telegram") {
+    return handleInternalTelegramPublish(request, env);
+  }
+
+  if (url.pathname === "/telegram/webhook") {
+    return handleTelegramWebhook(request, env);
+  }
+
+  return jsonResponse({ ok: false, error: "not_found" }, { status: 404 });
+}
 
 export default worker;
