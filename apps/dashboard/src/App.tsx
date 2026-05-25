@@ -78,39 +78,17 @@ function App(): JSX.Element {
 
   useEffect(() => { if (settings.apiBaseUrl.length > 0) void refreshStatus(); }, [refreshStatus, settings.apiBaseUrl]);
 
-  function saveLocalConnection(): void {
-    saveApiBaseUrl(apiBaseUrlInput);
-    if (credentialInput.trim().length > 0) saveInternalCredential(credentialInput, false);
-    setCredentialInput("");
-    setSettings(loadSettings());
-    setNotice("Saved for this page session. Secret values are not stored in browser storage.");
-  }
-
-  function clearLocalSettings(): void {
-    clearSettings();
-    setApiBaseUrlInput("");
-    setCredentialInput("");
-    setSettings(loadSettings());
-    setNotice("Local dashboard settings cleared.");
-  }
-
-  async function runOperation(name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string): Promise<void> {
-    if (!window.confirm(confirmText ?? `Run ${operationLabels[name]}?`)) return;
-    setBusy(name);
-    const result = await runner();
-    recordOperation(name, result.ok, resultToJson(result));
-    setNotice(result.ok ? `${operationLabels[name]} completed.` : `${operationLabels[name]} returned an error.`);
-    setBusy(undefined);
-  }
+  function saveLocalConnection(): void { saveApiBaseUrl(apiBaseUrlInput); if (credentialInput.trim().length > 0) saveInternalCredential(credentialInput, false); setCredentialInput(""); setSettings(loadSettings()); setNotice("Saved for this page session. Secret values are not stored in browser storage."); }
+  function clearLocalSettings(): void { clearSettings(); setApiBaseUrlInput(""); setCredentialInput(""); setSettings(loadSettings()); setNotice("Local dashboard settings cleared."); }
+  async function runOperation(name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string): Promise<void> { if (!window.confirm(confirmText ?? `Run ${operationLabels[name]}?`)) return; setBusy(name); const result = await runner(); recordOperation(name, result.ok, resultToJson(result)); setNotice(result.ok ? `${operationLabels[name]} completed.` : `${operationLabels[name]} returned an error.`); setBusy(undefined); }
 
   return (
     <main className="shell">
       <header className="hero compactHero"><div><p className="eyebrow">Cloudflare Operator Dashboard</p><h1>Admin control panel</h1><p>Update safe runtime settings through the protected Worker API. Secrets are encrypted into D1 and never shown again.</p></div><div className="heroPanel"><strong>Security model</strong><span>No Cloudflare API token in frontend</span><span>No direct Worker Secret mutation</span><span>No public publishing enablement</span></div></header>
       {notice && <div className="notice">{notice}</div>}
       <nav className="topTabs" aria-label="Dashboard sections">{tabs.map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : "secondary"} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}</nav>
-
       {activeTab === "overview" && <section className="tabPanel"><div className="sectionTitle"><div><p className="eyebrow">Overview</p><h2>Safe admin status</h2></div><button type="button" onClick={() => void refreshStatus()} disabled={busy !== undefined}>Refresh</button></div><div className={`launchStatus ${toneForOverall(setupCenter.launchSummary.overallStatus)}`}><strong>{setupCenter.launchSummary.overallStatus}</strong><span>{setupCenter.launchSummary.recommendedNextStep}</span></div><div className="overviewCards"><OverviewCard title="Worker" value={workerReachable ? "Worker is online" : "Worker connection needed"} tone={workerReachable ? "safe" : "warning"} /><OverviewCard title="Mode" value={modeLabel(operatingMode)} tone="safe" /><OverviewCard title="AI" value={aiProvider === "mock" ? "Mock AI" : `${aiProvider} configured`} tone={aiProvider === "mock" ? "warning" : "safe"} /><OverviewCard title="Admin secret" value={internalReady ? "Entered for this page" : "Required for editing"} tone={internalReady ? "safe" : "warning"} /><OverviewCard title="Secret encryption" value={encryptionEnabled === true ? "CONFIG_ENCRYPTION_KEY ready" : "Secret editing blocked"} tone={encryptionEnabled === true ? "safe" : "warning"} /><OverviewCard title="Publishing" value={setupCenter.launchSummary.publishingSafety === "Safe" ? "Public publishing disabled" : "Risky config"} tone={setupCenter.launchSummary.publishingSafety === "Safe" ? "safe" : "risky"} /></div></section>}
-      {activeTab === "setup" && <section className="tabPanel"><div className="sectionTitle"><div><p className="eyebrow">Setup Wizard</p><h2>Guided launch path</h2></div></div><p className="muted">Step 1 must be ready before later setup actions are useful. Provider steps are optional when Manual-only mode is active.</p><label>Worker API base URL<input value={apiBaseUrlInput} onChange={(event) => setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.example.workers.dev" /></label><label>INTERNAL_API_SECRET<input value={credentialInput} onChange={(event) => setCredentialInput(event.target.value)} type="password" placeholder="Enter for this page session" /></label><div className="buttonRow"><button type="button" onClick={saveLocalConnection}>Save locally</button><button type="button" onClick={() => void refreshStatus()} disabled={busy !== undefined}>Check connection</button><button type="button" className="secondary" onClick={clearLocalSettings}>Clear</button></div><SetupWizardCards workerReady={workerReachable} internalReady={internalReady} mode={operatingMode} encryptionReady={encryptionEnabled === true} onOpen={setActiveTab} /><details className="subcard" open><summary>Bootstrap secrets</summary><p><code>INTERNAL_API_SECRET</code> and <code>CONFIG_ENCRYPTION_KEY</code> must be configured as Cloudflare Worker Secrets. Use:</p><pre>pnpm wrangler secret put CONFIG_ENCRYPTION_KEY</pre><p>Integration credentials can be added or rotated in Settings after encryption is configured.</p></details></section>}
+      {activeTab === "setup" && <section className="tabPanel"><div className="sectionTitle"><div><p className="eyebrow">Setup Wizard</p><h2>Guided launch path</h2></div></div><p className="muted">Step 1 checks Worker reachability. Launch readiness is separate and may still need setup.</p><label>Worker API base URL<input value={apiBaseUrlInput} onChange={(event) => setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.example.workers.dev" /></label><label>INTERNAL_API_SECRET<input value={credentialInput} onChange={(event) => setCredentialInput(event.target.value)} type="password" placeholder="Enter for this page session" /></label><div className="buttonRow"><button type="button" onClick={saveLocalConnection}>Save locally</button><button type="button" onClick={() => void refreshStatus()} disabled={busy !== undefined}>Check connection</button><button type="button" className="secondary" onClick={clearLocalSettings}>Clear</button></div><SetupWizardCards workerReady={workerReachable} internalReady={internalReady} mode={operatingMode} encryptionReady={encryptionEnabled === true} onOpen={setActiveTab} /><details className="subcard" open><summary>Bootstrap secrets</summary><p><code>INTERNAL_API_SECRET</code> and <code>CONFIG_ENCRYPTION_KEY</code> must be configured as Cloudflare Worker Secrets. Use:</p><pre>pnpm wrangler secret put CONFIG_ENCRYPTION_KEY</pre><p>Integration credentials can be added or rotated in Settings after encryption is configured.</p></details></section>}
       {activeTab === "settings" && <AdminSettings client={client} enabled={internalReady} onNotice={setNotice} onRefreshStatus={refreshStatus} />}
       {activeTab === "integrations" && <AdminSettings client={client} enabled={internalReady} initialTab="integrations" onNotice={setNotice} onRefreshStatus={refreshStatus} />}
       {activeTab === "safety" && <AdminSettings client={client} enabled={internalReady} initialTab="safety" onNotice={setNotice} onRefreshStatus={refreshStatus} />}
@@ -142,7 +120,7 @@ function RecentResults({ history }: { history: OperationRecord[] }): JSX.Element
 function resultToJson(result: ApiResult | undefined): JsonValue { if (result === undefined) return null; if (result.ok) return result.data as JsonValue; const data: JsonObject = { ok: false, error: result.error, message: result.message }; if (result.status !== undefined) data.status = result.status; if (result.data !== undefined) data.data = result.data; return data; }
 function readBoolean(result: ApiResult | undefined, path: string[]): boolean | undefined { const value = readPath(result, path); return typeof value === "boolean" ? value : undefined; }
 function readString(result: ApiResult | undefined, path: string[]): string | undefined { const value = readPath(result, path); return typeof value === "string" ? value : undefined; }
-function readPath(result: ApiResult | undefined, path: string[]): unknown { if (result?.ok !== true || !isRecord(result.data)) return undefined; let current: unknown = result.data; for (const part of path) { if (!isRecord(current)) return undefined; current = current[part]; } return current; }
+function readPath(result: ApiResult | undefined, path: string[]): unknown { const data = result?.ok === true ? result.data : result?.data; if (!isRecord(data)) return undefined; let current: unknown = data; for (const part of path) { if (!isRecord(current)) return undefined; current = current[part]; } return current; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function toneForOverall(value: string): string { return value === "Pilot-ready" ? "safe" : value === "Risky config" ? "risky" : "warning"; }
 function modeLabel(value: string): string { return value === "manual_only" ? "Manual only" : value === "mock_demo" ? "Mock/demo" : value === "provider_assisted" ? "Provider-assisted" : value; }
