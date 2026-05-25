@@ -1,6 +1,7 @@
-export type EncryptionStatus =
-  | { ok: true; key: CryptoKey }
-  | { ok: false; error: "missing_config_encryption_key" | "invalid_config_encryption_key"; message: string };
+export type EncryptionFailure = { ok: false; error: "missing_config_encryption_key" | "invalid_config_encryption_key"; message: string };
+export type ImportedConfigKeyResult = { ok: true; kind: "key"; key: CryptoKey } | EncryptionFailure;
+export type EncryptedSecretResult = { ok: true; kind: "encrypted"; value: string } | EncryptionFailure;
+export type DecryptedSecretResult = { ok: true; kind: "decrypted"; value: string } | EncryptionFailure;
 
 export type SecretEnvelope = {
   v: 1;
@@ -12,7 +13,7 @@ export type SecretEnvelope = {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export async function importConfigEncryptionKey(rawKey: string | undefined): Promise<EncryptionStatus> {
+export async function importConfigEncryptionKey(rawKey: string | undefined): Promise<ImportedConfigKeyResult> {
   if (rawKey === undefined || rawKey.trim().length === 0) {
     return { ok: false, error: "missing_config_encryption_key", message: "CONFIG_ENCRYPTION_KEY is missing. Run: pnpm wrangler secret put CONFIG_ENCRYPTION_KEY" };
   }
@@ -22,26 +23,27 @@ export async function importConfigEncryptionKey(rawKey: string | undefined): Pro
     return { ok: false, error: "invalid_config_encryption_key", message: "CONFIG_ENCRYPTION_KEY must be base64 or hex encoded 128, 192, or 256 bit key material." };
   }
 
-  const key = await crypto.subtle.importKey("raw", bytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
-  return { ok: true, key };
+  const key = await crypto.subtle.importKey("raw", toArrayBuffer(bytes), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  return { ok: true, kind: "key", key };
 }
 
-export async function encryptSecretValue(rawKey: string | undefined, plaintext: string): Promise<{ ok: true; value: string } | EncryptionStatus> {
+export async function encryptSecretValue(rawKey: string | undefined, plaintext: string): Promise<EncryptedSecretResult> {
   const imported = await importConfigEncryptionKey(rawKey);
   if (!imported.ok) return imported;
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, imported.key, textEncoder.encode(plaintext));
+  const plaintextBytes = textEncoder.encode(plaintext);
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: toArrayBuffer(iv) }, imported.key, toArrayBuffer(plaintextBytes));
   const envelope: SecretEnvelope = {
     v: 1,
     alg: "AES-GCM",
     iv: toBase64(iv),
     ciphertext: toBase64(new Uint8Array(encrypted))
   };
-  return { ok: true, value: JSON.stringify(envelope) };
+  return { ok: true, kind: "encrypted", value: JSON.stringify(envelope) };
 }
 
-export async function decryptSecretValue(rawKey: string | undefined, storedValue: string): Promise<{ ok: true; value: string } | EncryptionStatus> {
+export async function decryptSecretValue(rawKey: string | undefined, storedValue: string): Promise<DecryptedSecretResult> {
   const imported = await importConfigEncryptionKey(rawKey);
   if (!imported.ok) return imported;
 
@@ -52,16 +54,16 @@ export async function decryptSecretValue(rawKey: string | undefined, storedValue
     }
     const iv = fromBase64(envelope.iv);
     const ciphertext = fromBase64(envelope.ciphertext);
-    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, imported.key, ciphertext);
-    return { ok: true, value: textDecoder.decode(decrypted) };
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: toArrayBuffer(iv) }, imported.key, toArrayBuffer(ciphertext));
+    return { ok: true, kind: "decrypted", value: textDecoder.decode(decrypted) };
   } catch {
     return { ok: false, error: "invalid_config_encryption_key", message: "Stored secret could not be decrypted with CONFIG_ENCRYPTION_KEY." };
   }
 }
 
-function decodeKey(value: string): Uint8Array | undefined {
+function decodeKey(value: string): Uint8Array<ArrayBuffer> | undefined {
   if (/^[0-9a-fA-F]+$/.test(value) && value.length % 2 === 0) {
-    const bytes = new Uint8Array(value.length / 2);
+    const bytes = new Uint8Array(new ArrayBuffer(value.length / 2));
     for (let index = 0; index < bytes.length; index += 1) {
       bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
     }
@@ -75,15 +77,21 @@ function decodeKey(value: string): Uint8Array | undefined {
   }
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength));
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
 }
 
-function fromBase64(value: string): Uint8Array {
+function fromBase64(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
