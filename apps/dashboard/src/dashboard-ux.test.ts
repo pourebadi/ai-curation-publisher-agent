@@ -15,7 +15,7 @@ describe("dashboard operator UX rules", () => {
 
   it("keeps setup wizard inline with visible progress states", () => {
     const steps = buildWizardSteps({ workerReachable: true, hasAdminAccess: true, operatingMode: "manual_only", aiReady: false, telegramReady: false, wordpressReady: false, providersReady: false });
-    expect(steps.map((step) => step.title)).toEqual(["Connect Worker", "Secure Admin Actions", "Choose Operating Mode", "Configure AI", "Configure Telegram Review", "Configure WordPress Drafts", "Optional Providers", "Run Safe Tests", "Launch Readiness"]);
+    expect(steps.map((step) => step.title)).toEqual(["Connect Worker", "Secure Admin Actions", "Choose Operating Mode", "Configure AI", "Configure Telegram Review & Routes", "Configure WordPress Drafts", "Optional Providers", "Run Safe Tests", "Launch Readiness"]);
     expect(steps.find((step) => step.id === "providers")).toMatchObject({ state: "optional", optional: true, action: "Skip providers" });
     expect(steps.some((step) => step.action === "Open")).toBe(false);
   });
@@ -42,7 +42,7 @@ describe("dashboard operator UX rules", () => {
 
   it("contains safe tests only", () => {
     const labels = SAFE_TESTS.map((test) => test.title);
-    expect(labels).toEqual(["Readiness check", "Mock E2E pipeline", "AI sample generation", "Telegram review dry-run", "WordPress draft dry-run"]);
+    expect(labels).toEqual(["Readiness check", "Mock E2E pipeline", "AI sample generation", "Telegram route config", "Telegram publish queue dry-run", "Telegram review dry-run", "WordPress draft dry-run"]);
     expect(containsDangerousTestControl(labels)).toBe(false);
   });
 
