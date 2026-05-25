@@ -1,0 +1,123 @@
+name: Agent Task PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_title:
+        description: "Short title for the task"
+        required: true
+        type: string
+      task_body:
+        description: "Detailed task instructions"
+        required: true
+        type: string
+      branch_prefix:
+        description: "Branch prefix"
+        required: true
+        default: "agent"
+        type: choice
+        options:
+          - agent
+          - fix
+          - feature
+          - restore
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: agent-task-pr-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  create-task-pr:
+    name: Create task branch and PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Create branch name
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RAW_TITLE="${{ inputs.task_title }}"
+          SLUG="$(echo "${RAW_TITLE}" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g' \
+            | sed -E 's/^-+|-+$//g' \
+            | cut -c1-48)"
+
+          if [ -z "${SLUG}" ]; then
+            SLUG="task"
+          fi
+
+          BRANCH="${{ inputs.branch_prefix }}-${SLUG}-${{ github.run_number }}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Create task file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .github/agent-tasks
+
+          cat > ".github/agent-tasks/${{ steps.branch.outputs.branch }}.md" <<'EOF'
+          # ${{ inputs.task_title }}
+
+          ${{ inputs.task_body }}
+
+          ## Required validation
+
+          - pnpm lint
+          - pnpm typecheck
+          - pnpm test
+          - pnpm build
+
+          ## Safety rules
+
+          - Do not push directly to main.
+          - Keep all changes in this branch.
+          - Open a pull request to main.
+          - Merge only after CI passes.
+          EOF
+
+      - name: Commit task branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "${{ steps.branch.outputs.branch }}"
+          git add ".github/agent-tasks/${{ steps.branch.outputs.branch }}.md"
+          git commit -m "chore: create agent task ${{ inputs.task_title }}"
+          git push origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh pr create \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}" \
+            --title "${{ inputs.task_title }}" \
+            --body "${{ inputs.task_body }}
+
+          ## Validation
+
+          CI must pass before merge.
+
+          ## Created by
+
+          Agent Task PR workflow."
