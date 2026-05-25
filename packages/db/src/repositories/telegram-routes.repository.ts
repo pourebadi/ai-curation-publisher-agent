@@ -97,6 +97,11 @@ export class TelegramRoutesRepository {
     };
   }
 
+  async findOutputById(id: string): Promise<TelegramRouteOutputRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM telegram_route_outputs WHERE id = ? LIMIT 1").bind(id).first<TelegramRouteOutputRow>();
+    return row ? toRouteOutputRecord(row) : null;
+  }
+
   async listRoutes(): Promise<TelegramRouteRecord[]> {
     const result = await this.db.prepare("SELECT * FROM telegram_routes ORDER BY category ASC, id ASC").all<TelegramRouteRow>();
     return (result.results ?? []).map(toRouteRecord);
