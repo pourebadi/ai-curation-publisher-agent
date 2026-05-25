@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, telegramRouteManagerCopy, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS } from "./telegram-route-manager";
+import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, telegramBotMissingText, telegramRouteManagerCopy, telegramRoutesEmptyStateText, telegramRoutesEmptyStateTitle, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS } from "./telegram-route-manager";
 
 describe("telegram route manager UX helpers", () => {
   it("renders route summary without raw JSON", () => {
@@ -74,6 +74,23 @@ describe("telegram route manager UX helpers", () => {
     expect(disabled.finalPublishing).toBe("Disabled");
     expect(enabled.finalPublishing).toBe("Enabled");
     expect(JSON.stringify(disabled)).not.toContain("Enable final publish");
+  });
+
+  it("explains Telegram empty states with admin access and seed/create guidance", () => {
+    const summary = buildTelegramRouteManagerSummary({ botTokenConfigured: true, routeCount: 0, enabledOutputCount: 0, routes: [] });
+    expect(telegramRoutesEmptyStateTitle()).toBe("No routes loaded yet.");
+    expect(telegramRoutesEmptyStateText(summary)).toContain("Enter Admin access, then click Load routes");
+    expect(telegramRoutesEmptyStateText(summary)).toContain("create or seed a route first");
+    expect(telegramRoutesEmptyStateText(summary)).toContain("A route connects one source topic to one or more review/final outputs.");
+  });
+
+  it("explains bot missing state without exposing a secret", () => {
+    const summary = buildTelegramRouteManagerSummary({ botTokenConfigured: false, routes: [] });
+    const message = telegramBotMissingText(summary);
+    expect(message).toContain("TELEGRAM_BOT_TOKEN");
+    expect(message).toContain("Cloudflare Worker Secret");
+    expect(message).toContain("redeploy");
+    expect(message).not.toContain("123456:");
   });
 
   it("redacts recent Telegram output errors", () => {
