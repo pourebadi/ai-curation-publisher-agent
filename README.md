@@ -4,6 +4,41 @@ A provider-agnostic social/web content curation, review, and draft-publishing pi
 
 The project is mock-first and safety-first. Real providers, scheduler side effects, final Telegram publishing, public WordPress publishing, and real media download/upload are not enabled by default.
 
+## Phase 34 Telegram topic workflow and production config
+
+Phase 34 adds a safer production Wrangler setup and extends the Telegram topic workflow.
+
+Production commands:
+
+```bash
+pnpm worker:deploy:production
+pnpm d1:migrate:production
+pnpm check:production
+```
+
+Do not run production deploys casually. These commands require Cloudflare authentication in the shell, Codespaces secret, or GitHub Actions environment.
+
+The production D1 database id is stored in `wrangler.toml` under `[env.production]` because a D1 database id is not a secret. It identifies a Cloudflare resource, but it cannot authenticate to Cloudflare by itself.
+
+Secrets must never be committed. Configure secrets in the right place:
+
+- Local development: `.dev.vars`
+- Cloudflare runtime: Cloudflare Worker Secrets
+- GitHub workflows/Codespaces: GitHub Actions Secrets or Codespaces Secrets
+
+Examples of secrets that must not be placed in `wrangler.toml`:
+
+- `INTERNAL_API_SECRET`
+- `CONFIG_ENCRYPTION_KEY`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `AI_API_KEY`
+- `CLOUDFLARE_API_TOKEN`
+
+Telegram final publishing is controlled by `TELEGRAM_FINAL_PUBLISH_ENABLED=false` by default. When disabled, review `Send` queues the output but does not publish to the public channel. When explicitly enabled server-side and the bot token is configured, `Send` attempts real Telegram final publishing for text, photo, video, animation, or document payloads using Telegram file IDs.
+
+See `docs/TELEGRAM_TOPIC_WORKFLOW.md` for route setup and media behavior.
+
 ## Phase 30 Admin Control Center
 
 Phase 30 turns the dashboard into an Admin Control Center for non-technical operators. It supports setup guidance, safe settings, operating modes, AI configuration, encrypted integration credentials, pilot tests, launch readiness, and recent-change audit review.
@@ -203,6 +238,7 @@ All admin config routes require `x-internal-api-secret` when `INTERNAL_API_SECRE
 | `/internal/admin/config` | `PUT` | Save one or more allowlisted config values. |
 | `/internal/admin/config/reset` | `POST` | Remove D1 overrides for allowed keys. |
 | `/internal/admin/config/audit` | `GET` | Return recent audit entries with redacted old/new values only. |
+| `/internal/telegram/topic-routes/seed` | `POST` | Seed Telegram topic route config for development. Requires internal auth. |
 
 Secret values are never returned by these routes.
 
@@ -310,6 +346,14 @@ pnpm d1:migrate:local
 pnpm d1:migrate:remote
 ```
 
+Production Worker:
+
+```bash
+pnpm d1:migrate:production
+pnpm worker:deploy:production
+pnpm check:production
+```
+
 Dashboard:
 
 ```bash
@@ -324,14 +368,16 @@ pnpm dashboard:preview
 - [ ] `pnpm typecheck` passes.
 - [ ] `pnpm test` passes.
 - [ ] `pnpm dashboard:build` passes.
-- [ ] D1 migrations are applied.
+- [ ] Production D1 migrations are applied with `pnpm d1:migrate:production`.
+- [ ] Worker is deployed with `pnpm worker:deploy:production`.
 - [ ] `INTERNAL_API_SECRET` is configured.
 - [ ] `CONFIG_ENCRYPTION_KEY` is configured before dashboard secret editing.
+- [ ] `TELEGRAM_BOT_TOKEN` is configured before real review or final publishing.
 - [ ] Dashboard is protected with Cloudflare Access or equivalent.
 - [ ] Operating mode is selected intentionally.
 - [ ] AI provider/model/credential state is reviewed.
 - [ ] Scheduler publishing remains disabled.
-- [ ] Final Telegram publishing remains disabled.
+- [ ] Final Telegram publishing remains disabled unless explicitly enabled server-side.
 - [ ] Public WordPress publishing remains disabled.
 - [ ] No sensitive runtime values appear in logs, responses, docs, tests, or frontend UI.
 
@@ -340,7 +386,7 @@ pnpm dashboard:preview
 1. Do not add real secrets.
 2. Do not enable real integrations by default.
 3. Do not enable scheduler side effects.
-4. Do not enable real publishing.
+4. Do not enable real publishing by default.
 5. Do not make real network calls in tests.
 6. Do not put Cloudflare API tokens or mutation flows in the dashboard.
 7. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm dashboard:build` before opening or merging PRs.
