@@ -1,4 +1,4 @@
-import { getEffectiveEnv, getEncryptionSummary } from "../admin-config/service";
+import { getAdminConfigStoreStatus, getEffectiveEnv, getEncryptionSummary } from "../admin-config/service";
 import { validateRuntimeConfig } from "../config";
 import { jsonResponse } from "../http/json";
 import { methodNotAllowed, timestamp } from "./response";
@@ -12,9 +12,13 @@ export async function handleReady(request: Request, env: Env): Promise<Response>
   const effectiveEnv = await getEffectiveEnv(env);
   const validation = validateRuntimeConfig(effectiveEnv);
   const encryption = await getEncryptionSummary(env);
+  const adminConfigStore = await getAdminConfigStoreStatus(env);
   const warnings = [...validation.warnings];
   if (!encryption.secretEditingEnabled) {
     warnings.push("CONFIG_ENCRYPTION_KEY is not configured or invalid. Dashboard secret editing is disabled.");
+  }
+  if (!adminConfigStore.available && adminConfigStore.warning !== undefined) {
+    warnings.push(adminConfigStore.warning);
   }
 
   return jsonResponse({
@@ -22,6 +26,8 @@ export async function handleReady(request: Request, env: Env): Promise<Response>
     ready: validation.ready,
     summary: validation.summary,
     adminConfig: {
+      storeAvailable: adminConfigStore.available,
+      ...(adminConfigStore.warning === undefined ? {} : { storeWarning: adminConfigStore.warning }),
       encryptionConfigured: encryption.configured,
       encryptionValid: encryption.valid,
       secretEditingEnabled: encryption.secretEditingEnabled
