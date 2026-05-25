@@ -52,6 +52,22 @@ export function telegramRouteManagerCopy(): string {
   return "Topic names are only for humans. The system uses numeric topic IDs.";
 }
 
+export function telegramRoutesEmptyStateTitle(): string {
+  return "No routes loaded yet.";
+}
+
+export function telegramRoutesEmptyStateText(summary: TelegramRouteManagerSummary): string {
+  if (summary.routeCount === 0) {
+    return "No routes loaded yet. Enter Admin access, then click Load routes. If it still shows 0, create or seed a route first. No Telegram routes are configured yet. A route connects one source topic to one or more review/final outputs.";
+  }
+  return "Enter Admin access, then click Load routes. If it still shows 0, create or seed a route first.";
+}
+
+export function telegramBotMissingText(summary: TelegramRouteManagerSummary): string | undefined {
+  if (summary.botStatus !== "Missing") return undefined;
+  return "Telegram bot token is missing or not visible to the Worker. Set TELEGRAM_BOT_TOKEN as a Cloudflare Worker Secret, then redeploy.";
+}
+
 export function buildTelegramRouteManagerSummary(topicWorkflow: Record<string, unknown> | undefined): TelegramRouteManagerSummary {
   const routes = Array.isArray(topicWorkflow?.routes) ? topicWorkflow.routes.filter(isRecord) : [];
   return {
