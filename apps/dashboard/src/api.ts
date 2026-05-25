@@ -45,6 +45,9 @@ export class WorkerApiClient {
   async saveAdminConfig(updates: { key: string; value: string }[]): Promise<ApiResult<AdminConfigResponse>> { return this.putInternalJson("/internal/admin/config", { updates }) as Promise<ApiResult<AdminConfigResponse>>; }
   async resetAdminConfig(keys: string[]): Promise<ApiResult<AdminConfigResponse>> { return this.postInternalJson("/internal/admin/config/reset", { keys }) as Promise<ApiResult<AdminConfigResponse>>; }
   async getAdminConfigAudit(): Promise<ApiResult<{ ok: true; entries: AdminAuditEntry[] }>> { return this.getInternalJson("/internal/admin/config/audit") as Promise<ApiResult<{ ok: true; entries: AdminAuditEntry[] }>>; }
+  async getTelegramTopicRoutes(): Promise<ApiResult> { return this.getInternalJson("/internal/telegram/topic-routes"); }
+  async validateTelegramTopicRoutes(): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/topic-routes/validate", {}); }
+  async getRecentTelegramOutputs(limit = 20): Promise<ApiResult> { return this.getInternalJson(`/internal/telegram/outputs/recent?limit=${encodeURIComponent(String(limit))}`); }
 
   async runInternalAuthProbe(): Promise<ApiResult> {
     const withoutSecret = await this.postJson("/internal/e2e/mock-pipeline", {}, false);
