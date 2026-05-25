@@ -1,17 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { describeConnectionBundle, validateWorkerBaseUrl, WorkerApiClient } from "./api";
 import { buildWizardSteps, DASHBOARD_TABS, deriveOverviewCards, nextRecommendedAction, SAFE_TESTS, type DashboardTab, type WizardStepId } from "./dashboard-ux";
-import { AI_PROVIDER_OPTIONS, fieldHelpText, friendlyFieldLabel, GEMINI_MODEL_PRESETS, isCredentialKey, OPENAI_MODEL_PRESETS, saveButtonLabel, stepStateClass, stepStateLabel } from "./field-rules";
+import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, telegramRouteManagerCopy, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS, type TelegramRouteManagerSummary } from "./telegram-route-manager";
 import { redactSensitiveJson } from "./setup";
 import { countErrors, countWarnings } from "./status";
 import { clearOperationHistory, clearSettings, getInternalCredential, loadOperationHistory, loadSettings, saveApiBaseUrl, saveInternalCredential, saveOperationRecord } from "./storage";
-import type { AdminAuditEntry, AdminConfigItem, AdminConfigResponse, ApiResult, ConnectionFeedback, DashboardSettings, JsonObject, JsonValue, OperationName, OperationRecord, StatusBundle } from "./types";
+import type { AdminAuditEntry, AdminConfigResponse, ApiResult, ConnectionFeedback, DashboardSettings, JsonObject, JsonValue, OperationName, OperationRecord, StatusBundle } from "./types";
 
-const operationLabels: Record<OperationName, string> = { refresh_status: "Refresh status", internal_auth_probe: "Check admin access", telegram_review_dry_run: "Telegram review dry-run", wordpress_draft_dry_run: "WordPress draft dry-run", firecrawl_sandbox_fetch: "Firecrawl sandbox fetch", mock_e2e_smoke: "Mock E2E pipeline", scheduler_dry_run: "Scheduler dry-run", pilot_readiness: "Readiness check", pilot_firecrawl: "Firecrawl pilot", pilot_telegram_review: "Telegram pilot", pilot_wordpress_draft: "WordPress pilot", pilot_combined: "Combined pilot", admin_config_load: "Load settings", admin_config_save: "Save setting", admin_config_reset: "Reset setting", admin_config_audit: "Load activity" };
-const idleConnectionFeedback: ConnectionFeedback = { state: "idle", title: "Connection not checked", detail: "Enter the Worker URL, then save and check the connection.", guidance: ["Use the deployed workers.dev URL.", "The Worker URL is stored locally and is not sensitive."] };
-const settingsSections = [{ id: "general", label: "General", keys: ["OPERATING_MODE", "DEFAULT_CONTENT_SOURCE_MODE"] }, { id: "ai", label: "AI", keys: ["AI_PROVIDER", "AI_MODEL", "AI_MODEL_FALLBACKS", "AI_OUTPUT_LANGUAGE", "AI_TRANSLATION_ENABLED", "AI_REWRITE_ENABLED", "AI_SUMMARY_ENABLED", "AI_TONE_PRESET", "AI_CUSTOM_SYSTEM_PROMPT", "AI_MAX_OUTPUT_TOKENS", "AI_TEMPERATURE", "AI_RETRY_ENABLED", "AI_MAX_RETRIES"] }, { id: "telegram", label: "Telegram", keys: ["TELEGRAM_REVIEW_CHAT_ID", "TELEGRAM_FINAL_CHAT_ID", "TELEGRAM_REAL_REVIEW_ENABLED"] }, { id: "wordpress", label: "WordPress", keys: ["WORDPRESS_BASE_URL", "WORDPRESS_USERNAME", "WORDPRESS_DEFAULT_STATUS", "WORDPRESS_REAL_DRY_RUN_ENABLED"] }, { id: "providers", label: "Providers", keys: ["PROVIDERS_MODE", "ENABLE_FIRECRAWL_PROVIDER", "ENABLE_APIFY_PROVIDER", "ENABLE_GETXAPI_PROVIDER", "FIRECRAWL_BASE_URL", "FIRECRAWL_TIMEOUT_MS"] }, { id: "limits", label: "Limits", keys: ["SCHEDULER_DRY_RUN", "SCHEDULER_MAX_SOURCES_PER_RUN", "SCHEDULER_MAX_ITEMS_PER_RUN", "MAX_AI_ITEMS_PER_RUN", "MAX_PROVIDER_ITEMS_PER_RUN", "MAX_PUBLISH_ITEMS_PER_RUN"] }, { id: "credentials", label: "Secrets", keys: [] }] as const;
-type SettingsSection = typeof settingsSections[number]["id"];
-type WizardStep = ReturnType<typeof buildWizardSteps>[number];
+const operationLabels: Record<OperationName, string> = {
+  refresh_status: "Refresh status",
+  internal_auth_probe: "Check admin access",
+  telegram_review_dry_run: "Telegram review dry-run",
+  wordpress_draft_dry_run: "WordPress draft dry-run",
+  firecrawl_sandbox_fetch: "Firecrawl sandbox fetch",
+  mock_e2e_smoke: "Mock E2E pipeline",
+  scheduler_dry_run: "Scheduler dry-run",
+  pilot_readiness: "Readiness check",
+  pilot_firecrawl: "Firecrawl pilot",
+  pilot_telegram_review: "Telegram pilot",
+  pilot_wordpress_draft: "WordPress pilot",
+  pilot_combined: "Combined pilot",
+  admin_config_load: "Load settings",
+  admin_config_save: "Save setting",
+  admin_config_reset: "Reset setting",
+  admin_config_audit: "Load activity"
+};
+
+const idleConnectionFeedback: ConnectionFeedback = {
+  state: "idle",
+  title: "Connection not checked",
+  detail: "Enter the Worker URL, then save and check the connection.",
+  guidance: ["Use the deployed workers.dev URL.", "The Worker URL is stored locally and is not sensitive."]
+};
+
+type SettingsSection = "general" | "telegram" | "activity" | "technical";
+
+type RecentTelegramOutput = ReturnType<typeof summarizeRecentTelegramOutputs>[number];
 
 function App(): JSX.Element {
   const [settings, setSettings] = useState<DashboardSettings>(() => loadSettings());
@@ -20,86 +44,255 @@ function App(): JSX.Element {
   const [bundle, setBundle] = useState<StatusBundle>({});
   const [adminConfig, setAdminConfig] = useState<AdminConfigResponse | undefined>();
   const [audit, setAudit] = useState<AdminAuditEntry[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [credentialDrafts, setCredentialDrafts] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<OperationRecord[]>(() => loadOperationHistory());
   const [busy, setBusy] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
   const [connectionFeedback, setConnectionFeedback] = useState<ConnectionFeedback>(idleConnectionFeedback);
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [activeStep, setActiveStep] = useState<WizardStepId>("connect");
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("telegram");
   const [telegramText, setTelegramText] = useState("Review dry-run from dashboard.");
   const [wordpressTitle, setWordpressTitle] = useState("Dashboard draft dry-run");
   const [wordpressContent, setWordpressContent] = useState("This is a draft-only setup check.");
   const [confirmTelegram, setConfirmTelegram] = useState(false);
   const [confirmWordPress, setConfirmWordPress] = useState(false);
+  const [routeManagerData, setRouteManagerData] = useState<JsonObject | undefined>();
+  const [recentTelegramOutputs, setRecentTelegramOutputs] = useState<RecentTelegramOutput[]>([]);
+
   const client = useMemo(() => new WorkerApiClient(settings.apiBaseUrl, getInternalCredential()), [settings]);
   const workerReachable = bundle.health?.ok === true && bundle.status?.ok === true;
   const internalReady = settings.hasInternalCredential;
-  const operatingMode = readString(bundle.status, ["operatingMode"]) ?? readConfigValue(adminConfig, "OPERATING_MODE") ?? "manual_only";
-  const aiProvider = readString(bundle.status, ["ai", "provider"]) ?? readConfigValue(adminConfig, "AI_PROVIDER") ?? "mock";
-  const telegramReady = readBoolean(bundle.ready, ["summary", "productionReviewReady"]) === true || readBoolean(bundle.ready, ["summary", "hasTelegramConfig"]) === true;
-  const wordpressReady = readBoolean(bundle.ready, ["summary", "wordpressDraftReady"]) === true || readBoolean(bundle.ready, ["summary", "hasWordPressConfig"]) === true;
+  const topicWorkflow = readObject(readObject(bundle.status?.ok === true ? bundle.status.data : undefined, "telegram"), "topicWorkflow") ?? readObject(readObject(bundle.ready?.ok === true ? bundle.ready.data : undefined, "summary"), "telegramTopicWorkflow");
+  const routeManagerSummary = buildTelegramRouteManagerSummary(routeManagerData ?? topicWorkflow);
+  const operatingMode = readString(bundle.status?.ok === true ? bundle.status.data : undefined, "operatingMode") ?? "manual_only";
+  const aiProvider = readString(readObject(bundle.status?.ok === true ? bundle.status.data : undefined, "ai"), "provider") ?? "mock";
+  const telegramReady = routeManagerSummary.routeCount > 0 || readBoolean(readObject(bundle.ready?.ok === true ? bundle.ready.data : undefined, "summary"), "hasTelegramConfig") === true;
+  const wordpressReady = readBoolean(readObject(bundle.ready?.ok === true ? bundle.ready.data : undefined, "summary"), "hasWordPressConfig") === true;
   const providersOptional = operatingMode === "manual_only" || operatingMode === "mock_demo";
-  const schedulerSafe = readBoolean(bundle.ready, ["summary", "setupSafe"]) !== false;
-  const publishingSafe = readBoolean(bundle.ready, ["summary", "scheduler", "publishingAllowed"]) !== true;
-  const secretEditingReady = adminConfig?.encryption.secretEditingEnabled === true || readBoolean(bundle.ready, ["adminConfig", "secretEditingEnabled"]) === true;
-  const providerReady = providersOptional || readBoolean(bundle.ready, ["summary", "providerSetupSatisfied"]) === true;
+  const schedulerSafe = readBoolean(readObject(bundle.ready?.ok === true ? bundle.ready.data : undefined, "summary"), "setupSafe") !== false;
+  const publishingSafe = routeManagerSummary.finalPublishing === "Disabled";
   const overviewCards = deriveOverviewCards({ workerReachable, hasAdminAccess: internalReady, operatingMode, aiProvider, telegramReady, wordpressReady, providersOptional, schedulerSafe, publishingSafe });
-  const wizardSteps = buildWizardSteps({ workerReachable, hasAdminAccess: internalReady, operatingMode, aiReady: aiProvider !== "mock", telegramReady, wordpressReady, providersReady: providerReady });
-  const activeWizardStep: WizardStep = wizardSteps.find((step) => step.id === activeStep) ?? wizardSteps[0]!;
-  const configItems = adminConfig?.items ?? [];
-  const itemByKey = useMemo(() => new Map(configItems.map((item) => [item.key, item])), [configItems]);
+  const wizardSteps = buildWizardSteps({ workerReachable, hasAdminAccess: internalReady, operatingMode, aiReady: aiProvider !== "mock", telegramReady, wordpressReady, providersReady: providersOptional, routeCount: routeManagerSummary.routeCount, outputCount: routeManagerSummary.enabledOutputCount, finalPublishingEnabled: routeManagerSummary.finalPublishing === "Enabled" });
+  const activeWizardStep = wizardSteps.find((step) => step.id === activeStep) ?? wizardSteps[0]!;
 
-  const recordOperation = useCallback((name: OperationName, ok: boolean, result: JsonValue): void => { const safeResult = redactSensitiveJson(result); const record: OperationRecord = { id: `${Date.now()}-${name}`, name, label: operationLabels[name], timestamp: new Date().toISOString(), ok, warningsCount: countWarnings(safeResult), errorsCount: countErrors(safeResult), result: safeResult }; setHistory(saveOperationRecord(record)); }, []);
-  const refreshStatus = useCallback(async (): Promise<void> => { setBusy("refresh_status"); const next = await client.getStatusBundle(); setBundle(next); const feedback = feedbackFromBundle(next); setConnectionFeedback(feedback); recordOperation("refresh_status", next.health?.ok === true && next.status?.ok === true, { health: resultToJson(next.health), status: resultToJson(next.status), ready: resultToJson(next.ready) }); setNotice(feedback.title); setBusy(undefined); }, [client, recordOperation]);
-  useEffect(() => { if (settings.apiBaseUrl.length > 0) void refreshStatus(); }, [refreshStatus, settings.apiBaseUrl]);
-  useEffect(() => { if (internalReady) void loadAdminConfig(); }, [internalReady, settings.apiBaseUrl]);
+  const recordOperation = useCallback((name: OperationName, ok: boolean, result: JsonValue): void => {
+    const safeResult = redactSensitiveJson(result);
+    const record: OperationRecord = {
+      id: `${Date.now()}-${name}`,
+      name,
+      label: operationLabels[name],
+      timestamp: new Date().toISOString(),
+      ok,
+      warningsCount: countWarnings(safeResult),
+      errorsCount: countErrors(safeResult),
+      result: safeResult
+    };
+    setHistory(saveOperationRecord(record));
+  }, []);
 
-  async function saveAndCheckConnection(): Promise<void> { const valid = validateWorkerBaseUrl(apiBaseUrlInput); if (!valid.ok) { setConnectionFeedback({ state: "invalid_url", title: "Invalid Worker URL", detail: valid.message, guidance: connectionGuidance() }); setNotice("Invalid Worker URL"); return; } setBusy("refresh_status"); setConnectionFeedback({ state: "checking", title: "Checking connection...", detail: "Saving locally and checking Worker status.", guidance: [] }); saveApiBaseUrl(valid.value); if (credentialInput.trim().length > 0) saveInternalCredential(credentialInput, false); setCredentialInput(""); const nextSettings = loadSettings(); setSettings(nextSettings); const next = await new WorkerApiClient(valid.value, getInternalCredential()).getStatusBundle(); setBundle(next); const feedback = feedbackFromBundle(next); setConnectionFeedback(feedback); recordOperation("refresh_status", next.health?.ok === true && next.status?.ok === true, { health: resultToJson(next.health), status: resultToJson(next.status), ready: resultToJson(next.ready) }); setNotice(feedback.title); setBusy(undefined); }
-  async function loadAdminConfig(): Promise<void> { if (!internalReady) return; setBusy("admin_config_load"); const response = await client.getAdminConfig(); if (response.ok) { setAdminConfig(response.data); setDrafts(Object.fromEntries(response.data.items.filter((item) => !isCredentialKey(item.key)).map((item) => [item.key, item.value ?? ""]))); setNotice("Settings loaded."); } else setNotice(response.message); setBusy(undefined); }
-  async function saveConfigItem(item: AdminConfigItem): Promise<void> { const credential = isCredentialKey(item.key); const value = credential ? credentialDrafts[item.key] ?? "" : drafts[item.key] ?? ""; if (credential && value.trim().length === 0) { setNotice("Enter a replacement value first."); return; } setBusy(item.key); const response = await client.saveAdminConfig([{ key: item.key, value }]); if (response.ok) { setAdminConfig(response.data); setDrafts(Object.fromEntries(response.data.items.filter((entry) => !isCredentialKey(entry.key)).map((entry) => [entry.key, entry.value ?? ""]))); setCredentialDrafts((current) => ({ ...current, [item.key]: "" })); setNotice(credential ? "Saved securely. It will not be shown again." : "Setting saved."); await refreshStatus(); } else setNotice(response.message); setBusy(undefined); }
-  async function resetConfigItem(item: AdminConfigItem): Promise<void> { setBusy(item.key); const response = await client.resetAdminConfig([item.key]); if (response.ok) { setAdminConfig(response.data); setDrafts(Object.fromEntries(response.data.items.filter((entry) => !isCredentialKey(entry.key)).map((entry) => [entry.key, entry.value ?? ""]))); setNotice("Reset complete."); await refreshStatus(); } else setNotice(response.message); setBusy(undefined); }
-  async function loadActivity(): Promise<void> { if (!internalReady) { setNotice("Admin access is needed first."); return; } setBusy("admin_config_audit"); const response = await client.getAdminConfigAudit(); if (response.ok) { setAudit(response.data.entries); setNotice("Activity loaded."); } else setNotice(response.message); setBusy(undefined); }
-  async function runOperation(name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string): Promise<void> { if (confirmText !== undefined && !window.confirm(confirmText)) return; setBusy(name); const result = await runner(); recordOperation(name, result.ok, resultToJson(result)); setNotice(result.ok ? `${operationLabels[name]} completed.` : `${operationLabels[name]} returned an error.`); setBusy(undefined); }
-  function clearLocalSettings(): void { clearSettings(); setApiBaseUrlInput(""); setCredentialInput(""); setSettings(loadSettings()); setConnectionFeedback(idleConnectionFeedback); setNotice("Local dashboard settings cleared."); }
-  function renderSetting(key: string): JSX.Element | null { const item = itemByKey.get(key); if (item === undefined) return null; const credential = isCredentialKey(item.key); const value = credential ? credentialDrafts[item.key] ?? "" : drafts[item.key] ?? ""; return <SettingField key={item.key} item={item} value={value} disabled={busy !== undefined || (credential && adminConfig?.encryption.secretEditingEnabled === false)} presets={adminConfig?.presets} onChange={(next) => credential ? setCredentialDrafts((current) => ({ ...current, [item.key]: next })) : setDrafts((current) => ({ ...current, [item.key]: next }))} onSave={() => void saveConfigItem(item)} onReset={() => void resetConfigItem(item)} />; }
-  function renderWizardBody(id: WizardStepId): JSX.Element { if (id === "connect") return <><label>Worker URL<input value={apiBaseUrlInput} onChange={(event) => setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.workers.dev" /></label><label>Admin access<input type="password" value={credentialInput} onChange={(event) => setCredentialInput(event.target.value)} placeholder="Enter for this page session" /></label><div className="buttonRow"><button type="button" onClick={() => void saveAndCheckConnection()} disabled={busy !== undefined}>{busy === "refresh_status" ? "Checking connection..." : "Check connection"}</button><button type="button" className="secondary" onClick={clearLocalSettings}>Clear</button></div><ConnectionPanel feedback={connectionFeedback} /></>; if (id === "admin") return <div className="wizardContent"><StatusLine label="Admin access" ok={internalReady} detail={internalReady ? "Admin access active for this page session." : "Enter admin access above, then check connection."} /><p className="muted">Technical name: <code>INTERNAL_API_SECRET</code>. Used only for this page session. The value is never shown.</p><label>Admin access<input type="password" value={credentialInput} onChange={(event) => setCredentialInput(event.target.value)} placeholder="Enter for this page session" /></label><button type="button" onClick={() => void saveAndCheckConnection()} disabled={busy !== undefined}>Save admin access</button></div>; if (id === "mode") return <WizardFields intro="Choose how the system should operate." fields={[renderSetting("OPERATING_MODE"), renderSetting("DEFAULT_CONTENT_SOURCE_MODE")]} />; if (id === "ai") return <WizardFields intro="Recommended setup: Mock for first launch, or Gemini plus gemini-2.5-flash for real AI testing." fields={[renderSetting("AI_PROVIDER"), renderSetting("AI_MODEL"), renderSetting("AI_MODEL_FALLBACKS"), renderSetting("AI_OUTPUT_LANGUAGE"), renderSetting("AI_API_KEY"), renderSetting("OPENAI_API_KEY"), renderSetting("GEMINI_API_KEY"), renderSetting("CUSTOM_AI_API_KEY")]} extra={<PresetNote />} />; if (id === "telegram") return <WizardFields intro="Configure review-only Telegram setup. Review is separate from final publishing." fields={[renderSetting("TELEGRAM_REVIEW_CHAT_ID"), renderSetting("TELEGRAM_FINAL_CHAT_ID"), renderSetting("TELEGRAM_REAL_REVIEW_ENABLED"), renderSetting("TELEGRAM_BOT_TOKEN"), renderSetting("TELEGRAM_WEBHOOK_SECRET")]} extra={<SecretEditNote ready={secretEditingReady} />} />; if (id === "wordpress") return <WizardFields intro="Draft is the safe default. Public publishing remains disabled." fields={[renderSetting("WORDPRESS_BASE_URL"), renderSetting("WORDPRESS_USERNAME"), renderSetting("WORDPRESS_DEFAULT_STATUS"), renderSetting("WORDPRESS_REAL_DRY_RUN_ENABLED"), renderSetting("WORDPRESS_APPLICATION_PASSWORD")]} extra={<p className="muted">Keep WordPress default status as draft for safe MVP launch.</p>} />; if (id === "providers") return <WizardFields intro={providersOptional ? "Provider setup is optional in Manual-only mode. You can launch without Firecrawl, Apify, or GetXAPI." : "Provider-assisted mode expects at least one configured provider."} fields={[renderSetting("PROVIDERS_MODE"), renderSetting("ENABLE_FIRECRAWL_PROVIDER"), renderSetting("ENABLE_APIFY_PROVIDER"), renderSetting("ENABLE_GETXAPI_PROVIDER"), renderSetting("FIRECRAWL_BASE_URL"), renderSetting("FIRECRAWL_TIMEOUT_MS"), renderSetting("FIRECRAWL_API_KEY"), renderSetting("APIFY_TOKEN"), renderSetting("GETXAPI_KEY")]} extra={<SecretEditNote ready={secretEditingReady} />} />; if (id === "tests") return <div className="wizardContent"><p>Run the safe checks from the Tests page when setup looks ready. Nothing here final-publishes or public-publishes.</p><div className="buttonRow"><button type="button" onClick={() => void refreshStatus()} disabled={busy !== undefined}>Run readiness check</button><button type="button" className="secondary" onClick={() => void runOperation("mock_e2e_smoke", () => client.runMockE2E())} disabled={!internalReady || busy !== undefined}>Run mock E2E</button></div></div>; return <ReadinessChecklist workerReachable={workerReachable} internalReady={internalReady} operatingMode={operatingMode} aiProvider={aiProvider} telegramReady={telegramReady} wordpressReady={wordpressReady} providersOptional={providersOptional} schedulerSafe={schedulerSafe} publishingSafe={publishingSafe} secretEditingReady={secretEditingReady} />; }
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    setBusy("refresh_status");
+    const next = await client.getStatusBundle();
+    setBundle(next);
+    const feedback = feedbackFromBundle(next);
+    setConnectionFeedback(feedback);
+    recordOperation("refresh_status", next.health?.ok === true && next.status?.ok === true, { health: resultToJson(next.health), status: resultToJson(next.status), ready: resultToJson(next.ready) });
+    setNotice(feedback.title);
+    setBusy(undefined);
+  }, [client, recordOperation]);
 
-  const settingsAction = internalReady ? <button type="button" className="secondary" onClick={() => void loadAdminConfig()} disabled={busy !== undefined}>Reload settings</button> : undefined;
-  return <main className="shell"><header className="hero"><div><p className="eyebrow">Operator Dashboard</p><h1>Launch and manage safely.</h1><p>A guided admin console for setup, safe tests, and day-to-day configuration. Technical details stay out of the way until needed.</p></div><div className="heroPanel"><span>Scheduler safe by default</span><span>Public publishing disabled</span><span>Final Telegram publishing disabled</span></div></header>{notice && <div className="notice">{notice}</div>}<nav className="topTabs" aria-label="Dashboard sections">{DASHBOARD_TABS.map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : "secondary"} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}</nav>{activeTab === "overview" && <OverviewPage cards={overviewCards} onRefresh={() => void refreshStatus()} busy={busy !== undefined} />}{activeTab === "setup" && <SetupPage busy={busy} steps={wizardSteps} activeStep={activeWizardStep} setActiveStep={setActiveStep} body={renderWizardBody(activeWizardStep.id)} />}{activeTab === "settings" && <section className="pageStack"><PageHeader eyebrow="Settings" title="Simple product controls" text="Friendly forms for operating mode, AI, review, drafts, providers, limits, and credentials." action={settingsAction} />{!internalReady && <EmptyState title="Admin access needed" text="Enter admin access in Setup Wizard before editing settings." />}{internalReady && <div className="settingsLayout"><aside className="settingsSide">{settingsSections.map((section) => <button type="button" key={section.id} className={settingsSection === section.id ? "active" : "ghost"} onClick={() => setSettingsSection(section.id)}>{section.label}</button>)}</aside><div className="settingsForm"><h3>{settingsSections.find((section) => section.id === settingsSection)?.label}</h3>{settingsSection === "providers" && providersOptional && <p className="muted">Provider setup is optional in Manual-only mode.</p>}{settingsSection === "credentials" && <CredentialNotice enabled={secretEditingReady} />}{(settingsSection === "credentials" ? configItems.filter((item) => isCredentialKey(item.key)) : settingsSections.find((section) => section.id === settingsSection)?.keys.map((key) => itemByKey.get(key)).filter((item): item is AdminConfigItem => item !== undefined) ?? []).map((item) => renderSetting(item.key))}{settingsSection === "limits" && <div className="callout safeSoft"><strong>Safety reminder</strong><span>No controls here enable scheduler publishing, final Telegram publishing, or public WordPress publishing.</span></div>}</div></div>}</section>}{activeTab === "tests" && <TestsPage internalReady={internalReady} busy={busy} latest={history} telegramText={telegramText} setTelegramText={setTelegramText} wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} confirmTelegram={confirmTelegram} setConfirmTelegram={setConfirmTelegram} confirmWordPress={confirmWordPress} setConfirmWordPress={setConfirmWordPress} runOperation={runOperation} refreshStatus={refreshStatus} client={client} />}{activeTab === "activity" && <ActivityPage audit={audit} configItems={configItems} enabled={internalReady} busy={busy} loadActivity={loadActivity} />}{activeTab === "technical" && <TechnicalPage bundle={bundle} adminConfig={adminConfig} history={history} clearHistory={() => { clearOperationHistory(); setHistory([]); }} />}</main>;
+  useEffect(() => {
+    if (settings.apiBaseUrl.length > 0) void refreshStatus();
+  }, [refreshStatus, settings.apiBaseUrl]);
+
+  useEffect(() => {
+    if (internalReady) {
+      void loadRouteManager();
+      void loadRecentTelegramOutputs();
+    }
+  }, [internalReady, settings.apiBaseUrl]);
+
+  async function saveAndCheckConnection(): Promise<void> {
+    const valid = validateWorkerBaseUrl(apiBaseUrlInput);
+    if (!valid.ok) {
+      setConnectionFeedback({ state: "invalid_url", title: "Invalid Worker URL", detail: valid.message, guidance: connectionGuidance() });
+      setNotice("Invalid Worker URL");
+      return;
+    }
+    saveApiBaseUrl(valid.value);
+    if (credentialInput.trim().length > 0) saveInternalCredential(credentialInput, false);
+    setCredentialInput("");
+    setSettings(loadSettings());
+    await refreshStatus();
+  }
+
+  async function loadAdminConfig(): Promise<void> {
+    if (!internalReady) return;
+    setBusy("admin_config_load");
+    const response = await client.getAdminConfig();
+    if (response.ok) {
+      setAdminConfig(response.data);
+      setNotice("Settings loaded.");
+    } else {
+      setNotice(response.message);
+    }
+    setBusy(undefined);
+  }
+
+  async function loadRouteManager(): Promise<void> {
+    if (!internalReady) return;
+    setBusy("telegram_route_config");
+    const response = await client.getTelegramTopicRoutes();
+    recordOperation("refresh_status", response.ok, resultToJson(response));
+    if (response.ok) {
+      setRouteManagerData(response.data);
+      setNotice("Telegram routes loaded.");
+    } else {
+      setNotice(response.message);
+    }
+    setBusy(undefined);
+  }
+
+  async function validateRoutes(): Promise<void> {
+    if (!internalReady) return;
+    setBusy("telegram_route_config");
+    const response = await client.validateTelegramTopicRoutes();
+    recordOperation("refresh_status", response.ok, resultToJson(response));
+    setNotice(response.ok ? "Telegram route validation completed." : response.message);
+    await loadRouteManager();
+    setBusy(undefined);
+  }
+
+  async function loadRecentTelegramOutputs(): Promise<void> {
+    if (!internalReady) return;
+    setBusy("telegram_outputs_recent");
+    const response = await client.getRecentTelegramOutputs(20);
+    if (response.ok) {
+      setRecentTelegramOutputs(summarizeRecentTelegramOutputs(response.data.outputs));
+      setNotice("Recent Telegram outputs loaded.");
+    } else {
+      setNotice(response.message);
+    }
+    setBusy(undefined);
+  }
+
+  async function loadActivity(): Promise<void> {
+    if (!internalReady) {
+      setNotice("Admin access is needed first.");
+      return;
+    }
+    setBusy("admin_config_audit");
+    const response = await client.getAdminConfigAudit();
+    if (response.ok) {
+      setAudit(response.data.entries);
+      setNotice("Activity loaded.");
+    } else {
+      setNotice(response.message);
+    }
+    setBusy(undefined);
+  }
+
+  async function runOperation(name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string): Promise<void> {
+    if (confirmText !== undefined && !window.confirm(confirmText)) return;
+    setBusy(name);
+    const result = await runner();
+    recordOperation(name, result.ok, resultToJson(result));
+    setNotice(result.ok ? `${operationLabels[name]} completed.` : `${operationLabels[name]} returned an error.`);
+    setBusy(undefined);
+  }
+
+  function clearLocalSettings(): void {
+    clearSettings();
+    setApiBaseUrlInput("");
+    setCredentialInput("");
+    setSettings(loadSettings());
+    setConnectionFeedback(idleConnectionFeedback);
+    setNotice("Local dashboard settings cleared.");
+  }
+
+  return (
+    <main className="shell">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">Operator Dashboard</p>
+          <h1>Launch and manage safely.</h1>
+          <p>A guided admin console for setup, Telegram routing, safe tests, and activity review.</p>
+        </div>
+        <div className="heroPanel"><span>Scheduler safe by default</span><span>Public publishing disabled</span><span>Final Telegram publishing disabled by default</span></div>
+      </header>
+      {notice && <div className="notice">{notice}</div>}
+      <nav className="topTabs" aria-label="Dashboard sections">{DASHBOARD_TABS.map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : "secondary"} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}</nav>
+      {activeTab === "overview" && <OverviewPage cards={overviewCards} onRefresh={() => void refreshStatus()} busy={busy !== undefined} />}
+      {activeTab === "setup" && <SetupPage steps={wizardSteps} activeStep={activeWizardStep} setActiveStep={setActiveStep} body={<WizardBody id={activeWizardStep.id} connectionFeedback={connectionFeedback} apiBaseUrlInput={apiBaseUrlInput} setApiBaseUrlInput={setApiBaseUrlInput} credentialInput={credentialInput} setCredentialInput={setCredentialInput} saveAndCheckConnection={saveAndCheckConnection} clearLocalSettings={clearLocalSettings} routeManagerSummary={routeManagerSummary} />} />}
+      {activeTab === "settings" && <SettingsPage internalReady={internalReady} section={settingsSection} setSection={setSettingsSection} routeManagerSummary={routeManagerSummary} onLoadRoutes={() => void loadRouteManager()} onValidateRoutes={() => void validateRoutes()} busy={busy !== undefined} />}
+      {activeTab === "tests" && <TestsPage internalReady={internalReady} busy={busy} latest={history} telegramText={telegramText} setTelegramText={setTelegramText} wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} confirmTelegram={confirmTelegram} setConfirmTelegram={setConfirmTelegram} confirmWordPress={confirmWordPress} setConfirmWordPress={setConfirmWordPress} runOperation={runOperation} refreshStatus={refreshStatus} validateRoutes={() => void validateRoutes()} loadRecentOutputs={() => void loadRecentTelegramOutputs()} client={client} />}
+      {activeTab === "activity" && <ActivityPage audit={audit} recentTelegramOutputs={recentTelegramOutputs} enabled={internalReady} busy={busy} loadActivity={loadActivity} loadRecentTelegramOutputs={() => void loadRecentTelegramOutputs()} />}
+      {activeTab === "technical" && <TechnicalPage bundle={bundle} adminConfig={adminConfig} history={history} clearHistory={() => { clearOperationHistory(); setHistory([]); }} />}
+    </main>
+  );
 }
 
-function OverviewPage({ cards, onRefresh, busy }: { cards: ReturnType<typeof deriveOverviewCards>; onRefresh: () => void; busy: boolean }): JSX.Element { return <section className="pageStack"><PageHeader eyebrow="Overview" title="System status at a glance" text="Everything important, without the technical noise." action={<button type="button" onClick={onRefresh} disabled={busy}>Refresh</button>} /><div className="nextBanner"><strong>{nextRecommendedAction(cards)}</strong></div><div className="overviewCards">{cards.map((card) => <StatusCard key={card.title} {...card} />)}</div></section>; }
-function StatusCard({ title, label, explanation, nextAction }: ReturnType<typeof deriveOverviewCards>[number]): JSX.Element { return <article className="statusCard"><span className={`badge ${badgeTone(label)}`}>{label}</span><h3>{title}</h3><p>{explanation}</p><small>{nextAction}</small></article>; }
-function SetupPage(props: { busy: string | undefined; steps: WizardStep[]; activeStep: WizardStep; setActiveStep: (step: WizardStepId) => void; body: JSX.Element }): JSX.Element { const completeCount = props.steps.filter((step) => step.state === "complete" || step.state === "optional").length; return <section className="pageStack"><PageHeader eyebrow="Setup Wizard" title="One guided launch path" text="Complete one useful step at a time. Optional steps are clearly marked." /><div className="progress"><span>{completeCount} of {props.steps.length} steps complete or optional</span><div><i style={{ width: `${Math.round((completeCount / props.steps.length) * 100)}%` }} /></div></div><div className="wizardLayout"><aside className="stepRail">{props.steps.map((step) => { const active = props.activeStep.id === step.id; return <button type="button" key={step.id} className={stepStateClass(step.state, active)} onClick={() => setMaybeActive(step, props.setActiveStep)} disabled={step.state === "locked"}><span>{step.title}</span><small>{stepStateLabel(step.state, step.optional, active)}</small></button>; })}</aside><div className="wizardCard"><span className={`badge ${props.activeStep.optional ? "neutral" : badgeTone(props.activeStep.state === "complete" ? "Connected" : props.activeStep.state === "locked" ? "Missing" : "Warning")}`}>{stepStateLabel(props.activeStep.state, props.activeStep.optional, true)}</span><h2>{props.activeStep.title}</h2><p>{wizardCopy(props.activeStep.id)}</p>{props.body}</div></div></section>; }
-function TestsPage(props: { internalReady: boolean; busy: string | undefined; latest: OperationRecord[]; telegramText: string; setTelegramText: (value: string) => void; wordpressTitle: string; setWordpressTitle: (value: string) => void; wordpressContent: string; setWordpressContent: (value: string) => void; confirmTelegram: boolean; setConfirmTelegram: (value: boolean) => void; confirmWordPress: boolean; setConfirmWordPress: (value: boolean) => void; runOperation: (name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string) => Promise<void>; refreshStatus: () => Promise<void>; client: WorkerApiClient }): JSX.Element { return <section className="pageStack"><PageHeader eyebrow="Tests" title="Safe checks only" text="No final publishing, no public publishing, and no scheduler publishing controls." /><div className="testGrid">{SAFE_TESTS.map((test) => <article className="testCard" key={test.id}><span className={`badge ${test.safety === "Safe" ? "safe" : "warning"}`}>{test.safety}</span><h3>{test.title}</h3><p>{test.description}</p><small>{test.external}</small><small>{test.publishes}</small>{test.id === "readiness" && <button type="button" onClick={() => void props.refreshStatus()} disabled={props.busy !== undefined}>Run readiness check</button>}{test.id === "mock_e2e" && <button type="button" onClick={() => void props.runOperation("mock_e2e_smoke", () => props.client.runMockE2E())} disabled={!props.internalReady || props.busy !== undefined}>Run mock E2E</button>}{test.id === "ai_sample" && <button type="button" disabled>AI sample generation is not active in this build</button>}{test.id === "telegram_review" && <><textarea value={props.telegramText} onChange={(event) => props.setTelegramText(event.target.value)} /><label className="checkRow"><input type="checkbox" checked={props.confirmTelegram} onChange={(event) => props.setConfirmTelegram(event.target.checked)} />I understand this is review-only.</label><button type="button" onClick={() => void props.runOperation("telegram_review_dry_run", () => props.client.runTelegramReviewDryRun({ text: props.telegramText }), "Run Telegram review dry-run?")} disabled={!props.internalReady || !props.confirmTelegram || props.busy !== undefined}>Run review dry-run</button></>}{test.id === "wordpress_draft" && <><input value={props.wordpressTitle} onChange={(event) => props.setWordpressTitle(event.target.value)} /><textarea value={props.wordpressContent} onChange={(event) => props.setWordpressContent(event.target.value)} /><label className="checkRow"><input type="checkbox" checked={props.confirmWordPress} onChange={(event) => props.setConfirmWordPress(event.target.checked)} />I understand this creates draft-only output.</label><button type="button" onClick={() => void props.runOperation("wordpress_draft_dry_run", () => props.client.runWordPressDraftDryRun({ title: props.wordpressTitle, content: props.wordpressContent }), "Run WordPress draft dry-run?")} disabled={!props.internalReady || !props.confirmWordPress || props.busy !== undefined}>Run draft dry-run</button></>}<LatestResult records={props.latest} title={test.title} /></article>)}</div></section>; }
-function ActivityPage({ audit, configItems, enabled, busy, loadActivity }: { audit: AdminAuditEntry[]; configItems: AdminConfigItem[]; enabled: boolean; busy: string | undefined; loadActivity: () => Promise<void> }): JSX.Element { const labels = new Map(configItems.map((item) => [item.key, item.label])); return <section className="pageStack"><PageHeader eyebrow="Activity" title="Recent changes" text="Audit history with redacted values only." action={<button type="button" onClick={() => void loadActivity()} disabled={!enabled || busy !== undefined}>{busy === "admin_config_audit" ? "Loading..." : "Load activity"}</button>} />{!enabled && <EmptyState title="Admin access needed" text="Save admin access in Setup Wizard to load audit history." />}{enabled && audit.length === 0 && <EmptyState title="No activity loaded" text="Click Load activity to see recent changes." />}{audit.map((entry) => <article className="activityItem" key={entry.id}><div><span className="badge neutral">{entry.action}</span><h3>{labels.get(entry.key) ?? entry.key}</h3><p>{new Date(entry.changed_at).toLocaleString()}</p></div><div className="auditValues"><span>Previous: {entry.previous_value_redacted ?? "[missing]"}</span><span>New: {entry.new_value_redacted ?? "[missing]"}</span></div></article>)}</section>; }
-function TechnicalPage({ bundle, adminConfig, history, clearHistory }: { bundle: StatusBundle; adminConfig: AdminConfigResponse | undefined; history: OperationRecord[]; clearHistory: () => void }): JSX.Element { return <section className="pageStack"><PageHeader eyebrow="Technical" title="Debugging details" text="Raw payloads and troubleshooting information live here only." action={<button type="button" className="secondary" onClick={clearHistory}>Clear history</button>} /><details className="panel" open><summary>Raw /status and /ready</summary><div className="grid two"><JsonPanel title="/health" result={bundle.health} /><JsonPanel title="/status" result={bundle.status} /><JsonPanel title="/ready" result={bundle.ready} /></div></details><details className="panel"><summary>Raw admin config</summary><pre>{JSON.stringify(redactSensitiveJson((adminConfig ?? null) as JsonValue), null, 2)}</pre></details><details className="panel"><summary>Raw test output</summary><RecentResults history={history} /></details><details className="panel"><summary>CORS/debug info</summary><p>Dashboard requests require explicit Worker CORS headers for the dashboard origin. If the Worker opens in the browser but dashboard requests fail, inspect browser DevTools network errors.</p></details></section>; }
-function WizardFields({ intro, fields, extra }: { intro: string; fields: Array<JSX.Element | null>; extra?: JSX.Element | undefined }): JSX.Element { return <div className="wizardContent"><p>{intro}</p>{extra}<div className="settingsForm compact">{fields}</div></div>; }
-function PresetNote(): JSX.Element { return <div className="callout neutralSoft"><strong>Model guidance</strong><span>Choose Gemini or OpenAI as the provider, then choose a model from that provider. Use Custom only if you know the exact model ID.</span></div>; }
-function SecretEditNote({ ready }: { ready: boolean }): JSX.Element { return <div className={`callout ${ready ? "safeSoft" : "warningSoft"}`}><strong>{ready ? "Secret replacement is available." : "Secret replacement needs the encryption key."}</strong><span>{ready ? "Saved values are never shown again." : "Technical name: CONFIG_ENCRYPTION_KEY."}</span></div>; }
-function StatusLine({ label, ok, detail }: { label: string; ok: boolean; detail: string }): JSX.Element { return <div className="callout neutralSoft"><strong>{label}: {ok ? "Active" : "Needs action"}</strong><span>{detail}</span></div>; }
-function ReadinessChecklist(input: { workerReachable: boolean; internalReady: boolean; operatingMode: string; aiProvider: string; telegramReady: boolean; wordpressReady: boolean; providersOptional: boolean; schedulerSafe: boolean; publishingSafe: boolean; secretEditingReady: boolean }): JSX.Element { const rows = [{ label: "Worker connected", ok: input.workerReachable, detail: input.workerReachable ? "Worker is online." : "Check connection first." }, { label: "Admin access active", ok: input.internalReady, detail: input.internalReady ? "Active for this page session." : "Enter admin access." }, { label: "Operating mode selected", ok: true, detail: input.operatingMode }, { label: "AI configured or mock", ok: true, detail: input.aiProvider === "mock" ? "Mock is safe for setup but not production-grade." : "AI provider selected." }, { label: "Telegram review", ok: input.telegramReady, detail: input.telegramReady ? "Configured." : "Missing." }, { label: "WordPress draft", ok: input.wordpressReady, detail: input.wordpressReady ? "Configured." : "Missing." }, { label: "Providers", ok: input.providersOptional, detail: input.providersOptional ? "Providers optional/skipped." : "Configure one provider for provider-assisted mode." }, { label: "Scheduler safe", ok: input.schedulerSafe, detail: input.schedulerSafe ? "Safe." : "Needs review." }, { label: "Public publishing disabled", ok: input.publishingSafe, detail: input.publishingSafe ? "Disabled." : "Needs review." }, { label: "Secret editing", ok: input.secretEditingReady, detail: input.secretEditingReady ? "Ready." : "Secret editing needs the encryption key. This only affects saving integration secrets." }]; return <div className="readinessList">{rows.map((row) => <div className="readinessRow" key={row.label}><span className={`badge ${row.ok ? "safe" : "warning"}`}>{row.ok ? "OK" : "Needs action"}</span><strong>{row.label}</strong><p>{row.detail}</p></div>)}</div>; }
-function SettingField({ item, value, disabled, presets, onChange, onSave, onReset }: { item: AdminConfigItem; value: string; disabled: boolean; presets: AdminConfigResponse["presets"]; onChange: (value: string) => void; onSave: () => void; onReset: () => void }): JSX.Element { const credential = isCredentialKey(item.key); return <div className="formField"><div><label htmlFor={item.key}>{friendlyFieldLabel(item.key, item.label)}</label><p>{fieldHelpText(item.key, item.description)}</p><small>{item.key} · Source: {item.source}{credential ? ` · ${item.configured ? "Configured" : "Missing"}` : ""}</small></div><div>{fieldInput(item, value, disabled, presets, onChange)}<div className="fieldActions"><button type="button" onClick={onSave} disabled={disabled}>{saveButtonLabel(item.key)}</button><button type="button" className="secondary" onClick={onReset} disabled={disabled}>Reset</button></div>{credential && <p className="muted">Saved securely. It will not be shown again.</p>}</div></div>; }
-function fieldInput(item: AdminConfigItem, value: string, disabled: boolean, presets: AdminConfigResponse["presets"], onChange: (value: string) => void): JSX.Element { const presetOptions = [...GEMINI_MODEL_PRESETS, ...OPENAI_MODEL_PRESETS, ...(presets?.openai ?? []), ...(presets?.gemini ?? [])]; if (item.key === "AI_PROVIDER") return <select id={item.key} value={value || "mock"} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{AI_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>; if (item.key === "AI_MODEL") return <div className="stack"><select value={presetOptions.includes(value) ? value : "custom"} disabled={disabled} onChange={(event) => event.target.value !== "custom" && onChange(event.target.value)}><option value="custom">Custom model ID</option><optgroup label="Recommended for Gemini">{GEMINI_MODEL_PRESETS.map((model) => <option key={model} value={model}>{model}</option>)}</optgroup><optgroup label="Recommended for OpenAI">{OPENAI_MODEL_PRESETS.map((model) => <option key={model} value={model}>{model}</option>)}</optgroup></select><input id={item.key} value={value} disabled={disabled} placeholder="Custom model ID" onChange={(event) => onChange(event.target.value)} /></div>; if (isCredentialKey(item.key)) return <input id={item.key} type="password" value={value} disabled={disabled} placeholder="Enter new value" onChange={(event) => onChange(event.target.value)} />; if (item.key === "AI_MODEL_FALLBACKS" || item.key === "AI_CUSTOM_SYSTEM_PROMPT") return <textarea id={item.key} value={value} disabled={disabled} placeholder="Optional" onChange={(event) => onChange(event.target.value)} />; if (item.validation.enumValues !== undefined) return <select id={item.key} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{item.validation.enumValues.map((option) => <option key={option} value={option}>{option}</option>)}</select>; if (item.type === "boolean") return <select id={item.key} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="false">Off</option><option value="true">On</option></select>; return <input id={item.key} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />; }
-function PageHeader({ eyebrow, title, text, action }: { eyebrow: string; title: string; text: string; action?: JSX.Element | undefined }): JSX.Element { return <div className="sectionTitle"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p className="muted">{text}</p></div>{action}</div>; }
-function CredentialNotice({ enabled }: { enabled: boolean }): JSX.Element { return <div className={`callout ${enabled ? "safeSoft" : "warningSoft"}`}><strong>{enabled ? "Credential editing is available." : "Secret editing needs the encryption key."}</strong><span>{enabled ? "Replace values only when rotating credentials. Saved values are never displayed." : "Add CONFIG_ENCRYPTION_KEY as a Cloudflare Worker Secret."}</span></div>; }
-function ConnectionPanel({ feedback }: { feedback: ConnectionFeedback }): JSX.Element { return <div className={`callout ${feedback.state === "connected" ? "safeSoft" : feedback.state === "idle" ? "neutralSoft" : "warningSoft"}`}><strong>{feedback.title}</strong><span>{feedback.detail}</span>{feedback.guidance.length > 0 && <ul>{feedback.guidance.map((item) => <li key={item}>{item}</li>)}</ul>}</div>; }
-function LatestResult({ records, title }: { records: OperationRecord[]; title: string }): JSX.Element { const prefix = title.split(" ")[0] ?? title; const found = records.find((record) => record.label.includes(prefix)); return <p className="muted">Latest result: {found === undefined ? "Not run yet" : found.ok ? "ok" : "failed"}</p>; }
-function JsonPanel({ title, result }: { title: string; result: ApiResult | undefined }): JSX.Element { return <div className="subcard flat"><h3>{title}</h3><p className={result?.ok === true ? "okText" : "badText"}>{result === undefined ? "Not loaded" : result.ok ? "ok" : result.message}</p><pre>{JSON.stringify(redactSensitiveJson(resultToJson(result)), null, 2)}</pre></div>; }
-function RecentResults({ history }: { history: OperationRecord[] }): JSX.Element { return history.length === 0 ? <p className="muted">No test output yet.</p> : <div className="historyList">{history.map((record) => <details key={record.id} className="historyItem"><summary>{record.label} · {record.ok ? "ok" : "error"}</summary><pre>{JSON.stringify(redactSensitiveJson(record.result), null, 2)}</pre></details>)}</div>; }
+function OverviewPage({ cards, onRefresh, busy }: { cards: ReturnType<typeof deriveOverviewCards>; onRefresh: () => void; busy: boolean }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Overview" title="System status at a glance" text="Everything important, without the technical noise." action={<button type="button" onClick={onRefresh} disabled={busy}>Refresh</button>} /><div className="nextBanner"><strong>{nextRecommendedAction(cards)}</strong></div><div className="overviewCards">{cards.map((card) => <StatusCard key={card.title} {...card} />)}</div></section>;
+}
+
+function StatusCard({ title, label, explanation, nextAction }: ReturnType<typeof deriveOverviewCards>[number]): JSX.Element {
+  return <article className="statusCard"><span className={`badge ${badgeTone(label)}`}>{label}</span><h3>{title}</h3><p>{explanation}</p><small>{nextAction}</small></article>;
+}
+
+function SetupPage(props: { steps: ReturnType<typeof buildWizardSteps>; activeStep: ReturnType<typeof buildWizardSteps>[number]; setActiveStep: (step: WizardStepId) => void; body: JSX.Element }): JSX.Element {
+  const completeCount = props.steps.filter((step) => step.state === "complete" || step.state === "optional").length;
+  return <section className="pageStack"><PageHeader eyebrow="Setup Wizard" title="One guided launch path" text="Complete one useful step at a time. Optional steps are clearly marked." /><div className="progress"><span>{completeCount} of {props.steps.length} steps complete or optional</span><div><i style={{ width: `${Math.round((completeCount / props.steps.length) * 100)}%` }} /></div></div><div className="wizardLayout"><aside className="stepRail">{props.steps.map((step) => <button type="button" key={step.id} className={step.id === props.activeStep.id ? "active" : "ghost"} onClick={() => props.setActiveStep(step.id)} disabled={step.state === "locked"}><span>{step.title}</span><small>{step.state}</small></button>)}</aside><div className="wizardCard"><h2>{props.activeStep.title}</h2>{props.activeStep.detail && <p className="muted">{props.activeStep.detail}</p>}{props.body}</div></div></section>;
+}
+
+function WizardBody(props: { id: WizardStepId; connectionFeedback: ConnectionFeedback; apiBaseUrlInput: string; setApiBaseUrlInput: (value: string) => void; credentialInput: string; setCredentialInput: (value: string) => void; saveAndCheckConnection: () => Promise<void>; clearLocalSettings: () => void; routeManagerSummary: TelegramRouteManagerSummary }): JSX.Element {
+  if (props.id === "connect" || props.id === "admin") {
+    return <div className="wizardContent"><label>Worker URL<input value={props.apiBaseUrlInput} onChange={(event) => props.setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.workers.dev" /></label><label>Admin access<input type="password" value={props.credentialInput} onChange={(event) => props.setCredentialInput(event.target.value)} placeholder="Enter for this page session" /></label><div className="buttonRow"><button type="button" onClick={() => void props.saveAndCheckConnection()}>Check connection</button><button type="button" className="secondary" onClick={props.clearLocalSettings}>Clear</button></div><ConnectionPanel feedback={props.connectionFeedback} /></div>;
+  }
+  if (props.id === "telegram") return <TelegramRouteManager summary={props.routeManagerSummary} compact />;
+  return <div className="wizardContent"><p>Use Settings for this step, then run safe tests. Public publishing controls are not available here.</p></div>;
+}
+
+function SettingsPage(props: { internalReady: boolean; section: SettingsSection; setSection: (section: SettingsSection) => void; routeManagerSummary: TelegramRouteManagerSummary; onLoadRoutes: () => void; onValidateRoutes: () => void; busy: boolean }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Settings" title="Simple product controls" text="Telegram operations are shown as route cards, not raw database rows." />{!props.internalReady && <EmptyState title="Admin access needed" text="Enter admin access in Setup Wizard before managing routes." />}{props.internalReady && <div className="settingsLayout"><aside className="settingsSide">{(["telegram", "general", "activity", "technical"] as SettingsSection[]).map((section) => <button type="button" key={section} className={props.section === section ? "active" : "ghost"} onClick={() => props.setSection(section)}>{section === "telegram" ? "Telegram" : section === "general" ? "General" : section === "activity" ? "Activity" : "Technical"}</button>)}</aside><div className="settingsForm">{props.section === "telegram" ? <><div className="buttonRow"><button type="button" onClick={props.onLoadRoutes} disabled={props.busy}>Load routes</button><button type="button" className="secondary" onClick={props.onValidateRoutes} disabled={props.busy}>Check route config</button></div><TelegramRouteManager summary={props.routeManagerSummary} /></> : props.section === "technical" ? <p className="muted">Raw route payloads are available only in Technical. Normal Settings stay operator-friendly.</p> : <p className="muted">This build focuses on Telegram route operations polish.</p>}</div></div>}</section>;
+}
+
+function TelegramRouteManager({ summary, compact = false }: { summary: TelegramRouteManagerSummary; compact?: boolean }): JSX.Element {
+  return <div className="wizardContent"><div className="callout neutralSoft"><strong>{telegramRouteManagerCopy()}</strong><span>Use chat IDs and numeric topic IDs, not visible topic names.</span></div><div className="overviewCards"><StatusMini label="Bot" value={summary.botStatus} /><StatusMini label="Final publishing" value={summary.finalPublishing} /><StatusMini label="Routes" value={String(summary.routeCount)} /><StatusMini label="Enabled outputs" value={String(summary.enabledOutputCount)} /><StatusMini label="Media mode" value={summary.mediaMode} /><StatusMini label="WordPress" value={summary.wordpress} /></div>{!compact && <FormFieldSummary />}{summary.routeCards.length === 0 && <EmptyState title="No Telegram routes loaded" text="Load routes after admin access is configured. The system will not guess routing from topic names." />}{summary.routeCards.map((route) => <article className="panel" key={`${route.sourceChatId}:${route.sourceThreadId}`}><div className="cardHeader"><span className={`badge ${route.enabledLabel === "Enabled" ? "safe" : "neutral"}`}>{route.enabledLabel}</span><h3>{route.category}</h3></div><p>Source chat: <code>{route.sourceChatId}</code> · Topic ID: <code>{route.sourceThreadId}</code></p><p>Prompt profile: <code>{route.promptProfile}</code></p><p>{route.outputsCount} output{route.outputsCount === 1 ? "" : "s"}</p>{route.warnings.map((warning) => <p className="warningText" key={warning}>{warning}</p>)}<div className="grid two">{route.outputs.map((output) => <div className="callout neutralSoft" key={`${route.category}:${output.language}:${output.finalChatId}`}><strong>{output.language.toUpperCase()} · {output.enabledLabel}</strong><span>Review: {output.reviewChatId} / topic {output.reviewThreadId}</span><span>Final: {output.finalChatId}{output.finalThreadId === undefined ? "" : ` / topic ${output.finalThreadId}`}</span><span>Status: {output.latestStatus}</span></div>)}</div></article>)}</div>;
+}
+
+function FormFieldSummary(): JSX.Element {
+  return <details className="panel"><summary>Route form guide</summary><div className="grid two"><div>{TELEGRAM_ROUTE_FORM_FIELDS.map((field) => <p key={field.label}><strong>{field.label}</strong><br /><span className="muted">{field.helper}</span></p>)}</div><div>{TELEGRAM_OUTPUT_FORM_FIELDS.map((field) => <p key={field.label}><strong>{field.label}</strong><br /><span className="muted">{field.helper}</span></p>)}</div></div></details>;
+}
+
+function StatusMini({ label, value }: { label: string; value: string }): JSX.Element {
+  return <article className="statusCard"><small>{label}</small><h3>{value}</h3></article>;
+}
+
+function TestsPage(props: { internalReady: boolean; busy: string | undefined; latest: OperationRecord[]; telegramText: string; setTelegramText: (value: string) => void; wordpressTitle: string; setWordpressTitle: (value: string) => void; wordpressContent: string; setWordpressContent: (value: string) => void; confirmTelegram: boolean; setConfirmTelegram: (value: boolean) => void; confirmWordPress: boolean; setConfirmWordPress: (value: boolean) => void; runOperation: (name: OperationName, runner: () => Promise<ApiResult>, confirmText?: string) => Promise<void>; refreshStatus: () => Promise<void>; validateRoutes: () => void; loadRecentOutputs: () => void; client: WorkerApiClient }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Tests" title="Safe checks only" text="No final publishing, no public publishing, and no scheduler publishing controls." /><div className="testGrid">{SAFE_TESTS.map((test) => <article className="testCard" key={test.id}><span className={`badge ${test.safety === "Safe" ? "safe" : "warning"}`}>{test.safety}</span><h3>{test.title}</h3><p>{test.description}</p><small>{test.external}</small><small>{test.publishes}</small>{test.id === "readiness" && <button type="button" onClick={() => void props.refreshStatus()} disabled={props.busy !== undefined}>Run readiness check</button>}{test.id === "mock_e2e" && <button type="button" onClick={() => void props.runOperation("mock_e2e_smoke", () => props.client.runMockE2E())} disabled={!props.internalReady || props.busy !== undefined}>Run mock E2E</button>}{test.id === "telegram_route_config" && <button type="button" onClick={props.validateRoutes} disabled={!props.internalReady || props.busy !== undefined}>Check route config</button>}{test.id === "telegram_publish_queue_dry_run" && <button type="button" onClick={props.loadRecentOutputs} disabled={!props.internalReady || props.busy !== undefined}>Load queue status</button>}{test.id === "telegram_review" && <><textarea value={props.telegramText} onChange={(event) => props.setTelegramText(event.target.value)} /><label className="checkRow"><input type="checkbox" checked={props.confirmTelegram} onChange={(event) => props.setConfirmTelegram(event.target.checked)} />I understand this is review-only.</label><button type="button" onClick={() => void props.runOperation("telegram_review_dry_run", () => props.client.runTelegramReviewDryRun({ text: props.telegramText }), "Run Telegram review dry-run?")} disabled={!props.internalReady || !props.confirmTelegram || props.busy !== undefined}>Run review dry-run</button></>}{test.id === "wordpress_draft" && <><input value={props.wordpressTitle} onChange={(event) => props.setWordpressTitle(event.target.value)} /><textarea value={props.wordpressContent} onChange={(event) => props.setWordpressContent(event.target.value)} /><label className="checkRow"><input type="checkbox" checked={props.confirmWordPress} onChange={(event) => props.setConfirmWordPress(event.target.checked)} />I understand this creates draft-only output.</label><button type="button" onClick={() => void props.runOperation("wordpress_draft_dry_run", () => props.client.runWordPressDraftDryRun({ title: props.wordpressTitle, content: props.wordpressContent }), "Run WordPress draft dry-run?")} disabled={!props.internalReady || !props.confirmWordPress || props.busy !== undefined}>Run draft dry-run</button></>}<LatestResult records={props.latest} title={test.title} /></article>)}</div></section>;
+}
+
+function ActivityPage({ audit, recentTelegramOutputs, enabled, busy, loadActivity, loadRecentTelegramOutputs }: { audit: AdminAuditEntry[]; recentTelegramOutputs: RecentTelegramOutput[]; enabled: boolean; busy: string | undefined; loadActivity: () => Promise<void>; loadRecentTelegramOutputs: () => void }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Activity" title="Recent Telegram outputs and changes" text="Operational status stays readable. Raw payloads stay in Technical." action={<div className="buttonRow"><button type="button" onClick={loadRecentTelegramOutputs} disabled={!enabled || busy !== undefined}>Load Telegram outputs</button><button type="button" className="secondary" onClick={() => void loadActivity()} disabled={!enabled || busy !== undefined}>Load audit</button></div>} />{!enabled && <EmptyState title="Admin access needed" text="Save admin access in Setup Wizard to load activity." />}<div className="grid two">{recentTelegramOutputs.map((output) => <article className="activityItem" key={`${output.itemId}:${output.language}:${output.updatedAt}`}><div><span className="badge neutral">{output.language}</span><h3>{output.category}</h3><p>Item: {output.itemId}</p><p>Review: {output.reviewStatus} · Queue: {output.publishQueueStatus}</p><p>Final: {output.finalChatId}</p>{output.lastError !== "none" && output.lastError.length > 0 && <p className="warningText">{output.lastError}</p>}<small>{output.updatedAt}</small></div></article>)}</div>{audit.map((entry) => <article className="activityItem" key={entry.id}><div><span className="badge neutral">{entry.action}</span><h3>{entry.key}</h3><p>{new Date(entry.changed_at).toLocaleString()}</p></div><div className="auditValues"><span>Previous: {entry.previous_value_redacted ?? "[missing]"}</span><span>New: {entry.new_value_redacted ?? "[missing]"}</span></div></article>)}</section>;
+}
+
+function TechnicalPage({ bundle, adminConfig, history, clearHistory }: { bundle: StatusBundle; adminConfig: AdminConfigResponse | undefined; history: OperationRecord[]; clearHistory: () => void }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Technical" title="Debugging details" text="Raw payloads and troubleshooting information live here only." action={<button type="button" className="secondary" onClick={clearHistory}>Clear history</button>} /><details className="panel" open><summary>Raw /status and /ready</summary><div className="grid two"><JsonPanel title="/health" result={bundle.health} /><JsonPanel title="/status" result={bundle.status} /><JsonPanel title="/ready" result={bundle.ready} /></div></details><details className="panel"><summary>Raw Telegram topic workflow routes</summary><pre>{JSON.stringify(redactSensitiveJson((readObject(readObject(bundle.status?.ok === true ? bundle.status.data : undefined, "telegram"), "topicWorkflow") ?? null) as JsonValue), null, 2)}</pre></details><details className="panel"><summary>Raw admin config</summary><pre>{JSON.stringify(redactSensitiveJson((adminConfig ?? null) as JsonValue), null, 2)}</pre></details><details className="panel"><summary>Raw test output</summary><RecentResults history={history} /></details></section>;
+}
+
+function PageHeader({ eyebrow, title, text, action }: { eyebrow: string; title: string; text: string; action?: JSX.Element }): JSX.Element { return <div className="pageHeader"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{text}</p></div>{action}</div>; }
 function EmptyState({ title, text }: { title: string; text: string }): JSX.Element { return <div className="emptyState"><h3>{title}</h3><p>{text}</p></div>; }
-function setMaybeActive(step: WizardStep, setter: (step: WizardStepId) => void): void { if (step.state !== "locked") setter(step.id); }
-function wizardCopy(id: WizardStepId): string { const copy: Record<WizardStepId, string> = { connect: "Connect the dashboard to the deployed Worker.", admin: "Confirm admin access for protected setup actions.", mode: "Choose how content enters the system.", ai: "Configure AI provider, model, and behavior inline.", telegram: "Configure review-only Telegram setup.", wordpress: "Configure draft-only WordPress output.", providers: "Skip this in Manual-only mode unless you want external sources.", tests: "Run safe checks before launch.", readiness: "Confirm what is safe, missing, and optional." }; return copy[id]; }
-function feedbackFromBundle(bundle: StatusBundle): ConnectionFeedback { const state = describeConnectionBundle(bundle); if (state === "connected") return { state, title: "Worker connected", detail: "Worker is online and ready.", guidance: [] }; if (state === "reachable_not_ready") return { state, title: "Worker reachable but not ready", detail: "Worker is reachable, but setup is not complete yet.", guidance: ["Open Technical to review /ready warnings."] }; if (state === "cors_blocked") return { state, title: "Browser blocked the request, likely CORS", detail: "The browser could not complete one or more Worker requests.", guidance: connectionGuidance() }; return { state, title: "Could not reach Worker", detail: "The dashboard could not reach /health and /status.", guidance: connectionGuidance() }; }
-function connectionGuidance(): string[] { return ["Check that the URL ends with workers.dev.", "Try opening /health in a browser.", "Make sure the Worker is deployed.", "If /health opens but dashboard cannot connect, CORS may need to be configured."]; }
-function badgeTone(label: string): string { return label === "Connected" || label === "Safe" ? "safe" : label === "Optional" ? "neutral" : "warning"; }
-function resultToJson(result: ApiResult | undefined): JsonValue { if (result === undefined) return null; if (result.ok) return result.data as JsonValue; const data: JsonObject = { ok: false, error: result.error, message: result.message }; if (result.status !== undefined) data.status = result.status; if (result.data !== undefined) data.data = result.data; return data; }
-function readConfigValue(config: AdminConfigResponse | undefined, key: string): string | undefined { const item = config?.items.find((entry) => entry.key === key); return item?.value; }
-function readBoolean(result: ApiResult | undefined, path: string[]): boolean | undefined { const value = readPath(result, path); return typeof value === "boolean" ? value : undefined; }
-function readString(result: ApiResult | undefined, path: string[]): string | undefined { const value = readPath(result, path); return typeof value === "string" ? value : undefined; }
-function readPath(result: ApiResult | undefined, path: string[]): unknown { const data = result?.ok === true ? result.data : result?.data; if (!isRecord(data)) return undefined; let current: unknown = data; for (const part of path) { if (!isRecord(current)) return undefined; current = current[part]; } return current; }
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function ConnectionPanel({ feedback }: { feedback: ConnectionFeedback }): JSX.Element { return <div className={`callout ${feedback.state === "connected" ? "safeSoft" : "warningSoft"}`}><strong>{feedback.title}</strong><span>{feedback.detail}</span>{feedback.guidance.map((item) => <small key={item}>{item}</small>)}</div>; }
+function LatestResult({ records, title }: { records: OperationRecord[]; title: string }): JSX.Element | null { const record = records.find((entry) => entry.label === title); return record ? <small>Latest: {record.ok ? "OK" : "Needs attention"}</small> : null; }
+function RecentResults({ history }: { history: OperationRecord[] }): JSX.Element { return <div>{history.map((record) => <details key={record.id}><summary>{record.label} · {record.ok ? "OK" : "Error"}</summary><pre>{JSON.stringify(record.result, null, 2)}</pre></details>)}</div>; }
+function JsonPanel({ title, result }: { title: string; result: ApiResult | undefined }): JSX.Element { return <div><h3>{title}</h3><pre>{JSON.stringify(result ?? null, null, 2)}</pre></div>; }
+function badgeTone(value: string): string { return value === "Connected" || value === "Safe" ? "safe" : value === "Optional" ? "neutral" : "warning"; }
+function feedbackFromBundle(bundle: StatusBundle): ConnectionFeedback { const state = describeConnectionBundle(bundle); if (state === "connected") return { state, title: "Worker connected", detail: "Worker health, status, and readiness are reachable.", guidance: [] }; if (state === "reachable_not_ready") return { state, title: "Worker reachable, setup incomplete", detail: "The Worker responded, but readiness has warnings.", guidance: ["Open Setup Wizard.", "Check Technical for raw readiness details."] }; if (state === "cors_blocked") return { state, title: "Browser blocked the request", detail: "Likely CORS or network configuration.", guidance: connectionGuidance() }; return { state, title: "Worker unreachable", detail: "The dashboard could not reach the Worker.", guidance: connectionGuidance() }; }
+function connectionGuidance(): string[] { return ["Use the deployed Worker URL, including https://.", "For local development, use http://localhost:8787.", "Check CORS settings if the Worker opens but dashboard calls fail."]; }
+function resultToJson(result: ApiResult | undefined): JsonValue { return result === undefined ? null : result.ok ? result.data : { error: result.error, message: result.message, status: result.status, data: result.data }; }
+function readObject(value: unknown, key: string): JsonObject | undefined { return typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as JsonObject)[key] === "object" && (value as JsonObject)[key] !== null && !Array.isArray((value as JsonObject)[key]) ? (value as JsonObject)[key] as JsonObject : undefined; }
+function readString(value: unknown, key: string): string | undefined { const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : undefined; const raw = record?.[key]; return typeof raw === "string" ? raw : undefined; }
+function readBoolean(value: unknown, key: string): boolean | undefined { const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : undefined; const raw = record?.[key]; return typeof raw === "boolean" ? raw : undefined; }
+
 export default App;
