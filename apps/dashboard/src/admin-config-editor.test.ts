@@ -45,6 +45,6 @@ describe("admin config editor helpers", () => {
 
   it("shows redacted secret status", () => {
     expect(safeConfiguredLabel(makeItem({ isSecret: true, configured: true, value: "secret" }))).toBe("Configured, value hidden");
-    expect(safeConfiguredLabel(makeItem({ isSecret: true, configured: false, value: undefined }))).toBe("Missing");
+    expect(safeConfiguredLabel(makeItem({ isSecret: true, configured: false }))).toBe("Missing");
   });
 });
