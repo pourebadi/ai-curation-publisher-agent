@@ -5,6 +5,19 @@ export type WizardStepId = "connect" | "admin" | "mode" | "ai" | "telegram" | "w
 export type WizardStepState = "active" | "complete" | "locked" | "optional" | "needs_action";
 export type OperatorStatusLabel = "Connected" | "Missing" | "Optional" | "Safe" | "Warning" | "Not configured";
 export type SafeTestId = "readiness" | "mock_e2e" | "ai_sample" | "telegram_review" | "telegram_route_config" | "telegram_publish_queue_dry_run" | "wordpress_draft";
+export type WizardStep = { id: WizardStepId; title: string; state: WizardStepState; action: string; optional: boolean; detail?: string };
+export type BuildWizardStepsInput = {
+  workerReachable: boolean;
+  hasAdminAccess: boolean;
+  operatingMode: string;
+  aiReady: boolean;
+  telegramReady: boolean;
+  wordpressReady: boolean;
+  providersReady: boolean;
+  routeCount?: number;
+  outputCount?: number;
+  finalPublishingEnabled?: boolean;
+};
 
 export const DASHBOARD_TABS: Array<{ id: DashboardTab; label: string }> = [
   { id: "overview", label: "Overview" },
@@ -63,14 +76,16 @@ export function nextRecommendedAction(cards: Array<{ title: string; label: Opera
   return blocking === undefined ? "Next: Run safe tests, then review launch readiness." : `Next: ${blocking.nextAction}`;
 }
 
-export function buildWizardSteps(input: { workerReachable: boolean; hasAdminAccess: boolean; operatingMode: string; aiReady: boolean; telegramReady: boolean; wordpressReady: boolean; providersReady: boolean }): Array<{ id: WizardStepId; title: string; state: WizardStepState; action: string; optional: boolean }> {
+export function buildWizardSteps(input: BuildWizardStepsInput): WizardStep[] {
   const providersOptional = input.operatingMode === "manual_only" || input.operatingMode === "mock_demo";
+  const telegramDetail = `Routes: ${input.routeCount ?? 0}. Outputs: ${input.outputCount ?? 0}. Final publishing: ${input.finalPublishingEnabled === true ? "Enabled" : "Disabled"}. WordPress is optional. Routing is based on Telegram chat ID and topic ID.`;
+
   return [
     { id: "connect", title: "Connect Worker", state: input.workerReachable ? "complete" : "active", action: "Check connection", optional: false },
     { id: "admin", title: "Secure Admin Actions", state: !input.workerReachable ? "locked" : input.hasAdminAccess ? "complete" : "active", action: "Save admin access", optional: false },
     { id: "mode", title: "Choose Operating Mode", state: input.workerReachable ? "complete" : "locked", action: "Save mode", optional: false },
     { id: "ai", title: "Configure AI", state: !input.workerReachable ? "locked" : input.aiReady ? "complete" : "needs_action", action: "Save AI settings", optional: false },
-    { id: "telegram", title: "Configure Telegram Review & Routes", state: !input.workerReachable ? "locked" : input.telegramReady ? "complete" : "needs_action", action: "Review Telegram route status", optional: false },
+    { id: "telegram", title: "Configure Telegram Review & Routes", state: !input.workerReachable ? "locked" : input.telegramReady ? "complete" : "needs_action", action: "Review Telegram route status", optional: false, detail: telegramDetail },
     { id: "wordpress", title: "Configure WordPress Drafts", state: !input.workerReachable ? "locked" : input.wordpressReady ? "complete" : "needs_action", action: "Save WordPress settings", optional: false },
     { id: "providers", title: "Optional Providers", state: providersOptional ? "optional" : input.providersReady ? "complete" : "needs_action", action: providersOptional ? "Skip providers" : "Save provider settings", optional: providersOptional },
     { id: "tests", title: "Run Safe Tests", state: input.workerReachable ? "active" : "locked", action: "Run safe test", optional: false },
