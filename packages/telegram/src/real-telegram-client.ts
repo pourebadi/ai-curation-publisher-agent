@@ -149,6 +149,13 @@ export class RealTelegramClient implements TelegramClient {
       });
     }
 
+    if (!isResponseLike(response)) {
+      throw new TelegramClientError({
+        category: "invalid_response",
+        message: "Telegram Bot API returned an invalid response object."
+      });
+    }
+
     let payload: TelegramApiResponse;
     try {
       payload = await response.json() as TelegramApiResponse;
@@ -193,14 +200,16 @@ function telegramMediaFieldForMedia(media: ParsedTelegramMedia): "photo" | "vide
   return "document";
 }
 
-export function redactTelegramApiError(description: unknown): string {
-  if (typeof description !== "string" || description.trim().length === 0) {
-    return "Telegram Bot API returned an error.";
-  }
-  return description
-    .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot[redacted]")
-    .replace(/\d{6,}:[A-Za-z0-9_-]+/g, "[redacted-token]")
-    .slice(0, 240);
+export function redactTelegramApiError(_description: unknown): string {
+  return "Telegram Bot API returned an error.";
+}
+
+function isResponseLike(value: unknown): value is Response {
+  return typeof value === "object"
+    && value !== null
+    && "ok" in value
+    && "status" in value
+    && typeof (value as { json?: unknown }).json === "function";
 }
 
 function toTelegramClientMessage(
