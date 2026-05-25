@@ -18,6 +18,7 @@
     "dev": "pnpm --filter @curator/worker-api dev",
     "worker:dev": "pnpm --filter @curator/worker-api dev",
     "worker:deploy": "wrangler deploy --config wrangler.toml",
+    "worker:deploy:production": "wrangler deploy --env production --config wrangler.toml",
     "worker:health": "curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/health",
     "worker:smoke": "curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/health && echo && curl -fsS ${WORKER_BASE_URL:-http://localhost:8787}/status && echo",
     "worker:e2e:mock": "curl -fsS -X POST ${WORKER_BASE_URL:-http://localhost:8787}/internal/e2e/mock-pipeline",
@@ -26,7 +27,8 @@
     "dashboard:preview": "pnpm --filter @curator/dashboard preview",
     "db:migrate:local": "wrangler d1 migrations apply curator_mvp --local --config wrangler.toml",
     "d1:migrate:local": "pnpm db:migrate:local",
-    "d1:migrate:remote": "wrangler d1 migrations apply curator_mvp --remote --config wrangler.toml"
+    "d1:migrate:remote": "wrangler d1 migrations apply curator_mvp --remote --config wrangler.toml",
+    "d1:migrate:production": "wrangler d1 migrations apply curator_mvp --remote --env production --config wrangler.toml"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
