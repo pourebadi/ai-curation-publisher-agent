@@ -127,6 +127,36 @@ Queued. Final Telegram publishing is disabled.
 
 If final publishing is enabled server-side, the Worker attempts final Telegram publishing and updates the generated output and queue statuses.
 
+## Retry failed Telegram publishes
+
+Phase 34 adds a protected retry route:
+
+```text
+POST /internal/telegram/publish/retry
+```
+
+It requires `x-internal-api-secret` when `INTERNAL_API_SECRET` is configured.
+
+Request body, choose one identifier:
+
+```json
+{ "queueId": "tgpub_abc123" }
+```
+
+or:
+
+```json
+{ "generatedOutputId": "tgout_abc123" }
+```
+
+Safety behavior:
+
+- The route only retries rows in `telegram_publish_queue` with `status = failed`.
+- It does not enable final publishing by itself.
+- If `TELEGRAM_FINAL_PUBLISH_ENABLED=false`, the route returns `skipped`.
+- It redacts Telegram API errors before storing or returning them.
+- It never exposes bot tokens or raw Telegram API descriptions.
+
 ## Final publishing flag
 
 Final publishing is controlled by:
@@ -168,7 +198,12 @@ Final publish can reuse Telegram `file_id` for:
 
 If no media is available, the Worker uses `sendMessage`.
 
-Real download/upload to R2 remains a later step. If storage is not configured, the workflow does not crash; it remains metadata/file-id based.
+Known media limitations:
+
+- R2 download/upload is not implemented yet.
+- `sendMediaGroup` is not implemented yet.
+- If a source message has multiple media assets, the current final publish path uses the first publishable Telegram file ID.
+- Media remains Telegram-file-id based. This is safe for Telegram-to-Telegram reuse, but not yet a full cross-platform media archive.
 
 ## Safe seed endpoint for development
 
@@ -190,6 +225,30 @@ curl -fsS -X POST "$WORKER_BASE_URL/internal/telegram/topic-routes/seed" \
 ```
 
 Do not paste real secrets into route config files.
+
+## Dashboard route summary
+
+The dashboard reads Telegram topic workflow information from `/status` and `/ready`.
+
+Visible operator summary should show:
+
+- bot token configured/missing
+- final publishing enabled/disabled
+- route count
+- enabled route output count
+- route category
+- source topic/thread id
+- review topic/thread id
+- final channel
+- enabled state
+
+Phase 34 exposes this data under:
+
+```text
+telegram.topicWorkflow.routes
+```
+
+The dashboard intentionally keeps route editing out of the normal operator screen for now. Use the protected seed endpoint or D1 migration/seed tooling for route setup. A polished route editor is planned for a later phase.
 
 ## Required bot permissions
 
@@ -219,6 +278,7 @@ telegram.topicWorkflow.reviewRoutingConfigured
 telegram.topicWorkflow.finalPublishingEnabled
 telegram.topicWorkflow.wordpressOptional
 telegram.topicWorkflow.mediaMode
+telegram.topicWorkflow.routes
 telegram.topicWorkflow.warnings
 ```
 
