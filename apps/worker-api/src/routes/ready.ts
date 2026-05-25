@@ -1,6 +1,7 @@
 import { getAdminConfigStoreStatus, getEffectiveEnv, getEncryptionSummary } from "../admin-config/service";
 import { validateRuntimeConfig } from "../config";
 import { jsonResponse } from "../http/json";
+import { readTelegramTopicWorkflowSummary } from "../telegram-topic-workflow/status";
 import { methodNotAllowed, timestamp } from "./response";
 import type { Env } from "../types";
 
@@ -11,9 +12,10 @@ export async function handleReady(request: Request, env: Env): Promise<Response>
 
   const effectiveEnv = await getEffectiveEnv(env);
   const validation = validateRuntimeConfig(effectiveEnv);
+  const telegramTopicWorkflow = await readTelegramTopicWorkflowSummary(effectiveEnv);
   const encryption = await getEncryptionSummary(env);
   const adminConfigStore = await getAdminConfigStoreStatus(env);
-  const warnings = [...validation.warnings];
+  const warnings = [...validation.warnings, ...telegramTopicWorkflow.warnings];
   if (!encryption.secretEditingEnabled) {
     warnings.push("CONFIG_ENCRYPTION_KEY is not configured or invalid. Dashboard secret editing is disabled.");
   }
@@ -24,7 +26,10 @@ export async function handleReady(request: Request, env: Env): Promise<Response>
   return jsonResponse({
     ok: validation.ready,
     ready: validation.ready,
-    summary: validation.summary,
+    summary: {
+      ...validation.summary,
+      telegramTopicWorkflow
+    },
     adminConfig: {
       storeAvailable: adminConfigStore.available,
       ...(adminConfigStore.warning === undefined ? {} : { storeWarning: adminConfigStore.warning }),
