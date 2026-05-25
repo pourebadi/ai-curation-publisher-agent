@@ -88,7 +88,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
       language: routeOutput.language,
       itemId: item.id,
       sourceUrl: canonicalUrl,
-      originalExcerpt: createOriginalExcerpt(input.parsed.text),
+      originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
       caption: localizedOutput.caption,
       ...(localizedOutput.summary === undefined ? {} : { summary: localizedOutput.summary }),
       riskFlags: localizedOutput.riskFlags,
@@ -131,8 +131,9 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
 }
 
 function createTelegramReviewClient(env: Env): TelegramClient {
-  if (env.TELEGRAM_REAL_REVIEW_ENABLED === "true") {
-    return new RealTelegramClient({ botToken: env.TELEGRAM_BOT_TOKEN });
+  const botToken = env.TELEGRAM_BOT_TOKEN?.trim();
+  if (env.TELEGRAM_REAL_REVIEW_ENABLED === "true" && botToken) {
+    return new RealTelegramClient({ botToken });
   }
   return new MockTelegramClient();
 }
