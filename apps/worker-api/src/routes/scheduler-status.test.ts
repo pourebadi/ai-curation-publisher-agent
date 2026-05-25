@@ -19,7 +19,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("scheduler status summary", () => {
-  it("status exposes safe scheduler and quota summaries", async () => {
+  it("status exposes safe scheduler, quota, and publishing summaries", async () => {
     const response = await handleStatus(new Request("https://worker.local/status"), makeEnv({
       SCHEDULER_ENABLED: "true",
       SCHEDULER_DRY_RUN: "true",
@@ -45,9 +45,16 @@ describe("scheduler status summary", () => {
       maxProviderItemsPerRun: 3,
       maxPublishItemsPerRun: 0
     });
+    expect(body.modules).toMatchObject({
+      publishing: {
+        available: true,
+        publicPublishingEnabled: false,
+        schedulerPublishingAllowed: false
+      }
+    });
   });
 
-  it("readiness exposes safe scheduler and quota summaries without secrets", async () => {
+  it("readiness exposes risky scheduler publishing as an error without secrets", async () => {
     const response = await handleReady(new Request("https://worker.local/ready"), makeEnv({
       INTERNAL_API_SECRET: "configured-secret",
       SCHEDULER_ENABLED: "true",
@@ -56,7 +63,7 @@ describe("scheduler status summary", () => {
     }));
     const body = await json(response);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(body.summary).toMatchObject({
       scheduler: {
         enabled: true,
@@ -72,6 +79,7 @@ describe("scheduler status summary", () => {
         maxPublishItemsPerRun: 0
       }
     });
+    expect(body.errors).toContain("Scheduler publishing is configured on. This phase does not support scheduler publishing.");
     expect(JSON.stringify(body)).not.toContain("configured-secret");
   });
 });
