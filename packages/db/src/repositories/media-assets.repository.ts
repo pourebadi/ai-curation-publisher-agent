@@ -56,32 +56,11 @@ export class MediaAssetsRepository {
 
   async createMany(assets: CreateMediaAssetInput[]): Promise<void> {
     for (const asset of assets) {
-      await this.db.prepare(
-        `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, telegram_file_id, telegram_file_unique_id, telegram_media_group_id, telegram_file_type, telegram_mime_type, telegram_file_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
-      ).bind(
-        asset.id,
-        asset.itemId,
-        asset.kind,
-        asset.status ?? "pending",
-        asset.sourceUrl,
-        asset.canonicalUrl ?? null,
-        stableHash(asset.canonicalUrl ?? asset.sourceUrl),
-        asset.storageKey ?? null,
-        asset.publicUrl ?? null,
-        asset.sizeBytes ?? null,
-        asset.mimeType ?? null,
-        asset.width ?? null,
-        asset.height ?? null,
-        asset.durationSeconds ?? null,
-        asset.errorMessage ?? null,
-        asset.telegramFileId ?? null,
-        asset.telegramFileUniqueId ?? null,
-        asset.telegramMediaGroupId ?? null,
-        asset.telegramFileType ?? null,
-        asset.telegramMimeType ?? null,
-        asset.telegramFileSize ?? null
-      ).run();
+      if (hasTelegramMetadata(asset)) {
+        await this.createWithTelegramMetadata(asset);
+      } else {
+        await this.createCoreAsset(asset);
+      }
     }
   }
 
@@ -99,6 +78,58 @@ export class MediaAssetsRepository {
       .prepare("UPDATE media_assets SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .bind(status, errorMessage ?? null, id)
       .run();
+  }
+
+  private async createCoreAsset(asset: CreateMediaAssetInput): Promise<void> {
+    await this.db.prepare(
+      `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    ).bind(
+      asset.id,
+      asset.itemId,
+      asset.kind,
+      asset.status ?? "pending",
+      asset.sourceUrl,
+      asset.canonicalUrl ?? null,
+      stableHash(asset.canonicalUrl ?? asset.sourceUrl),
+      asset.storageKey ?? null,
+      asset.publicUrl ?? null,
+      asset.sizeBytes ?? null,
+      asset.mimeType ?? null,
+      asset.width ?? null,
+      asset.height ?? null,
+      asset.durationSeconds ?? null,
+      asset.errorMessage ?? null
+    ).run();
+  }
+
+  private async createWithTelegramMetadata(asset: CreateMediaAssetInput): Promise<void> {
+    await this.db.prepare(
+      `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, telegram_file_id, telegram_file_unique_id, telegram_media_group_id, telegram_file_type, telegram_mime_type, telegram_file_size, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    ).bind(
+      asset.id,
+      asset.itemId,
+      asset.kind,
+      asset.status ?? "pending",
+      asset.sourceUrl,
+      asset.canonicalUrl ?? null,
+      stableHash(asset.canonicalUrl ?? asset.sourceUrl),
+      asset.storageKey ?? null,
+      asset.publicUrl ?? null,
+      asset.sizeBytes ?? null,
+      asset.mimeType ?? null,
+      asset.width ?? null,
+      asset.height ?? null,
+      asset.durationSeconds ?? null,
+      asset.errorMessage ?? null,
+      asset.telegramFileId ?? null,
+      asset.telegramFileUniqueId ?? null,
+      asset.telegramMediaGroupId ?? null,
+      asset.telegramFileType ?? null,
+      asset.telegramMimeType ?? null,
+      asset.telegramFileSize ?? null
+    ).run();
   }
 }
 
@@ -154,6 +185,15 @@ function toMediaAssetRecord(row: MediaAssetRow): MediaAssetRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function hasTelegramMetadata(asset: CreateMediaAssetInput): boolean {
+  return asset.telegramFileId !== undefined
+    || asset.telegramFileUniqueId !== undefined
+    || asset.telegramMediaGroupId !== undefined
+    || asset.telegramFileType !== undefined
+    || asset.telegramMimeType !== undefined
+    || asset.telegramFileSize !== undefined;
 }
 
 function stableHash(value: string): string {
