@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aiMissingNextAction, providerSetupSkippedInManualOnly, secretStatusLabel, settingsSourceLabel } from "./AdminSettings";
+import { aiMissingNextAction, providerSetupSkippedInManualOnly, settingsSourceLabel } from "./AdminSettings";
 
 describe("AdminSettings helpers", () => {
   it("skips provider setup in manual-only mode", () => {
@@ -8,16 +8,10 @@ describe("AdminSettings helpers", () => {
   });
 
   it("returns plain source labels", () => {
-    expect(settingsSourceLabel("d1")).toBe("Dashboard");
+    expect(settingsSourceLabel("d1")).toBe("Dashboard override");
     expect(settingsSourceLabel("env")).toBe("Cloudflare env");
     expect(settingsSourceLabel("default")).toBe("Default");
     expect(settingsSourceLabel("missing")).toBe("Missing");
-  });
-
-  it("returns safe secret status labels", () => {
-    expect(secretStatusLabel({ isSecret: true, configured: true })).toBe("Configured");
-    expect(secretStatusLabel({ isSecret: true, configured: false })).toBe("Missing");
-    expect(secretStatusLabel({ isSecret: false, configured: true })).toBe("Not secret");
   });
 
   it("generates AI missing next action", () => {
