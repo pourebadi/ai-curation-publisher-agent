@@ -135,8 +135,11 @@ function makeInvalidManualMessage(): ParsedManualTelegramMessage {
     kind: "manual_message",
     updateId: 901,
     reviewerId: "902",
+    chatId: "904",
+    messageId: 903,
     text: " ",
     urls: [],
+    media: [],
     message: {
       message_id: 903,
       from: { id: 902, first_name: "Reviewer" },
