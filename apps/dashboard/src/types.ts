@@ -36,6 +36,8 @@ export type AdminConfigItem = {
   safetyLevel: AdminConfigSafetyLevel;
   setupVisible: boolean;
   settingsVisible: boolean;
+  requiredForProduction: boolean;
+  optionalInManualOnly: boolean;
   restartRequired: boolean;
   validation: { enumValues?: string[]; min?: number; max?: number; maxLength?: number; maxItems?: number; preferHttps?: boolean };
   updatedAt?: string;
