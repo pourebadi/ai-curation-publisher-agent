@@ -97,6 +97,16 @@ export class TelegramRoutesRepository {
     };
   }
 
+  async findRouteById(id: string): Promise<TelegramRouteRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM telegram_routes WHERE id = ? LIMIT 1").bind(id).first<TelegramRouteRow>();
+    return row ? toRouteRecord(row) : null;
+  }
+
+  async findRouteBySource(sourceChatId: string, sourceThreadId: number): Promise<TelegramRouteRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM telegram_routes WHERE source_chat_id = ? AND source_thread_id = ? LIMIT 1").bind(sourceChatId, sourceThreadId).first<TelegramRouteRow>();
+    return row ? toRouteRecord(row) : null;
+  }
+
   async findOutputById(id: string): Promise<TelegramRouteOutputRecord | null> {
     const row = await this.db.prepare("SELECT * FROM telegram_route_outputs WHERE id = ? LIMIT 1").bind(id).first<TelegramRouteOutputRow>();
     return row ? toRouteOutputRecord(row) : null;
@@ -109,6 +119,11 @@ export class TelegramRoutesRepository {
 
   async listOutputs(): Promise<TelegramRouteOutputRecord[]> {
     const result = await this.db.prepare("SELECT * FROM telegram_route_outputs ORDER BY route_id ASC, language ASC, id ASC").all<TelegramRouteOutputRow>();
+    return (result.results ?? []).map(toRouteOutputRecord);
+  }
+
+  async listOutputsForRoute(routeId: string): Promise<TelegramRouteOutputRecord[]> {
+    const result = await this.db.prepare("SELECT * FROM telegram_route_outputs WHERE route_id = ? ORDER BY language ASC, id ASC").bind(routeId).all<TelegramRouteOutputRow>();
     return (result.results ?? []).map(toRouteOutputRecord);
   }
 
@@ -146,7 +161,7 @@ export class TelegramRoutesRepository {
     await this.db.prepare(
       `INSERT INTO telegram_route_outputs (id, route_id, language, review_chat_id, review_thread_id, final_chat_id, final_thread_id, enabled, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET language = excluded.language, review_chat_id = excluded.review_chat_id, review_thread_id = excluded.review_thread_id, final_chat_id = excluded.final_chat_id, final_thread_id = excluded.final_thread_id, enabled = excluded.enabled, updated_at = excluded.updated_at`
+       ON CONFLICT(id) DO UPDATE SET route_id = excluded.route_id, language = excluded.language, review_chat_id = excluded.review_chat_id, review_thread_id = excluded.review_thread_id, final_chat_id = excluded.final_chat_id, final_thread_id = excluded.final_thread_id, enabled = excluded.enabled, updated_at = excluded.updated_at`
     ).bind(input.id, input.routeId, input.language, input.reviewChatId, input.reviewThreadId, input.finalChatId, input.finalThreadId ?? null, input.enabled === false ? 0 : 1, now, now).run();
 
     return {
@@ -161,6 +176,16 @@ export class TelegramRoutesRepository {
       createdAt: now,
       updatedAt: now
     };
+  }
+
+  async disableRoute(id: string): Promise<boolean> {
+    const result = await this.db.prepare("UPDATE telegram_routes SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+    return (result.changes ?? 0) > 0;
+  }
+
+  async disableRouteOutput(id: string): Promise<boolean> {
+    const result = await this.db.prepare("UPDATE telegram_route_outputs SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+    return (result.changes ?? 0) > 0;
   }
 
   private async count(tableName: "telegram_routes" | "telegram_route_outputs", whereClause: string): Promise<number> {
