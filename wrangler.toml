@@ -25,7 +25,7 @@ WORDPRESS_DEFAULT_STATUS = "draft"
 [[d1_databases]]
 binding = "DB"
 database_name = "curator_mvp"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "b4002f23-322f-4557-9d98-eedafa82558c"
 migrations_dir = "packages/db/migrations"
 
 # Optional future bindings, intentionally commented until real Cloudflare resources exist.
