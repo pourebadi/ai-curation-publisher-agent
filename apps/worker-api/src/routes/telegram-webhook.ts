@@ -112,8 +112,9 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
 }
 
 function createCallbackAnswerClient(env: Env): MockTelegramClient | RealTelegramClient {
-  if (env.TELEGRAM_REAL_REVIEW_ENABLED === "true") {
-    return new RealTelegramClient({ botToken: env.TELEGRAM_BOT_TOKEN });
+  const botToken = env.TELEGRAM_BOT_TOKEN?.trim();
+  if (env.TELEGRAM_REAL_REVIEW_ENABLED === "true" && botToken) {
+    return new RealTelegramClient({ botToken });
   }
   return new MockTelegramClient();
 }
