@@ -1,5 +1,23 @@
-import { TelegramRoutesRepository } from "@curator/db";
+import { TelegramRoutesRepository, type TelegramRouteOutputRecord, type TelegramRouteRecord } from "@curator/db";
 import type { Env } from "../types";
+
+export type TelegramTopicWorkflowRouteSummary = {
+  id: string;
+  category: string;
+  sourceChatId: string;
+  sourceThreadId: number;
+  promptProfile: string;
+  enabled: boolean;
+  outputs: Array<{
+    id: string;
+    language: string;
+    reviewChatId: string;
+    reviewThreadId: number;
+    finalChatId: string;
+    finalThreadId?: number;
+    enabled: boolean;
+  }>;
+};
 
 export type TelegramTopicWorkflowSummary = {
   topicWorkflowConfigured: boolean;
@@ -12,6 +30,7 @@ export type TelegramTopicWorkflowSummary = {
   finalPublishingEnabled: boolean;
   wordpressOptional: true;
   mediaMode: "metadata_only";
+  routes: TelegramTopicWorkflowRouteSummary[];
   warnings: string[];
 };
 
@@ -27,6 +46,7 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
   let outputCount = 0;
   let enabledOutputCount = 0;
   let reviewRoutingConfigured = false;
+  let routes: TelegramTopicWorkflowRouteSummary[] = [];
   const finalPublishingEnabled = (env as EnvWithFinalPublish).TELEGRAM_FINAL_PUBLISH_ENABLED === "true";
 
   try {
@@ -36,6 +56,9 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
     outputCount = summary.outputCount;
     enabledOutputCount = summary.enabledOutputCount;
     reviewRoutingConfigured = summary.reviewRoutingConfigured;
+    const routeRecords = await repository.listRoutes();
+    const outputRecords = await repository.listOutputs();
+    routes = buildRouteSummaries(routeRecords, outputRecords);
   } catch {
     warnings.push("Telegram topic routing tables are missing or inaccessible. Apply Phase 33 D1 migrations.");
   }
@@ -64,6 +87,27 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
     finalPublishingEnabled,
     wordpressOptional: true,
     mediaMode: "metadata_only",
+    routes,
     warnings
   };
+}
+
+function buildRouteSummaries(routes: TelegramRouteRecord[], outputs: TelegramRouteOutputRecord[]): TelegramTopicWorkflowRouteSummary[] {
+  return routes.map((route) => ({
+    id: route.id,
+    category: route.category,
+    sourceChatId: route.sourceChatId,
+    sourceThreadId: route.sourceThreadId,
+    promptProfile: route.promptProfile,
+    enabled: route.enabled,
+    outputs: outputs.filter((output) => output.routeId === route.id).map((output) => ({
+      id: output.id,
+      language: output.language,
+      reviewChatId: output.reviewChatId,
+      reviewThreadId: output.reviewThreadId,
+      finalChatId: output.finalChatId,
+      ...(output.finalThreadId === undefined ? {} : { finalThreadId: output.finalThreadId }),
+      enabled: output.enabled
+    }))
+  }));
 }
