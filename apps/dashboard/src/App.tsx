@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { describeConnectionBundle, validateWorkerBaseUrl, WorkerApiClient } from "./api";
 import { buildWizardSteps, DASHBOARD_TABS, deriveOverviewCards, nextRecommendedAction, SAFE_TESTS, type DashboardTab, type WizardStepId } from "./dashboard-ux";
-import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, telegramRouteManagerCopy, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS, type TelegramRouteManagerSummary } from "./telegram-route-manager";
+import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, telegramBotMissingText, telegramRouteManagerCopy, telegramRoutesEmptyStateText, telegramRoutesEmptyStateTitle, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS, type TelegramRouteManagerSummary } from "./telegram-route-manager";
 import { redactSensitiveJson } from "./setup";
 import { countErrors, countWarnings } from "./status";
 import { clearOperationHistory, clearSettings, getInternalCredential, loadOperationHistory, loadSettings, saveApiBaseUrl, saveInternalCredential, saveOperationRecord } from "./storage";
 import type { AdminAuditEntry, AdminConfigResponse, ApiResult, ConnectionFeedback, DashboardSettings, JsonObject, JsonValue, OperationName, OperationRecord, StatusBundle } from "./types";
+import { buildWizardGuidance } from "./wizard-content";
 
 const operationLabels: Record<OperationName, string> = {
   refresh_status: "Refresh status",
@@ -34,7 +35,6 @@ const idleConnectionFeedback: ConnectionFeedback = {
 };
 
 type SettingsSection = "general" | "telegram" | "activity" | "technical";
-
 type RecentTelegramOutput = ReturnType<typeof summarizeRecentTelegramOutputs>[number];
 
 function App(): JSX.Element {
@@ -126,19 +126,6 @@ function App(): JSX.Element {
     await refreshStatus();
   }
 
-  async function loadAdminConfig(): Promise<void> {
-    if (!internalReady) return;
-    setBusy("admin_config_load");
-    const response = await client.getAdminConfig();
-    if (response.ok) {
-      setAdminConfig(response.data);
-      setNotice("Settings loaded.");
-    } else {
-      setNotice(response.message);
-    }
-    setBusy(undefined);
-  }
-
   async function loadRouteManager(): Promise<void> {
     if (!internalReady) return;
     setBusy("telegram_route_config");
@@ -212,18 +199,11 @@ function App(): JSX.Element {
 
   return (
     <main className="shell">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">Operator Dashboard</p>
-          <h1>Launch and manage safely.</h1>
-          <p>A guided admin console for setup, Telegram routing, safe tests, and activity review.</p>
-        </div>
-        <div className="heroPanel"><span>Scheduler safe by default</span><span>Public publishing disabled</span><span>Final Telegram publishing disabled by default</span></div>
-      </header>
+      <header className="hero"><div><p className="eyebrow">Operator Dashboard</p><h1>Launch and manage safely.</h1><p>A guided admin console for setup, Telegram routing, safe tests, and activity review.</p></div><div className="heroPanel"><span>Scheduler safe by default</span><span>Public publishing disabled</span><span>Final Telegram publishing disabled by default</span></div></header>
       {notice && <div className="notice">{notice}</div>}
       <nav className="topTabs" aria-label="Dashboard sections">{DASHBOARD_TABS.map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : "secondary"} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}</nav>
       {activeTab === "overview" && <OverviewPage cards={overviewCards} onRefresh={() => void refreshStatus()} busy={busy !== undefined} />}
-      {activeTab === "setup" && <SetupPage steps={wizardSteps} activeStep={activeWizardStep} setActiveStep={setActiveStep} body={<WizardBody id={activeWizardStep.id} connectionFeedback={connectionFeedback} apiBaseUrlInput={apiBaseUrlInput} setApiBaseUrlInput={setApiBaseUrlInput} credentialInput={credentialInput} setCredentialInput={setCredentialInput} saveAndCheckConnection={saveAndCheckConnection} clearLocalSettings={clearLocalSettings} routeManagerSummary={routeManagerSummary} />} />}
+      {activeTab === "setup" && <SetupPage steps={wizardSteps} activeStep={activeWizardStep} setActiveStep={setActiveStep} body={<WizardBody id={activeWizardStep.id} connectionFeedback={connectionFeedback} apiBaseUrlInput={apiBaseUrlInput} setApiBaseUrlInput={setApiBaseUrlInput} credentialInput={credentialInput} setCredentialInput={setCredentialInput} saveAndCheckConnection={saveAndCheckConnection} clearLocalSettings={clearLocalSettings} routeManagerSummary={routeManagerSummary} workerReachable={workerReachable} internalReady={internalReady} operatingMode={operatingMode} aiProvider={aiProvider} wordpressReady={wordpressReady} />} />}
       {activeTab === "settings" && <SettingsPage internalReady={internalReady} section={settingsSection} setSection={setSettingsSection} routeManagerSummary={routeManagerSummary} onLoadRoutes={() => void loadRouteManager()} onValidateRoutes={() => void validateRoutes()} busy={busy !== undefined} />}
       {activeTab === "tests" && <TestsPage internalReady={internalReady} busy={busy} latest={history} telegramText={telegramText} setTelegramText={setTelegramText} wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} confirmTelegram={confirmTelegram} setConfirmTelegram={setConfirmTelegram} confirmWordPress={confirmWordPress} setConfirmWordPress={setConfirmWordPress} runOperation={runOperation} refreshStatus={refreshStatus} validateRoutes={() => void validateRoutes()} loadRecentOutputs={() => void loadRecentTelegramOutputs()} client={client} />}
       {activeTab === "activity" && <ActivityPage audit={audit} recentTelegramOutputs={recentTelegramOutputs} enabled={internalReady} busy={busy} loadActivity={loadActivity} loadRecentTelegramOutputs={() => void loadRecentTelegramOutputs()} />}
@@ -245,12 +225,13 @@ function SetupPage(props: { steps: ReturnType<typeof buildWizardSteps>; activeSt
   return <section className="pageStack"><PageHeader eyebrow="Setup Wizard" title="One guided launch path" text="Complete one useful step at a time. Optional steps are clearly marked." /><div className="progress"><span>{completeCount} of {props.steps.length} steps complete or optional</span><div><i style={{ width: `${Math.round((completeCount / props.steps.length) * 100)}%` }} /></div></div><div className="wizardLayout"><aside className="stepRail">{props.steps.map((step) => <button type="button" key={step.id} className={step.id === props.activeStep.id ? "active" : "ghost"} onClick={() => props.setActiveStep(step.id)} disabled={step.state === "locked"}><span>{step.title}</span><small>{step.state}</small></button>)}</aside><div className="wizardCard"><h2>{props.activeStep.title}</h2>{props.activeStep.detail && <p className="muted">{props.activeStep.detail}</p>}{props.body}</div></div></section>;
 }
 
-function WizardBody(props: { id: WizardStepId; connectionFeedback: ConnectionFeedback; apiBaseUrlInput: string; setApiBaseUrlInput: (value: string) => void; credentialInput: string; setCredentialInput: (value: string) => void; saveAndCheckConnection: () => Promise<void>; clearLocalSettings: () => void; routeManagerSummary: TelegramRouteManagerSummary }): JSX.Element {
-  if (props.id === "connect" || props.id === "admin") {
-    return <div className="wizardContent"><label>Worker URL<input value={props.apiBaseUrlInput} onChange={(event) => props.setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.workers.dev" /></label><label>Admin access<input type="password" value={props.credentialInput} onChange={(event) => props.setCredentialInput(event.target.value)} placeholder="Enter for this page session" /></label><div className="buttonRow"><button type="button" onClick={() => void props.saveAndCheckConnection()}>Check connection</button><button type="button" className="secondary" onClick={props.clearLocalSettings}>Clear</button></div><ConnectionPanel feedback={props.connectionFeedback} /></div>;
-  }
-  if (props.id === "telegram") return <TelegramRouteManager summary={props.routeManagerSummary} compact />;
-  return <div className="wizardContent"><p>Use Settings for this step, then run safe tests. Public publishing controls are not available here.</p></div>;
+function WizardBody(props: { id: WizardStepId; connectionFeedback: ConnectionFeedback; apiBaseUrlInput: string; setApiBaseUrlInput: (value: string) => void; credentialInput: string; setCredentialInput: (value: string) => void; saveAndCheckConnection: () => Promise<void>; clearLocalSettings: () => void; routeManagerSummary: TelegramRouteManagerSummary; workerReachable: boolean; internalReady: boolean; operatingMode: string; aiProvider: string; wordpressReady: boolean }): JSX.Element {
+  const guidance = buildWizardGuidance({ id: props.id, workerReachable: props.workerReachable, hasAdminAccess: props.internalReady, operatingMode: props.operatingMode, aiProvider: props.aiProvider, wordpressReady: props.wordpressReady, routeManagerSummary: props.routeManagerSummary });
+  return <div className="wizardContent"><GuidancePanel guidance={guidance} />{(props.id === "connect" || props.id === "admin") && <div className="panel"><label>Worker URL<input value={props.apiBaseUrlInput} onChange={(event) => props.setApiBaseUrlInput(event.target.value)} placeholder="https://your-worker.workers.dev" /></label><label>Admin access <span className="muted">INTERNAL_API_SECRET</span><input type="password" value={props.credentialInput} onChange={(event) => props.setCredentialInput(event.target.value)} placeholder="Enter for this page session" /></label><div className="buttonRow"><button type="button" onClick={() => void props.saveAndCheckConnection()}>Check connection</button><button type="button" className="secondary" onClick={props.clearLocalSettings}>Clear</button></div><ConnectionPanel feedback={props.connectionFeedback} /></div>}{props.id === "telegram" && <TelegramRouteManager summary={props.routeManagerSummary} compact />}</div>;
+}
+
+function GuidancePanel({ guidance }: { guidance: ReturnType<typeof buildWizardGuidance> }): JSX.Element {
+  return <div className="panel"><h3>{guidance.title}</h3>{guidance.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{guidance.bullets.length > 0 && <ul>{guidance.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}{guidance.status.length > 0 && <div className="overviewCards">{guidance.status.map((item) => <StatusMini key={item.label} label={item.label} value={item.value} />)}</div>}</div>;
 }
 
 function SettingsPage(props: { internalReady: boolean; section: SettingsSection; setSection: (section: SettingsSection) => void; routeManagerSummary: TelegramRouteManagerSummary; onLoadRoutes: () => void; onValidateRoutes: () => void; busy: boolean }): JSX.Element {
@@ -258,7 +239,8 @@ function SettingsPage(props: { internalReady: boolean; section: SettingsSection;
 }
 
 function TelegramRouteManager({ summary, compact = false }: { summary: TelegramRouteManagerSummary; compact?: boolean }): JSX.Element {
-  return <div className="wizardContent"><div className="callout neutralSoft"><strong>{telegramRouteManagerCopy()}</strong><span>Use chat IDs and numeric topic IDs, not visible topic names.</span></div><div className="overviewCards"><StatusMini label="Bot" value={summary.botStatus} /><StatusMini label="Final publishing" value={summary.finalPublishing} /><StatusMini label="Routes" value={String(summary.routeCount)} /><StatusMini label="Enabled outputs" value={String(summary.enabledOutputCount)} /><StatusMini label="Media mode" value={summary.mediaMode} /><StatusMini label="WordPress" value={summary.wordpress} /></div>{!compact && <FormFieldSummary />}{summary.routeCards.length === 0 && <EmptyState title="No Telegram routes loaded" text="Load routes after admin access is configured. The system will not guess routing from topic names." />}{summary.routeCards.map((route) => <article className="panel" key={`${route.sourceChatId}:${route.sourceThreadId}`}><div className="cardHeader"><span className={`badge ${route.enabledLabel === "Enabled" ? "safe" : "neutral"}`}>{route.enabledLabel}</span><h3>{route.category}</h3></div><p>Source chat: <code>{route.sourceChatId}</code> · Topic ID: <code>{route.sourceThreadId}</code></p><p>Prompt profile: <code>{route.promptProfile}</code></p><p>{route.outputsCount} output{route.outputsCount === 1 ? "" : "s"}</p>{route.warnings.map((warning) => <p className="warningText" key={warning}>{warning}</p>)}<div className="grid two">{route.outputs.map((output) => <div className="callout neutralSoft" key={`${route.category}:${output.language}:${output.finalChatId}`}><strong>{output.language.toUpperCase()} · {output.enabledLabel}</strong><span>Review: {output.reviewChatId} / topic {output.reviewThreadId}</span><span>Final: {output.finalChatId}{output.finalThreadId === undefined ? "" : ` / topic ${output.finalThreadId}`}</span><span>Status: {output.latestStatus}</span></div>)}</div></article>)}</div>;
+  const botMissing = telegramBotMissingText(summary);
+  return <div className="wizardContent"><div className="callout neutralSoft"><strong>{telegramRouteManagerCopy()}</strong><span>Use chat IDs and numeric topic IDs, not visible topic names.</span></div>{botMissing && <div className="callout warningSoft"><strong>Bot missing</strong><span>{botMissing}</span></div>}<div className="overviewCards"><StatusMini label="Bot" value={summary.botStatus} /><StatusMini label="Final publishing" value={summary.finalPublishing} /><StatusMini label="Routes" value={String(summary.routeCount)} /><StatusMini label="Enabled outputs" value={String(summary.enabledOutputCount)} /><StatusMini label="Media mode" value={summary.mediaMode} /><StatusMini label="WordPress" value={summary.wordpress} /></div>{!compact && <FormFieldSummary />}{summary.routeCards.length === 0 && <EmptyState title={telegramRoutesEmptyStateTitle()} text={telegramRoutesEmptyStateText(summary)} />}{summary.routeCards.map((route) => <article className="panel" key={`${route.sourceChatId}:${route.sourceThreadId}`}><div className="cardHeader"><span className={`badge ${route.enabledLabel === "Enabled" ? "safe" : "neutral"}`}>{route.enabledLabel}</span><h3>{route.category}</h3></div><p>Source chat: <code>{route.sourceChatId}</code> · Topic ID: <code>{route.sourceThreadId}</code></p><p>Prompt profile: <code>{route.promptProfile}</code></p><p>{route.outputsCount} output{route.outputsCount === 1 ? "" : "s"}</p>{route.warnings.map((warning) => <p className="warningText" key={warning}>{warning}</p>)}<div className="grid two">{route.outputs.map((output) => <div className="callout neutralSoft" key={`${route.category}:${output.language}:${output.finalChatId}`}><strong>{output.language.toUpperCase()} · {output.enabledLabel}</strong><span>Review: {output.reviewChatId} / topic {output.reviewThreadId}</span><span>Final: {output.finalChatId}{output.finalThreadId === undefined ? "" : ` / topic ${output.finalThreadId}`}</span><span>Status: {output.latestStatus}</span></div>)}</div></article>)}</div>;
 }
 
 function FormFieldSummary(): JSX.Element {
@@ -293,10 +275,7 @@ function connectionGuidance(): string[] { return ["Use the deployed Worker URL, 
 function resultToJson(result: ApiResult | undefined): JsonValue {
   if (result === undefined) return null;
   if (result.ok) return result.data;
-  const payload: JsonObject = {
-    error: result.error,
-    message: result.message
-  };
+  const payload: JsonObject = { error: result.error, message: result.message };
   if (typeof result.status === "number") payload.status = result.status;
   if (result.data !== undefined) payload.data = result.data;
   return payload;
