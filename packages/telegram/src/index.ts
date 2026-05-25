@@ -1,12 +1,15 @@
 export const TELEGRAM_REVIEW_ACTIONS = ["edit", "send", "cancel", "status"] as const;
 export type TelegramReviewAction = typeof TELEGRAM_REVIEW_ACTIONS[number];
 
+export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status"] as const;
+export type TelegramOutputReviewAction = typeof TELEGRAM_OUTPUT_REVIEW_ACTIONS[number];
+
 export type TelegramWebhookAck = {
   ok: true;
   receivedUpdateId?: number;
   kind?: ParsedTelegramUpdate["kind"];
   itemId?: string;
-  callbackAction?: TelegramReviewAction;
+  callbackAction?: TelegramReviewAction | TelegramOutputReviewAction;
 };
 
 export type TelegramUser = {
@@ -22,6 +25,7 @@ export type TelegramChat = {
   type?: string;
   title?: string;
   username?: string;
+  is_forum?: boolean;
 };
 
 export type TelegramMessageEntity = {
@@ -31,8 +35,40 @@ export type TelegramMessageEntity = {
   url?: string;
 };
 
+export type TelegramPhotoSize = {
+  file_id: string;
+  file_unique_id?: string;
+  width: number;
+  height: number;
+  file_size?: number;
+};
+
+export type TelegramVideo = {
+  file_id: string;
+  file_unique_id?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  mime_type?: string;
+  file_size?: number;
+};
+
+export type TelegramDocument = {
+  file_id: string;
+  file_unique_id?: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+};
+
+export type TelegramAnimation = TelegramVideo & {
+  file_name?: string;
+};
+
 export type TelegramMessage = {
   message_id: number;
+  message_thread_id?: number;
+  media_group_id?: string;
   from?: TelegramUser;
   chat: TelegramChat;
   date?: number;
@@ -40,10 +76,15 @@ export type TelegramMessage = {
   caption?: string;
   entities?: TelegramMessageEntity[];
   caption_entities?: TelegramMessageEntity[];
+  photo?: TelegramPhotoSize[];
+  video?: TelegramVideo;
+  document?: TelegramDocument;
+  animation?: TelegramAnimation;
 };
 
 export type TelegramCallbackMessage = {
   message_id: number;
+  message_thread_id?: number;
   chat: TelegramChat;
 };
 
@@ -61,13 +102,30 @@ export type TelegramUpdate = {
   callback_query?: TelegramCallbackQuery;
 };
 
+export type ParsedTelegramMedia = {
+  kind: "photo" | "video" | "document" | "animation";
+  fileId: string;
+  fileUniqueId?: string;
+  mediaGroupId?: string;
+  mimeType?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+  fileName?: string;
+};
+
 export type ParsedManualTelegramMessage = {
   kind: "manual_message";
   updateId?: number;
   message: TelegramMessage;
   reviewerId: string;
+  chatId: string;
+  messageId: number;
+  threadId?: number;
   text: string;
   urls: string[];
+  media: ParsedTelegramMedia[];
 };
 
 export type ParsedTelegramCallback = {
@@ -79,13 +137,22 @@ export type ParsedTelegramCallback = {
   action: TelegramReviewAction;
 };
 
+export type ParsedTelegramOutputCallback = {
+  kind: "output_callback";
+  updateId?: number;
+  callback: TelegramCallbackQuery;
+  reviewerId: string;
+  token: string;
+  action: TelegramOutputReviewAction;
+};
+
 export type IgnoredTelegramUpdate = {
   kind: "ignored";
   updateId?: number;
   reason: string;
 };
 
-export type ParsedTelegramUpdate = ParsedManualTelegramMessage | ParsedTelegramCallback | IgnoredTelegramUpdate;
+export type ParsedTelegramUpdate = ParsedManualTelegramMessage | ParsedTelegramCallback | ParsedTelegramOutputCallback | IgnoredTelegramUpdate;
 
 export type TelegramInlineKeyboardButton = {
   text: string;
@@ -107,6 +174,20 @@ export type BuildTelegramReviewDraftInput = {
   sourceUrl: string;
   status: string;
   links: string[];
+};
+
+export type BuildTelegramOutputReviewDraftInput = {
+  generatedOutputId: string;
+  category: string;
+  language: string;
+  itemId: string;
+  sourceUrl: string;
+  originalExcerpt?: string;
+  caption: string;
+  summary?: string;
+  riskFlags: string[];
+  status: string;
+  callbackToken: string;
 };
 
 export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
@@ -135,6 +216,18 @@ export function parseTelegramUpdate(update: TelegramUpdate): ParsedTelegramUpdat
   const updateFields: Pick<ParsedTelegramUpdate, "updateId"> = update.update_id === undefined ? {} : { updateId: update.update_id };
 
   if (update.callback_query) {
+    const parsedOutputCallback = parseTelegramOutputCallbackData(update.callback_query.data ?? "");
+    if (parsedOutputCallback) {
+      return {
+        kind: "output_callback",
+        ...updateFields,
+        callback: update.callback_query,
+        reviewerId: String(update.callback_query.from.id),
+        action: parsedOutputCallback.action,
+        token: parsedOutputCallback.token
+      };
+    }
+
     const parsedCallback = parseReviewCallbackData(update.callback_query.data ?? "");
     if (!parsedCallback) {
       return { kind: "ignored", ...updateFields, reason: "unsupported_callback_data" };
@@ -156,7 +249,8 @@ export function parseTelegramUpdate(update: TelegramUpdate): ParsedTelegramUpdat
   }
 
   const text = getTelegramMessageText(message);
-  if (!text) {
+  const media = extractTelegramMedia(message);
+  if (!text && media.length === 0) {
     return { kind: "ignored", ...updateFields, reason: "empty_message" };
   }
 
@@ -169,9 +263,53 @@ export function parseTelegramUpdate(update: TelegramUpdate): ParsedTelegramUpdat
     ...updateFields,
     message,
     reviewerId: String(message.from.id),
+    chatId: String(message.chat.id),
+    messageId: message.message_id,
+    ...(message.message_thread_id === undefined ? {} : { threadId: message.message_thread_id }),
     text,
-    urls: extractUrls(text)
+    urls: extractUrls(text),
+    media
   };
+}
+
+export function extractTelegramMedia(message: TelegramMessage): ParsedTelegramMedia[] {
+  const media: ParsedTelegramMedia[] = [];
+  const mediaGroupFields = message.media_group_id === undefined ? {} : { mediaGroupId: message.media_group_id };
+
+  const photo = largestPhoto(message.photo);
+  if (photo) {
+    media.push({
+      kind: "photo",
+      fileId: photo.file_id,
+      ...(photo.file_unique_id === undefined ? {} : { fileUniqueId: photo.file_unique_id }),
+      ...mediaGroupFields,
+      ...(photo.file_size === undefined ? {} : { fileSize: photo.file_size }),
+      width: photo.width,
+      height: photo.height
+    });
+  }
+
+  if (message.video) {
+    media.push(videoLikeToMedia("video", message.video, mediaGroupFields));
+  }
+
+  if (message.animation) {
+    media.push(videoLikeToMedia("animation", message.animation, mediaGroupFields));
+  }
+
+  if (message.document) {
+    media.push({
+      kind: "document",
+      fileId: message.document.file_id,
+      ...(message.document.file_unique_id === undefined ? {} : { fileUniqueId: message.document.file_unique_id }),
+      ...mediaGroupFields,
+      ...(message.document.mime_type === undefined ? {} : { mimeType: message.document.mime_type }),
+      ...(message.document.file_size === undefined ? {} : { fileSize: message.document.file_size }),
+      ...(message.document.file_name === undefined ? {} : { fileName: message.document.file_name })
+    });
+  }
+
+  return media;
 }
 
 export function buildReviewCallbackData(action: TelegramReviewAction, itemId: string): string {
@@ -189,8 +327,25 @@ export function parseReviewCallbackData(data: string): { action: TelegramReviewA
   return { action, itemId };
 }
 
+export function buildTelegramOutputCallbackData(action: TelegramOutputReviewAction, token: string): string {
+  return `tgout:${action}:${token}`;
+}
+
+export function parseTelegramOutputCallbackData(data: string): { action: TelegramOutputReviewAction; token: string } | null {
+  const [namespace, action, ...tokenParts] = data.split(":");
+  const token = tokenParts.join(":");
+  if (namespace !== "tgout" || !isTelegramOutputReviewAction(action) || token.length === 0) {
+    return null;
+  }
+  return { action, token };
+}
+
 export function isTelegramReviewAction(value: string | undefined): value is TelegramReviewAction {
   return TELEGRAM_REVIEW_ACTIONS.includes(value as TelegramReviewAction);
+}
+
+export function isTelegramOutputReviewAction(value: string | undefined): value is TelegramOutputReviewAction {
+  return TELEGRAM_OUTPUT_REVIEW_ACTIONS.includes(value as TelegramOutputReviewAction);
 }
 
 export function buildReviewInlineKeyboard(itemId: string): TelegramInlineKeyboardMarkup {
@@ -203,6 +358,20 @@ export function buildReviewInlineKeyboard(itemId: string): TelegramInlineKeyboar
       [
         { text: "Cancel", callback_data: buildReviewCallbackData("cancel", itemId) },
         { text: "Status", callback_data: buildReviewCallbackData("status", itemId) }
+      ]
+    ]
+  };
+}
+
+export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string): TelegramInlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Send", callback_data: buildTelegramOutputCallbackData("send", callbackToken) },
+        { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
+      ],
+      [
+        { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) }
       ]
     ]
   };
@@ -226,6 +395,54 @@ export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): 
       links
     ].join("\n"),
     reply_markup: buildReviewInlineKeyboard(input.itemId)
+  };
+}
+
+export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewDraftInput): TelegramReviewDraft {
+  const riskFlags = input.riskFlags.length > 0 ? input.riskFlags.join(", ") : "none";
+  return {
+    text: [
+      "Telegram topic review draft",
+      "",
+      `Category: ${input.category}`,
+      `Language: ${input.language}`,
+      `Item: ${input.itemId}`,
+      `Output: ${input.generatedOutputId}`,
+      `Status: ${input.status}`,
+      `Source: ${input.sourceUrl}`,
+      "",
+      "Generated caption:",
+      input.caption,
+      "",
+      ...(input.summary === undefined ? [] : ["Summary:", input.summary, ""]),
+      `Risk flags: ${riskFlags}`,
+      "",
+      "Original excerpt:",
+      input.originalExcerpt ?? "none"
+    ].join("\n"),
+    reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken)
+  };
+}
+
+function largestPhoto(photos: TelegramPhotoSize[] | undefined): TelegramPhotoSize | undefined {
+  if (!photos || photos.length === 0) {
+    return undefined;
+  }
+  return [...photos].sort((left, right) => (right.file_size ?? right.width * right.height) - (left.file_size ?? left.width * left.height))[0];
+}
+
+function videoLikeToMedia(kind: "video" | "animation", value: TelegramVideo | TelegramAnimation, mediaGroupFields: { mediaGroupId?: string }): ParsedTelegramMedia {
+  return {
+    kind,
+    fileId: value.file_id,
+    ...(value.file_unique_id === undefined ? {} : { fileUniqueId: value.file_unique_id }),
+    ...mediaGroupFields,
+    ...(value.mime_type === undefined ? {} : { mimeType: value.mime_type }),
+    ...(value.file_size === undefined ? {} : { fileSize: value.file_size }),
+    ...(value.width === undefined ? {} : { width: value.width }),
+    ...(value.height === undefined ? {} : { height: value.height }),
+    ...(value.duration === undefined ? {} : { durationSeconds: value.duration }),
+    ...("file_name" in value && value.file_name !== undefined ? { fileName: value.file_name } : {})
   };
 }
 
