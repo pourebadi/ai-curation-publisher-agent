@@ -9,9 +9,14 @@ export type TelegramTopicWorkflowSummary = {
   enabledOutputCount: number;
   botTokenConfigured: boolean;
   reviewRoutingConfigured: boolean;
-  finalPublishingEnabled: false;
+  finalPublishingEnabled: boolean;
   wordpressOptional: true;
+  mediaMode: "metadata_only";
   warnings: string[];
+};
+
+type EnvWithFinalPublish = Env & {
+  TELEGRAM_FINAL_PUBLISH_ENABLED?: string;
 };
 
 export async function readTelegramTopicWorkflowSummary(env: Env): Promise<TelegramTopicWorkflowSummary> {
@@ -22,6 +27,7 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
   let outputCount = 0;
   let enabledOutputCount = 0;
   let reviewRoutingConfigured = false;
+  const finalPublishingEnabled = (env as EnvWithFinalPublish).TELEGRAM_FINAL_PUBLISH_ENABLED === "true";
 
   try {
     const summary = await repository.countSummary();
@@ -41,7 +47,10 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
     warnings.push("No enabled Telegram route outputs are configured.");
   }
   if (!env.TELEGRAM_BOT_TOKEN?.trim()) {
-    warnings.push("TELEGRAM_BOT_TOKEN is not configured. Real review delivery cannot run.");
+    warnings.push("TELEGRAM_BOT_TOKEN is not configured. Real review delivery and final publishing cannot run.");
+  }
+  if (!finalPublishingEnabled) {
+    warnings.push("Final Telegram publishing is disabled. Send callbacks queue outputs only.");
   }
 
   return {
@@ -52,8 +61,9 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
     enabledOutputCount,
     botTokenConfigured: Boolean(env.TELEGRAM_BOT_TOKEN?.trim()),
     reviewRoutingConfigured,
-    finalPublishingEnabled: false,
+    finalPublishingEnabled,
     wordpressOptional: true,
+    mediaMode: "metadata_only",
     warnings
   };
 }
