@@ -97,3 +97,45 @@ migrations_dir = "packages/db/migrations"
 [triggers]
 # Mock-safe scheduled poller. It uses mock providers by default and does not call external APIs.
 crons = ["*/30 * * * *"]
+
+[env.staging]
+name = "ai-curation-publisher-agent-staging"
+workers_dev = true
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+LOG_LEVEL = "info"
+PROVIDERS_MODE = "mock"
+SCHEDULER_ENABLED = "false"
+SCHEDULER_DRY_RUN = "true"
+SCHEDULER_ALLOW_REAL_PROVIDERS = "false"
+SCHEDULER_ALLOW_PUBLISHING = "false"
+SCHEDULER_MAX_SOURCES_PER_RUN = "1"
+SCHEDULER_MAX_ITEMS_PER_RUN = "2"
+MAX_AI_ITEMS_PER_RUN = "0"
+MAX_PROVIDER_ITEMS_PER_RUN = "5"
+MAX_PUBLISH_ITEMS_PER_RUN = "0"
+TELEGRAM_REAL_REVIEW_ENABLED = "true"
+TELEGRAM_FINAL_PUBLISH_ENABLED = "false"
+TELEGRAM_PUBLISH_SCHEDULER_ENABLED = "false"
+TELEGRAM_PUBLISH_DUE_LIMIT = "5"
+MEDIA_PROCESSING_MODE = "telegram_file_id_reuse"
+GITHUB_MEDIA_PROCESSOR_ENABLED = "false"
+GITHUB_MEDIA_PROCESSOR_REPOSITORY = ""
+GITHUB_MEDIA_PROCESSOR_WORKFLOW_ID = "media-processor.yml"
+GITHUB_MEDIA_PROCESSOR_REF = "test/telegram-mvp"
+GITHUB_MEDIA_PROCESSOR_CALLBACK_URL = ""
+TELEGRAM_MEDIA_MAX_PHOTO_MB = "9"
+TELEGRAM_MEDIA_MAX_FILE_MB = "49"
+TELEGRAM_MEDIA_STAGING_CHAT_ID = ""
+TELEGRAM_MEDIA_STAGING_THREAD_ID = ""
+TELEGRAM_MEDIA_CACHE_CHAT_ID = ""
+TELEGRAM_MEDIA_CACHE_THREAD_ID = ""
+WORDPRESS_REAL_DRY_RUN_ENABLED = "false"
+WORDPRESS_DEFAULT_STATUS = "draft"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "curator_mvp_staging"
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+migrations_dir = "packages/db/migrations"
