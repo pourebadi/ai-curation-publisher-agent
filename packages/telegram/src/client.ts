@@ -5,6 +5,7 @@ export type SendReviewMessageInput = {
   messageThreadId?: number;
   text: string;
   replyMarkup: TelegramInlineKeyboardMarkup;
+  media?: ParsedTelegramMedia[];
 };
 
 export type EditReviewMessageInput = {
@@ -32,6 +33,7 @@ export type TelegramClientMessage = {
   text: string;
   messageThreadId?: number;
   replyMarkup?: TelegramInlineKeyboardMarkup;
+  media?: ParsedTelegramMedia[];
 };
 
 export interface TelegramClient {
@@ -55,7 +57,8 @@ export class MockTelegramClient implements TelegramClient {
       messageId: `mock_telegram_review_${this.nextMessageNumber}`,
       text: input.text,
       ...(input.messageThreadId === undefined ? {} : { messageThreadId: input.messageThreadId }),
-      replyMarkup: input.replyMarkup
+      replyMarkup: input.replyMarkup,
+      ...(input.media === undefined ? {} : { media: input.media })
     };
     this.nextMessageNumber += 1;
     this.sentReviewMessages.push(message);

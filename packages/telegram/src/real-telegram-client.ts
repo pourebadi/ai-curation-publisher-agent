@@ -72,10 +72,45 @@ export class RealTelegramClient implements TelegramClient {
   }
 
   async sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage> {
+    const media = input.media ?? [];
+
+    if (media.length > 0) {
+      const mediaValidation = validateTelegramPublishMedia(media);
+      if (!mediaValidation.ok) {
+        throw new TelegramClientError({
+          category: "invalid_media",
+          message: mediaValidation.errorMessage
+        });
+      }
+
+      if (media.length > 1) {
+        await this.callTelegramApi<TelegramApiMessage[]>("sendMediaGroup", {
+          chat_id: input.chatId,
+          ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+          media: media.map((entry, index) => ({
+            type: telegramInputMediaType(entry),
+            media: entry.fileId,
+            ...(index === 0 ? { caption: buildReviewMediaPreviewCaption(input.text) } : {})
+          }))
+        });
+      } else {
+        const firstMedia = media[0]!;
+        const method = telegramMethodForMedia(firstMedia);
+        const mediaField = telegramMediaFieldForMedia(firstMedia);
+
+        await this.callTelegramApi<TelegramApiMessage>(method, {
+          chat_id: input.chatId,
+          ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+          [mediaField]: firstMedia.fileId,
+          caption: buildReviewMediaPreviewCaption(input.text)
+        });
+      }
+    }
+
     const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-      text: input.text,
+      text: media.length > 0 ? `${input.text}\n\nMedia preview was sent above.` : input.text,
       reply_markup: input.replyMarkup,
       disable_web_page_preview: true
     });
@@ -214,6 +249,14 @@ export class RealTelegramClient implements TelegramClient {
 
     return payload.result as T;
   }
+}
+
+function buildReviewMediaPreviewCaption(reviewText: string): string {
+  const outputMatch = reviewText.match(/Output:\s*(\S+)/);
+  const statusMatch = reviewText.match(/Status:\s*(\S+)/);
+  const output = outputMatch?.[1] ?? "unknown_output";
+  const status = statusMatch?.[1] ?? "review";
+  return `Review media preview\nOutput: ${output}\nStatus: ${status}\n\nOpen this media, then use the control message below.`;
 }
 
 function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "sendVideo" | "sendDocument" {
