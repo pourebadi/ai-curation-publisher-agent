@@ -120,7 +120,8 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         text: draft.text,
         replyMarkup: draft.reply_markup,
         media: input.parsed.media,
-        mediaPreviewCaption: localizedOutput.caption
+        mediaPreviewCaption: localizedOutput.caption,
+        sourceUrl: canonicalUrl
       });
       await reviewMessagesRepository.create({
         generatedOutputId: generatedOutput.id,

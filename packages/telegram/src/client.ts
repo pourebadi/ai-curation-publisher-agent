@@ -7,6 +7,7 @@ export type SendReviewMessageInput = {
   replyMarkup: TelegramInlineKeyboardMarkup;
   media?: ParsedTelegramMedia[];
   mediaPreviewCaption?: string;
+  sourceUrl?: string;
 };
 
 export type EditReviewMessageInput = {

@@ -111,7 +111,7 @@ export class RealTelegramClient implements TelegramClient {
     const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-      text: media.length > 0 ? buildReviewControlText(input.text) : input.text,
+      text: media.length > 0 ? buildReviewControlText(input.text, input.sourceUrl) : input.text,
       reply_markup: input.replyMarkup,
       disable_web_page_preview: true
     });
@@ -252,7 +252,7 @@ export class RealTelegramClient implements TelegramClient {
   }
 }
 
-function buildReviewControlText(reviewText: string): string {
+function buildReviewControlText(reviewText: string, sourceUrl?: string): string {
   const category = extractReviewField(reviewText, "Category") ?? "unknown";
   const language = extractReviewField(reviewText, "Language") ?? "unknown";
   const timezone = extractReviewPublishingField(reviewText, "Timezone") ?? "unknown";
@@ -264,7 +264,8 @@ function buildReviewControlText(reviewText: string): string {
     `Category: ${category}`,
     `Language: ${language}`,
     `Timezone: ${timezone}`,
-    `Minimum gap: ${minimumGap}`
+    `Minimum gap: ${minimumGap}`,
+    ...(sourceUrl === undefined || sourceUrl.trim().length === 0 ? [] : [`Source: ${sourceUrl.trim()}`])
   ].join("\n");
 }
 

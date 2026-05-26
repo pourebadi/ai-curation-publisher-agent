@@ -86,7 +86,7 @@ export function buildMockLocalizedTelegramOutput(input: BuildLocalizedTelegramOu
   return {
     language,
     headline: `${input.route.category} update (${language})`,
-    caption: `[${language}] ${excerpt}\n\n${input.sourceAttributionText}`,
+    caption: excerpt,
     summary: `Mock ${language} summary for ${input.route.category}.`,
     hashtags: [`#${input.route.category}`, `#${language}`],
     riskFlags: [],
