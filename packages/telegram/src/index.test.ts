@@ -202,9 +202,15 @@ describe("telegram manual ingest parsing", () => {
       callbackToken: "tgout_local"
     });
 
-    expect(draft.text).toContain("Telegram topic review draft");
-    expect(draft.text).toContain("crypto");
-    expect(draft.text).toContain("fa");
+    expect(draft.text).toContain("Generated caption");
+    expect(draft.text).toContain("Review controls");
+    expect(draft.text).toContain("Category: crypto");
+    expect(draft.text).toContain("Language: fa");
+    expect(draft.text).toContain("Timezone: UTC");
+    expect(draft.text).toContain("Minimum gap: 0 minutes");
+    expect(draft.text).not.toContain("Telegram topic review draft");
+    expect(draft.text).not.toContain("Summary:");
+    expect(draft.text).not.toContain("Original excerpt:");
     expect(draft.reply_markup.inline_keyboard.flat().map((button) => button.text)).toEqual(["Send", "Cancel", "Status", "Schedule"]);
   });
 

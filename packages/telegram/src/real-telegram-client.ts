@@ -73,6 +73,7 @@ export class RealTelegramClient implements TelegramClient {
 
   async sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage> {
     const media = input.media ?? [];
+    const mediaPreviewCaption = input.mediaPreviewCaption?.trim() || input.text;
 
     if (media.length > 0) {
       const mediaValidation = validateTelegramPublishMedia(media);
@@ -90,7 +91,7 @@ export class RealTelegramClient implements TelegramClient {
           media: media.map((entry, index) => ({
             type: telegramInputMediaType(entry),
             media: entry.fileId,
-            ...(index === 0 ? { caption: input.text } : {})
+            ...(index === 0 ? { caption: mediaPreviewCaption } : {})
           }))
         });
       } else {
@@ -102,7 +103,7 @@ export class RealTelegramClient implements TelegramClient {
           chat_id: input.chatId,
           ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
           [mediaField]: firstMedia.fileId,
-          caption: input.text
+          caption: mediaPreviewCaption
         });
       }
     }

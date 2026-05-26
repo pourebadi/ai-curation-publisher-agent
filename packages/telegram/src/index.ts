@@ -433,39 +433,16 @@ function buildMinimalReviewText(input: {
 }
 
 export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewDraftInput): TelegramReviewDraft {
-  const riskFlags = input.riskFlags.length > 0 ? input.riskFlags.join(", ") : "none";
-  const windows = input.allowedPublishWindows && input.allowedPublishWindows.length > 0 ? input.allowedPublishWindows.join(", ") : "any time";
-  const scheduleLines = input.publishMode === undefined ? [] : [
-    "",
-    "Publishing plan:",
-    `Mode: ${input.publishMode}`,
-    `Timezone: ${input.timezone ?? "UTC"}`,
-    `Window: ${windows}`,
-    `Minimum gap: ${input.minimumGapMinutes ?? 0} minutes`
-  ];
   return {
-    text: [
-      "Telegram topic review draft",
-      "",
-      `Category: ${input.category}`,
-      `Language: ${input.language}`,
-      `Item: ${input.itemId}`,
-      `Output: ${input.generatedOutputId}`,
-      `Status: ${input.status}`,
-      `Source: ${input.sourceUrl}`,
-      "",
-      "Generated caption:",
-      input.caption,
-      "",
-      ...(input.summary === undefined ? [] : ["Summary:", input.summary, ""]),
-      ...(input.scheduleSummary === undefined ? [] : ["Schedule:", input.scheduleSummary, ""]),
-      ...(input.mediaSummary === undefined ? [] : ["Media:", input.mediaSummary, ""]),
-      `Risk flags: ${riskFlags}`,
-      ...scheduleLines,
-      "",
-      "Original excerpt:",
-      input.originalExcerpt ?? "none"
-    ].join("\n"),
+    text: buildMinimalReviewText({
+      category: input.category,
+      language: input.language,
+      caption: input.caption,
+      publishMode: input.publishMode ?? "queued",
+      timezone: input.timezone ?? "UTC",
+      minimumGapMinutes: input.minimumGapMinutes ?? 0,
+      hasMedia: input.mediaSummary !== undefined && input.mediaSummary !== "none"
+    }),
     reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken)
   };
 }
