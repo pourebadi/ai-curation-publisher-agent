@@ -405,6 +405,33 @@ export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): 
   };
 }
 
+function buildMinimalReviewText(input: {
+  category: string;
+  language: string;
+  caption: string;
+  publishMode: string;
+  timezone: string;
+  minimumGapMinutes: number;
+  hasMedia: boolean;
+}): string {
+  const controls = [
+    "Review controls",
+    "",
+    `Category: ${input.category}`,
+    `Language: ${input.language}`,
+    `Timezone: ${input.timezone}`,
+    `Minimum gap: ${input.minimumGapMinutes} minutes`
+  ].join("\n");
+
+  if (input.hasMedia) return controls;
+
+  return [
+    input.caption,
+    "",
+    controls
+  ].join("\n");
+}
+
 export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewDraftInput): TelegramReviewDraft {
   const riskFlags = input.riskFlags.length > 0 ? input.riskFlags.join(", ") : "none";
   const windows = input.allowedPublishWindows && input.allowedPublishWindows.length > 0 ? input.allowedPublishWindows.join(", ") : "any time";

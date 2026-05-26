@@ -90,7 +90,7 @@ export class RealTelegramClient implements TelegramClient {
           media: media.map((entry, index) => ({
             type: telegramInputMediaType(entry),
             media: entry.fileId,
-            ...(index === 0 ? { caption: buildReviewMediaPreviewCaption(input.text) } : {})
+            ...(index === 0 ? { caption: input.text } : {})
           }))
         });
       } else {
@@ -102,7 +102,7 @@ export class RealTelegramClient implements TelegramClient {
           chat_id: input.chatId,
           ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
           [mediaField]: firstMedia.fileId,
-          caption: buildReviewMediaPreviewCaption(input.text)
+          caption: input.text
         });
       }
     }
@@ -110,7 +110,7 @@ export class RealTelegramClient implements TelegramClient {
     const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-      text: media.length > 0 ? `${input.text}\n\nMedia preview was sent above.` : input.text,
+      text: media.length > 0 ? buildReviewControlText(input.text) : input.text,
       reply_markup: input.replyMarkup,
       disable_web_page_preview: true
     });
@@ -251,12 +251,32 @@ export class RealTelegramClient implements TelegramClient {
   }
 }
 
-function buildReviewMediaPreviewCaption(reviewText: string): string {
-  const outputMatch = reviewText.match(/Output:\s*(\S+)/);
-  const statusMatch = reviewText.match(/Status:\s*(\S+)/);
-  const output = outputMatch?.[1] ?? "unknown_output";
-  const status = statusMatch?.[1] ?? "review";
-  return `Review media preview\nOutput: ${output}\nStatus: ${status}\n\nOpen this media, then use the control message below.`;
+function buildReviewControlText(reviewText: string): string {
+  const category = extractReviewField(reviewText, "Category") ?? "unknown";
+  const language = extractReviewField(reviewText, "Language") ?? "unknown";
+  const timezone = extractReviewPublishingField(reviewText, "Timezone") ?? "unknown";
+  const minimumGap = extractReviewPublishingField(reviewText, "Minimum gap") ?? "unknown";
+
+  return [
+    "Review controls",
+    "",
+    `Category: ${category}`,
+    `Language: ${language}`,
+    `Timezone: ${timezone}`,
+    `Minimum gap: ${minimumGap}`
+  ].join("\n");
+}
+
+function extractReviewField(reviewText: string, field: string): string | undefined {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = reviewText.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
+  return match?.[1]?.trim();
+}
+
+function extractReviewPublishingField(reviewText: string, field: string): string | undefined {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = reviewText.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
+  return match?.[1]?.trim();
 }
 
 function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "sendVideo" | "sendDocument" {
