@@ -1,4 +1,18 @@
-import { MediaAssetsRepository, MediaProcessingJobsRepository, type CreateMediaAssetInput, type MediaProcessingJobRecord } from "@curator/db";
+import {
+  MediaAssetsRepository,
+  MediaProcessingJobsRepository,
+  ItemsRepository,
+  TelegramGeneratedOutputsRepository,
+  TelegramReviewMessagesRepository,
+  TelegramRoutesRepository,
+  type CreateMediaAssetInput,
+  type MediaAssetRecord,
+  type MediaProcessingJobRecord,
+  type TelegramGeneratedOutputRecord,
+  type TelegramRouteOutputRecord,
+  type TelegramRouteRecord
+} from "@curator/db";
+import { buildTelegramOutputReviewDraft, RealTelegramClient, type ParsedTelegramMedia } from "@curator/telegram";
 import type { Env } from "../types";
 
 export type MediaProcessingDispatchResult = {
@@ -186,7 +200,136 @@ export async function completeMediaProcessingJob(env: Env, body: CompleteMediaPr
 
   await mediaAssetsRepository.createMany(assets);
   await jobsRepository.markReady(job.id, { storedAssetCount: assets.length, ...(body.raw ?? {}) });
-  return { ok: true, jobId: job.id, status: "ready", storedAssetCount: assets.length, message: "Media processing result stored." };
+
+  await sendMediaReadyReview(env, job);
+
+  return { ok: true, jobId: job.id, status: "ready", storedAssetCount: assets.length, message: "Media processing result stored and review sent." };
+}
+
+async function sendMediaReadyReview(env: Env, job: MediaProcessingJobRecord): Promise<void> {
+  const itemsRepository = new ItemsRepository(env.DB);
+  const mediaAssetsRepository = new MediaAssetsRepository(env.DB);
+  const generatedOutputsRepository = new TelegramGeneratedOutputsRepository(env.DB);
+  const routesRepository = new TelegramRoutesRepository(env.DB);
+  const reviewMessagesRepository = new TelegramReviewMessagesRepository(env.DB);
+
+  const item = await itemsRepository.findById(job.itemId);
+  if (!item) return;
+
+  const assets = (await mediaAssetsRepository.findByItemId(job.itemId))
+    .filter((asset) => asset.status === "ready" && asset.telegramFileId !== undefined);
+
+  const media = assetsToParsedTelegramMedia(assets);
+  if (media.length === 0) return;
+
+  const generatedOutputs = await generatedOutputsRepository.listByItemId(job.itemId);
+  const telegramClient = new RealTelegramClient({
+    ...(env.TELEGRAM_BOT_TOKEN === undefined ? {} : { botToken: env.TELEGRAM_BOT_TOKEN })
+  });
+
+  for (const generatedOutput of generatedOutputs) {
+    const route = await routesRepository.findRouteById(generatedOutput.routeId);
+    const routeOutput = await routesRepository.findOutputById(generatedOutput.routeOutputId);
+    if (!route || !routeOutput || !routeOutput.enabled) continue;
+
+    await sendOneMediaReview({
+      telegramClient,
+      reviewMessagesRepository,
+      generatedOutput,
+      route,
+      routeOutput,
+      sourceUrl: job.sourceUrl,
+      originalExcerpt: item.text ?? "",
+      media
+    });
+  }
+}
+
+async function sendOneMediaReview(input: {
+  telegramClient: RealTelegramClient;
+  reviewMessagesRepository: TelegramReviewMessagesRepository;
+  generatedOutput: TelegramGeneratedOutputRecord;
+  route: TelegramRouteRecord;
+  routeOutput: TelegramRouteOutputRecord;
+  sourceUrl: string;
+  originalExcerpt: string;
+  media: ParsedTelegramMedia[];
+}): Promise<void> {
+  const output = input.generatedOutput.output;
+
+  const draft = buildTelegramOutputReviewDraft({
+    generatedOutputId: input.generatedOutput.id,
+    category: input.route.category,
+    language: input.routeOutput.language,
+    itemId: input.generatedOutput.itemId,
+    sourceUrl: input.sourceUrl,
+    originalExcerpt: input.originalExcerpt,
+    caption: output.caption,
+    ...(output.summary === undefined ? {} : { summary: output.summary }),
+    riskFlags: output.riskFlags,
+    status: "ready_for_review",
+    callbackToken: input.generatedOutput.id,
+    scheduleSummary: createMediaReadyScheduleSummary(input.routeOutput),
+    mediaSummary: `${input.media.length} external media asset${input.media.length === 1 ? "" : "s"}`,
+    hasPreviewMedia: true,
+    publishMode: input.routeOutput.publishMode,
+    timezone: input.routeOutput.timezone,
+    allowedPublishWindows: input.routeOutput.allowedPublishWindows,
+    minimumGapMinutes: input.routeOutput.minimumGapMinutes,
+    sourceButtonUrl: input.sourceUrl
+  });
+
+  const sent = await input.telegramClient.sendReviewMessage({
+    chatId: input.routeOutput.reviewChatId,
+    messageThreadId: input.routeOutput.reviewThreadId,
+    text: draft.text,
+    replyMarkup: draft.reply_markup,
+    media: input.media,
+    mediaPreviewCaption: output.caption,
+    sourceUrl: input.sourceUrl
+  });
+
+  await input.reviewMessagesRepository.create({
+    generatedOutputId: input.generatedOutput.id,
+    itemId: input.generatedOutput.itemId,
+    routeId: input.route.id,
+    routeOutputId: input.routeOutput.id,
+    language: input.routeOutput.language,
+    chatId: sent.chatId,
+    threadId: input.routeOutput.reviewThreadId,
+    messageId: sent.messageId,
+    status: "sent"
+  });
+}
+
+function assetsToParsedTelegramMedia(assets: MediaAssetRecord[]): ParsedTelegramMedia[] {
+  return assets.flatMap((asset): ParsedTelegramMedia[] => {
+    if (!asset.telegramFileId) return [];
+
+    const kind = normalizeAssetTelegramKind(asset);
+    return [{
+      kind,
+      fileId: asset.telegramFileId,
+      ...(asset.telegramFileUniqueId === undefined ? {} : { fileUniqueId: asset.telegramFileUniqueId }),
+      ...(asset.telegramMediaGroupId === undefined ? {} : { mediaGroupId: asset.telegramMediaGroupId }),
+      ...(asset.telegramMimeType === undefined && asset.mimeType === undefined ? {} : { mimeType: asset.telegramMimeType ?? asset.mimeType }),
+      ...(asset.telegramFileSize === undefined && asset.sizeBytes === undefined ? {} : { fileSize: asset.telegramFileSize ?? asset.sizeBytes }),
+      ...(asset.width === undefined ? {} : { width: asset.width }),
+      ...(asset.height === undefined ? {} : { height: asset.height }),
+      ...(asset.durationSeconds === undefined ? {} : { durationSeconds: asset.durationSeconds })
+    }];
+  });
+}
+
+function normalizeAssetTelegramKind(asset: MediaAssetRecord): ParsedTelegramMedia["kind"] {
+  if (asset.telegramFileType === "photo" || asset.kind === "image") return "photo";
+  if (asset.telegramFileType === "animation") return "animation";
+  if (asset.telegramFileType === "video" || asset.kind === "video") return "video";
+  return "document";
+}
+
+function createMediaReadyScheduleSummary(routeOutput: TelegramRouteOutputRecord): string {
+  return `${routeOutput.publishMode}; ${routeOutput.timezone}; window ${routeOutput.allowedPublishWindows.length > 0 ? routeOutput.allowedPublishWindows.join(", ") : "anytime"}; gap ${routeOutput.minimumGapMinutes}m; max ${routeOutput.maxPostsPerHour}/hour, ${routeOutput.maxPostsPerDay}/day`;
 }
 
 const safeFetch: typeof fetch = (request, init) => fetch(request, init);

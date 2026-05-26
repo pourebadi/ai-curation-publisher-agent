@@ -124,6 +124,15 @@ export class TelegramGeneratedOutputsRepository {
     const row = await this.db.prepare("SELECT * FROM telegram_generated_outputs WHERE id = ?").bind(id).first<TelegramGeneratedOutputRow>();
     return row ? toGeneratedOutputRecord(row) : null;
   }
+  async listByItemId(itemId: string): Promise<TelegramGeneratedOutputRecord[]> {
+    const result = await this.db
+      .prepare("SELECT * FROM telegram_generated_outputs WHERE item_id = ? ORDER BY created_at ASC")
+      .bind(itemId)
+      .all<TelegramGeneratedOutputRow>();
+
+    return (result.results ?? []).map(toGeneratedOutputRecord);
+  }
+
 
   async updateStatus(id: string, status: TelegramGeneratedOutputStatus, errorMessage?: string): Promise<void> {
     await this.db.prepare("UPDATE telegram_generated_outputs SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
