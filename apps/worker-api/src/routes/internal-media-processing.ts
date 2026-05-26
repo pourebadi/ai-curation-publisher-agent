@@ -1,6 +1,6 @@
 import { MediaProcessingJobsRepository } from "@curator/db";
 import { jsonResponse } from "../http/json";
-import { completeMediaProcessingJob, type CompleteMediaProcessingJobInput } from "../operations/media-processing";
+import { completeMediaProcessingJob, dispatchExistingMediaProcessingJob, type CompleteMediaProcessingJobInput } from "../operations/media-processing";
 import { verifyInternalRequest } from "../security/internal-auth";
 import { badRequest, methodNotAllowed, parseJsonBody, serverError, unauthorized } from "./response";
 import type { Env } from "../types";
@@ -9,6 +9,7 @@ export async function handleInternalMediaProcessing(request: Request, env: Env):
   const url = new URL(request.url);
   if (url.pathname === "/internal/media/processing/callback") return handleCallback(request, env);
   if (url.pathname === "/internal/media/processing/jobs") return handleJobs(request, env);
+  if (url.pathname.startsWith("/internal/media/processing/jobs/") && url.pathname.endsWith("/dispatch")) return handleDispatchJob(request, env);
   return methodNotAllowed(["GET", "POST"], request);
 }
 
@@ -26,6 +27,28 @@ async function handleCallback(request: Request, env: Env): Promise<Response> {
     return jsonResponse(result, { status: result.ok ? 200 : 400 });
   } catch (error) {
     return serverError("media_processing_callback_failed", error instanceof Error ? error.message : "Media processing callback failed.", request);
+  }
+}
+
+async function handleDispatchJob(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"], request);
+
+  const auth = verifyInternalRequest(request, env);
+  if (!auth.ok) return unauthorized(auth.error, "Internal API authorization failed.", request);
+
+  const url = new URL(request.url);
+  const match = url.pathname.match(/^\/internal\/media\/processing\/jobs\/([^/]+)\/dispatch$/);
+  const jobId = match?.[1];
+
+  if (!jobId) {
+    return badRequest("missing_media_job_id", "Media processing job ID is required.", request);
+  }
+
+  try {
+    const result = await dispatchExistingMediaProcessingJob(env, jobId);
+    return jsonResponse(result, { status: result.ok ? 200 : 400 });
+  } catch (error) {
+    return serverError("media_processing_dispatch_failed", error instanceof Error ? error.message : "Media processing dispatch failed.", request);
   }
 }
 

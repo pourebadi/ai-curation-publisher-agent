@@ -112,6 +112,42 @@ export async function maybeDispatchExternalMediaProcessing(input: {
   return { enabled: true, createdJobs, dispatchedJobs, warnings };
 }
 
+export async function dispatchExistingMediaProcessingJob(env: Env, jobId: string): Promise<{
+  ok: boolean;
+  jobId: string;
+  status: string;
+  message: string;
+}> {
+  const jobsRepository = new MediaProcessingJobsRepository(env.DB);
+  const job = await jobsRepository.findById(jobId);
+
+  if (!job) {
+    return { ok: false, jobId, status: "missing", message: "Media processing job was not found." };
+  }
+
+  await jobsRepository.markDispatching(job.id);
+
+  try {
+    const dispatch = await dispatchGithubMediaWorkflow({
+      env: env as EnvWithMediaProcessing,
+      job,
+      fetchImpl: safeFetch
+    });
+
+    if (dispatch.ok) {
+      await jobsRepository.markDispatched(job.id, dispatch.workflowRunId);
+      return { ok: true, jobId: job.id, status: "dispatched", message: "Media processing job dispatched." };
+    }
+
+    await jobsRepository.markFailed(job.id, dispatch.warning, { sourceUrl: job.sourceUrl });
+    return { ok: false, jobId: job.id, status: "failed", message: dispatch.warning };
+  } catch (error) {
+    const message = `GitHub media workflow dispatch crashed for job ${job.id}: ${describeDispatchError(error)}`;
+    await jobsRepository.markFailed(job.id, message, { sourceUrl: job.sourceUrl });
+    return { ok: false, jobId: job.id, status: "failed", message };
+  }
+}
+
 export async function completeMediaProcessingJob(env: Env, body: CompleteMediaProcessingJobInput): Promise<{
   ok: boolean;
   jobId: string;
