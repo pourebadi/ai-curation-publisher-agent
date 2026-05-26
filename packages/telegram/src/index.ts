@@ -196,6 +196,7 @@ export type BuildTelegramOutputReviewDraftInput = {
   allowedPublishWindows?: string[];
   minimumGapMinutes?: number;
   sourceButtonUrl?: string;
+  hasPreviewMedia?: boolean;
 };
 
 export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
@@ -447,7 +448,7 @@ export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewD
       publishMode: input.publishMode ?? "queued",
       timezone: input.timezone ?? "UTC",
       minimumGapMinutes: input.minimumGapMinutes ?? 0,
-      hasMedia: input.mediaSummary !== undefined && input.mediaSummary !== "none"
+      hasMedia: input.hasPreviewMedia === true
     }),
     reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken, input.sourceButtonUrl)
   };

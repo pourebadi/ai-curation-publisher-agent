@@ -110,6 +110,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         callbackToken: generatedOutput.id,
         scheduleSummary: createScheduleSummary(routeOutput),
         mediaSummary: createMediaSummary(input.parsed.media, mediaDispatch),
+        hasPreviewMedia: input.parsed.media.length > 0,
         publishMode: routeOutput.publishMode,
         timezone: routeOutput.timezone,
         allowedPublishWindows: routeOutput.allowedPublishWindows,
