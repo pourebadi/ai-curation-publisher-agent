@@ -238,9 +238,23 @@ async function dispatchGithubMediaWorkflow(input: { env: EnvWithMediaProcessing;
     })
   });
   if (!response.ok) {
-    return { ok: false, warning: `GitHub media workflow dispatch failed for job ${input.job.id}.` };
+    const detail = await safeReadResponseText(response);
+    return {
+      ok: false,
+      warning: detail.length > 0
+        ? `GitHub media workflow dispatch failed for job ${input.job.id}: HTTP ${response.status} ${response.statusText}: ${detail}`
+        : `GitHub media workflow dispatch failed for job ${input.job.id}: HTTP ${response.status} ${response.statusText}.`
+    };
   }
   return { ok: true };
+}
+
+async function safeReadResponseText(response: Response): Promise<string> {
+  try {
+    return (await response.text()).replace(/\s+/g, " ").trim().slice(0, 800);
+  } catch {
+    return "";
+  }
 }
 
 function normalizeCallbackAssets(job: MediaProcessingJobRecord, assets: NonNullable<CompleteMediaProcessingJobInput["assets"]>): CreateMediaAssetInput[] {
