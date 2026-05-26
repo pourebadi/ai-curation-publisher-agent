@@ -67,7 +67,7 @@ export class RealTelegramClient implements TelegramClient {
 
   constructor(options: RealTelegramClientOptions) {
     this.botToken = options.botToken?.trim();
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.apiBaseUrl = options.apiBaseUrl ?? "https://api.telegram.org";
   }
 
