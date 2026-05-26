@@ -1,0 +1,92 @@
+name: Telegram media processor
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Media processing job ID from the Worker
+        required: true
+        type: string
+      item_id:
+        description: Item ID from the Worker
+        required: true
+        type: string
+      source_url:
+        description: External source URL to download with yt-dlp/requests
+        required: true
+        type: string
+      callback_url:
+        description: Worker callback URL, usually /internal/media/processing/callback
+        required: true
+        type: string
+      media_asset_id:
+        description: Optional media asset ID created by the Worker
+        required: false
+        type: string
+      kind:
+        description: Expected media kind, such as image or video
+        required: false
+        type: string
+      telegram_staging_chat_id:
+        description: Optional staging chat override for Telegram upload
+        required: false
+        type: string
+      telegram_staging_thread_id:
+        description: Optional staging topic override for Telegram upload
+        required: false
+        type: string
+      max_photo_mb:
+        description: Practical photo upload limit in MB
+        required: false
+        type: string
+      max_file_mb:
+        description: Practical video/document upload limit in MB
+        required: false
+        type: string
+      strict_missing_media:
+        description: Fail instead of skip when no downloadable media is found
+        required: false
+        type: string
+
+jobs:
+  process-media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install yt-dlp requests
+
+      - name: Download, stage in Telegram, and callback Worker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_MEDIA_CACHE_CHAT_ID: ${{ inputs.telegram_staging_chat_id || secrets.TELEGRAM_MEDIA_CACHE_CHAT_ID || secrets.TELEGRAM_MEDIA_STAGING_CHAT_ID }}
+          TELEGRAM_MEDIA_CACHE_THREAD_ID: ${{ inputs.telegram_staging_thread_id || secrets.TELEGRAM_MEDIA_CACHE_THREAD_ID || secrets.TELEGRAM_MEDIA_STAGING_THREAD_ID }}
+          WORKER_INTERNAL_API_SECRET: ${{ secrets.WORKER_INTERNAL_API_SECRET || secrets.INTERNAL_API_SECRET }}
+          MAX_PHOTO_MB: ${{ inputs.max_photo_mb || vars.MAX_PHOTO_MB || '9' }}
+          MAX_FILE_MB: ${{ inputs.max_file_mb || vars.MAX_FILE_MB || '49' }}
+          INSTAGRAM_COOKIES_B64: ${{ secrets.INSTAGRAM_COOKIES_B64 }}
+          X_COOKIES_B64: ${{ secrets.X_COOKIES_B64 }}
+          MEDIA_PROCESSING_STRICT: ${{ inputs.strict_missing_media || vars.MEDIA_PROCESSING_STRICT || 'false' }}
+        run: |
+          python scripts/media_processor.py \
+            --job-id '${{ inputs.job_id }}' \
+            --item-id '${{ inputs.item_id }}' \
+            --source-url '${{ inputs.source_url }}' \
+            --callback-url '${{ inputs.callback_url }}' \
+            --media-asset-id '${{ inputs.media_asset_id }}' \
+            --expected-kind '${{ inputs.kind }}'
