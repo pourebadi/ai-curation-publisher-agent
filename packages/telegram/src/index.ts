@@ -156,7 +156,8 @@ export type ParsedTelegramUpdate = ParsedManualTelegramMessage | ParsedTelegramC
 
 export type TelegramInlineKeyboardButton = {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  url?: string;
 };
 
 export type TelegramInlineKeyboardMarkup = {
@@ -194,6 +195,7 @@ export type BuildTelegramOutputReviewDraftInput = {
   timezone?: string;
   allowedPublishWindows?: string[];
   minimumGapMinutes?: number;
+  sourceButtonUrl?: string;
 };
 
 export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
@@ -369,19 +371,23 @@ export function buildReviewInlineKeyboard(itemId: string): TelegramInlineKeyboar
   };
 }
 
-export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string): TelegramInlineKeyboardMarkup {
-  return {
-    inline_keyboard: [
-      [
-        { text: "Send", callback_data: buildTelegramOutputCallbackData("send", callbackToken) },
-        { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
-      ],
-      [
-        { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) },
-        { text: "Schedule", callback_data: buildTelegramOutputCallbackData("schedule", callbackToken) }
-      ]
+export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string, sourceButtonUrl?: string): TelegramInlineKeyboardMarkup {
+  const inlineKeyboard: TelegramInlineKeyboardButton[][] = [
+    [
+      { text: "Send", callback_data: buildTelegramOutputCallbackData("send", callbackToken) },
+      { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
+    ],
+    [
+      { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) },
+      { text: "Schedule", callback_data: buildTelegramOutputCallbackData("schedule", callbackToken) }
     ]
-  };
+  ];
+
+  if (sourceButtonUrl !== undefined && sourceButtonUrl.trim().length > 0) {
+    inlineKeyboard.push([{ text: "Source", url: sourceButtonUrl.trim() }]);
+  }
+
+  return { inline_keyboard: inlineKeyboard };
 }
 
 export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): TelegramReviewDraft {
@@ -443,7 +449,7 @@ export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewD
       minimumGapMinutes: input.minimumGapMinutes ?? 0,
       hasMedia: input.mediaSummary !== undefined && input.mediaSummary !== "none"
     }),
-    reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken)
+    reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken, input.sourceButtonUrl)
   };
 }
 

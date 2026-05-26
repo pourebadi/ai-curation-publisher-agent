@@ -252,7 +252,7 @@ export class RealTelegramClient implements TelegramClient {
   }
 }
 
-function buildReviewControlText(reviewText: string, sourceUrl?: string): string {
+function buildReviewControlText(reviewText: string, _sourceUrl?: string): string {
   const category = extractReviewField(reviewText, "Category") ?? "unknown";
   const language = extractReviewField(reviewText, "Language") ?? "unknown";
   const timezone = extractReviewPublishingField(reviewText, "Timezone") ?? "unknown";
@@ -264,8 +264,7 @@ function buildReviewControlText(reviewText: string, sourceUrl?: string): string 
     `Category: ${category}`,
     `Language: ${language}`,
     `Timezone: ${timezone}`,
-    `Minimum gap: ${minimumGap}`,
-    ...(sourceUrl === undefined || sourceUrl.trim().length === 0 ? [] : [`Source: ${sourceUrl.trim()}`])
+    `Minimum gap: ${minimumGap}`
   ].join("\n");
 }
 

@@ -95,6 +95,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
       });
       generatedOutputCount += 1;
 
+      const sourceButtonUrl = createReviewSourceButtonUrl(canonicalUrl);
       const draft = buildTelegramOutputReviewDraft({
         generatedOutputId: generatedOutput.id,
         category: input.route.category,
@@ -112,7 +113,8 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         publishMode: routeOutput.publishMode,
         timezone: routeOutput.timezone,
         allowedPublishWindows: routeOutput.allowedPublishWindows,
-        minimumGapMinutes: routeOutput.minimumGapMinutes
+        minimumGapMinutes: routeOutput.minimumGapMinutes,
+        ...(sourceButtonUrl === undefined ? {} : { sourceButtonUrl })
       });
       const sent = await telegramClient.sendReviewMessage({
         chatId: routeOutput.reviewChatId,
@@ -120,8 +122,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         text: draft.text,
         replyMarkup: draft.reply_markup,
         media: input.parsed.media,
-        mediaPreviewCaption: localizedOutput.caption,
-        sourceUrl: canonicalUrl
+        mediaPreviewCaption: localizedOutput.caption
       });
       await reviewMessagesRepository.create({
         generatedOutputId: generatedOutput.id,
@@ -180,6 +181,23 @@ function describeTopicOutputError(error: unknown): string {
     return error.message;
   }
   return "Localized Telegram output generation failed.";
+}
+
+function createReviewSourceButtonUrl(canonicalUrl: string): string | undefined {
+  if (canonicalUrl.startsWith("http://") || canonicalUrl.startsWith("https://") || canonicalUrl.startsWith("tg://")) {
+    return canonicalUrl;
+  }
+
+  const topicMatch = canonicalUrl.match(/^telegram:\/\/topic\/(-?\d+)\/(\d+|none)\/(\d+)$/);
+  if (!topicMatch) return undefined;
+
+  const chatId = topicMatch[1]!;
+  const threadId = topicMatch[2]!;
+  const messageId = topicMatch[3]!;
+  if (threadId === "none") return undefined;
+
+  const privateChatId = chatId.startsWith("-100") ? chatId.slice(4) : chatId.replace(/^-/, "");
+  return `https://t.me/c/${privateChatId}/${threadId}/${messageId}`;
 }
 
 function createScheduleSummary(routeOutput: TelegramRouteOutputRecord): string {
