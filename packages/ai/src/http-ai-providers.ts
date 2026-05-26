@@ -49,8 +49,10 @@ export class OpenAIChatCompletionsProvider implements AIProvider {
         response_format: { type: "json_object" }
       })
     });
-    const payload = await response.json().catch(() => null) as ChatCompletionResponse | null;
-    if (!response.ok || payload === null) throw new Error("OpenAI API request failed.");
+    const payload = await response.json().catch(() => null) as (ChatCompletionResponse & { error?: unknown }) | null;
+    if (!response.ok || payload === null) {
+      throw new Error(describeAIHttpError("OpenAI", response.status, payload));
+    }
     const rawText = readString(payload.choices?.[0]?.message?.content);
     if (!rawText) throw new Error("OpenAI API response did not include message content.");
     const inputTokens = readNumber(payload.usage?.prompt_tokens);
@@ -97,8 +99,10 @@ export class GeminiGenerateContentProvider implements AIProvider {
         }
       })
     });
-    const payload = await response.json().catch(() => null) as GeminiResponse | null;
-    if (!response.ok || payload === null) throw new Error("Gemini API request failed.");
+    const payload = await response.json().catch(() => null) as (GeminiResponse & { error?: unknown }) | null;
+    if (!response.ok || payload === null) {
+      throw new Error(describeAIHttpError("Gemini", response.status, payload));
+    }
     const rawText = readString(payload.candidates?.[0]?.content?.parts?.[0]?.text);
     if (!rawText) throw new Error("Gemini API response did not include text content.");
     const inputTokens = readNumber(payload.usageMetadata?.promptTokenCount);
@@ -125,6 +129,36 @@ export class CustomJsonAIProvider implements AIProvider {
     const response = await this.delegate.generate(request);
     return { ...response, provider: this.id };
   }
+}
+
+function describeAIHttpError(provider: string, status: number, payload: unknown): string {
+  const detail = extractAIErrorDetail(payload);
+  return detail.length > 0
+    ? `${provider} API request failed with HTTP ${status}: ${detail}`
+    : `${provider} API request failed with HTTP ${status}.`;
+}
+
+function extractAIErrorDetail(payload: unknown): string {
+  if (!isRecord(payload)) return "";
+
+  const error = payload.error;
+  if (isRecord(error)) {
+    const message = typeof error.message === "string" ? error.message : "";
+    const status = typeof error.status === "string" ? error.status : "";
+    const code = typeof error.code === "number" || typeof error.code === "string" ? String(error.code) : "";
+
+    return [status, code, message]
+      .filter((part) => part.trim().length > 0)
+      .join(" | ")
+      .slice(0, 500);
+  }
+
+  const message = typeof payload.message === "string" ? payload.message : "";
+  return message.slice(0, 500);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readString(value: unknown): string | undefined {
