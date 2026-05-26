@@ -28,7 +28,7 @@ export class OpenAIChatCompletionsProvider implements AIProvider {
   constructor(options: HttpAIProviderOptions = {}) {
     this.apiKey = options.apiKey?.trim();
     this.model = options.model;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.baseUrl = options.baseUrl ?? "https://api.openai.com/v1/chat/completions";
   }
 
@@ -75,7 +75,7 @@ export class GeminiGenerateContentProvider implements AIProvider {
   constructor(options: HttpAIProviderOptions = {}) {
     this.apiKey = options.apiKey?.trim();
     this.model = options.model ?? "gemini-2.5-flash";
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.baseUrl = options.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta/models";
   }
 
