@@ -137,5 +137,5 @@ WORDPRESS_DEFAULT_STATUS = "draft"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "curator_mvp_staging"
-database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+database_id = "4dee73bb-9fd4-4469-9635-6cc0229ae86d"
 migrations_dir = "packages/db/migrations"
