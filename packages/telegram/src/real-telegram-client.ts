@@ -259,7 +259,7 @@ function buildReviewControlText(reviewText: string, _sourceUrl?: string): string
   const minimumGap = extractReviewPublishingField(reviewText, "Minimum gap") ?? "unknown";
 
   return [
-    "Review controls",
+    "🔴 Review controls",
     "",
     `Category: ${category}`,
     `Language: ${language}`,

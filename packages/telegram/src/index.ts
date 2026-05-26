@@ -421,7 +421,7 @@ function buildMinimalReviewText(input: {
   hasMedia: boolean;
 }): string {
   const controls = [
-    "Review controls",
+    "🔴 Review controls",
     "",
     `Category: ${input.category}`,
     `Language: ${input.language}`,

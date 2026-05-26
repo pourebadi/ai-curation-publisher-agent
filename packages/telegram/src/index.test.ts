@@ -203,7 +203,7 @@ describe("telegram manual ingest parsing", () => {
     });
 
     expect(draft.text).toContain("Generated caption");
-    expect(draft.text).toContain("Review controls");
+    expect(draft.text).toContain("🔴 Review controls");
     expect(draft.text).toContain("Category: crypto");
     expect(draft.text).toContain("Language: fa");
     expect(draft.text).toContain("Timezone: UTC");
