@@ -22,6 +22,7 @@ type EnvWithMediaProcessing = Env & {
   GITHUB_MEDIA_PROCESSOR_WORKFLOW_ID?: string;
   GITHUB_MEDIA_PROCESSOR_REF?: string;
   GITHUB_MEDIA_PROCESSOR_TOKEN?: string;
+  MEDIA_PROCESSOR_GH_TOKEN?: string;
   GITHUB_MEDIA_PROCESSOR_CALLBACK_URL?: string;
   INTERNAL_API_SECRET?: string;
   TELEGRAM_MEDIA_CACHE_CHAT_ID?: string;
@@ -140,7 +141,9 @@ async function dispatchGithubMediaWorkflow(input: { env: EnvWithMediaProcessing;
   }
   const repo = input.env.GITHUB_MEDIA_REPO?.trim() || input.env.GITHUB_MEDIA_PROCESSOR_REPOSITORY?.trim();
   const workflowId = input.env.GITHUB_MEDIA_WORKFLOW_ID?.trim() || input.env.GITHUB_MEDIA_PROCESSOR_WORKFLOW_ID?.trim() || "media-processor.yml";
-  const token = input.env.GITHUB_TOKEN?.trim() || input.env.GITHUB_MEDIA_PROCESSOR_TOKEN?.trim();
+  const token = input.env.MEDIA_PROCESSOR_GH_TOKEN?.trim()
+    || input.env.GITHUB_MEDIA_PROCESSOR_TOKEN?.trim()
+    || input.env.GITHUB_TOKEN?.trim();
   const stagingChatId = input.env.TELEGRAM_MEDIA_STAGING_CHAT_ID?.trim() || input.env.TELEGRAM_MEDIA_CACHE_CHAT_ID?.trim();
   const stagingThreadId = input.env.TELEGRAM_MEDIA_STAGING_THREAD_ID?.trim() || input.env.TELEGRAM_MEDIA_CACHE_THREAD_ID?.trim();
   const callbackBaseUrl = input.env.WORKER_PUBLIC_BASE_URL?.trim();
