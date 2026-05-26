@@ -142,8 +142,63 @@ function xStatusId(url: string): string | undefined {
 }
 
 function extractMetadataText(html: string): string {
-  const candidates = [metaContent(html, "property", "og:title"), metaContent(html, "name", "twitter:title"), titleText(html), metaContent(html, "property", "og:description"), metaContent(html, "name", "twitter:description"), metaContent(html, "name", "description")].filter((value): value is string => value !== undefined && value.trim().length > 0);
-  return Array.from(new Set(candidates.map(cleanText))).join("\n\n").trim();
+  const candidates = [
+    metaContent(html, "property", "og:title"),
+    metaContent(html, "name", "twitter:title"),
+    titleText(html),
+    metaContent(html, "property", "og:description"),
+    metaContent(html, "name", "twitter:description"),
+    metaContent(html, "name", "description")
+  ].filter((value): value is string => value !== undefined && value.trim().length > 0);
+
+  const instagramCaption = extractInstagramCaption(candidates);
+  if (instagramCaption !== undefined) return instagramCaption;
+
+  return uniqueMeaningfulTexts(candidates.map(cleanText)).join("\n\n").trim();
+}
+
+function extractInstagramCaption(candidates: string[]): string | undefined {
+  const decoded = candidates.map((value) => cleanText(value));
+
+  for (const value of decoded) {
+    const quotedAfterInstagram = value.match(/on Instagram:\s*["“]([\s\S]+?)["”](?:\s*$|\s*[.•-])/i);
+    if (quotedAfterInstagram?.[1] !== undefined) {
+      const caption = cleanInstagramCaption(quotedAfterInstagram[1]);
+      if (caption.length > 0) return caption;
+    }
+
+    const quotedAfterDate = value.match(/\bon\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}:\s*["“]([\s\S]+?)["”](?:\s*\.|\s*$)/i);
+    if (quotedAfterDate?.[1] !== undefined) {
+      const caption = cleanInstagramCaption(quotedAfterDate[1]);
+      if (caption.length > 0) return caption;
+    }
+  }
+
+  const withoutBoilerplate = decoded
+    .map(cleanInstagramCaption)
+    .filter((value) => value.length > 0 && !/^Instagram$/i.test(value) && !/Instagram reel$/i.test(value));
+
+  return uniqueMeaningfulTexts(withoutBoilerplate)[0];
+}
+
+function cleanInstagramCaption(value: string): string {
+  return cleanText(value)
+    .replace(/^\.\.\./, "")
+    .replace(/\s*Instagram\s*$/i, "")
+    .trim();
+}
+
+function uniqueMeaningfulTexts(values: string[]): string[] {
+  const result: string[] = [];
+
+  for (const value of values) {
+    const cleaned = value.trim();
+    if (cleaned.length === 0) continue;
+    if (result.some((existing) => existing === cleaned || existing.includes(cleaned) || cleaned.includes(existing))) continue;
+    result.push(cleaned);
+  }
+
+  return result;
 }
 
 function metaContent(html: string, attribute: "name" | "property", value: string): string | undefined {
@@ -164,7 +219,24 @@ function cleanText(value: string): string {
 }
 
 function decodeHtml(value: string): string {
-  return value.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_match, hex: string) => decodeCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_match, decimal: string) => decodeCodePoint(Number.parseInt(decimal, 10)))
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function decodeCodePoint(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "";
+  try {
+    return String.fromCodePoint(value);
+  } catch {
+    return "";
+  }
 }
 
 function readString(value: unknown): string | undefined {
