@@ -60,11 +60,39 @@ export function validateTelegramStructuredOutput(value: unknown): TelegramOutput
 }
 
 export function parseTelegramStructuredOutput(rawText: string): TelegramOutputValidationResult {
-  try {
-    return validateTelegramStructuredOutput(JSON.parse(rawText));
-  } catch {
-    return { valid: false, errors: ["Output must be valid JSON."] };
+  const candidates = [
+    rawText,
+    stripMarkdownJsonFence(rawText),
+    extractFirstJsonObject(rawText)
+  ].filter((value): value is string => value !== undefined && value.trim().length > 0);
+
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+
+    try {
+      return validateTelegramStructuredOutput(JSON.parse(trimmed));
+    } catch {
+      // Try the next candidate.
+    }
   }
+
+  return { valid: false, errors: ["Output must be valid JSON."] };
+}
+
+function stripMarkdownJsonFence(rawText: string): string | undefined {
+  const trimmed = rawText.trim();
+  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match?.[1];
+}
+
+function extractFirstJsonObject(rawText: string): string | undefined {
+  const start = rawText.indexOf("{");
+  const end = rawText.lastIndexOf("}");
+  if (start < 0 || end <= start) return undefined;
+  return rawText.slice(start, end + 1);
 }
 
 function requireString(output: Record<string, unknown>, field: string, errors: string[]): void {
