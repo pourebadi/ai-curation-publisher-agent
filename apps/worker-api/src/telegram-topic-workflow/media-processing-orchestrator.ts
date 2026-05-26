@@ -92,6 +92,7 @@ export async function maybeDispatchExternalMediaProcessing(input: {
       await jobsRepository.markDispatched(job.id, dispatch.workflowRunId);
     } else {
       warnings.push(dispatch.warning);
+      await jobsRepository.markFailed(job.id, dispatch.warning, { sourceUrl });
     }
   }
 
