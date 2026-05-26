@@ -86,13 +86,26 @@ export async function maybeDispatchExternalMediaProcessing(input: {
     if (input.requestedBy !== undefined) jobInput.requestedBy = input.requestedBy;
     const job = await jobsRepository.create(jobInput);
     createdJobs.push(job);
-    const dispatch = await dispatchGithubMediaWorkflow({ env, job, fetchImpl: input.fetchImpl ?? fetch });
-    if (dispatch.ok) {
-      dispatchedJobs.push(job.id);
-      await jobsRepository.markDispatched(job.id, dispatch.workflowRunId);
-    } else {
-      warnings.push(dispatch.warning);
-      await jobsRepository.markFailed(job.id, dispatch.warning, { sourceUrl });
+    await jobsRepository.markDispatching(job.id);
+
+    try {
+      const dispatch = await dispatchGithubMediaWorkflow({
+        env,
+        job,
+        fetchImpl: input.fetchImpl ?? safeFetch
+      });
+
+      if (dispatch.ok) {
+        dispatchedJobs.push(job.id);
+        await jobsRepository.markDispatched(job.id, dispatch.workflowRunId);
+      } else {
+        warnings.push(dispatch.warning);
+        await jobsRepository.markFailed(job.id, dispatch.warning, { sourceUrl });
+      }
+    } catch (error) {
+      const warning = `GitHub media workflow dispatch crashed for job ${job.id}: ${describeDispatchError(error)}`;
+      warnings.push(warning);
+      await jobsRepository.markFailed(job.id, warning, { sourceUrl });
     }
   }
 
@@ -133,6 +146,13 @@ export async function completeMediaProcessingJob(env: Env, body: CompleteMediaPr
   await mediaAssetsRepository.createMany(assets);
   await jobsRepository.markReady(job.id, { storedAssetCount: assets.length, ...(body.raw ?? {}) });
   return { ok: true, jobId: job.id, status: "ready", storedAssetCount: assets.length, message: "Media processing result stored." };
+}
+
+const safeFetch: typeof fetch = (request, init) => fetch(request, init);
+
+function describeDispatchError(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) return `${error.name}: ${error.message}`.slice(0, 500);
+  return "Unknown dispatch error.";
 }
 
 async function dispatchGithubMediaWorkflow(input: { env: EnvWithMediaProcessing; job: MediaProcessingJobRecord; fetchImpl: typeof fetch }): Promise<{ ok: true; workflowRunId?: string } | { ok: false; warning: string }> {
