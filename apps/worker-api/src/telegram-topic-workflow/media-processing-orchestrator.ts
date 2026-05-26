@@ -162,6 +162,11 @@ export async function completeMediaProcessingJob(env: Env, body: CompleteMediaPr
     return { ok: false, jobId: body.jobId, status: "missing", storedAssetCount: 0, message: "Media processing job was not found." };
   }
 
+  if (body.status === "processing") {
+    await jobsRepository.markProcessing(job.id);
+    return { ok: true, jobId: job.id, status: "processing", storedAssetCount: 0, message: "Media processing is in progress." };
+  }
+
   if (body.status !== "ready") {
     const message = safeError(body.errorMessage ?? `Media processing ${body.status}.`);
     if (body.status === "skipped") {
