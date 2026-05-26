@@ -238,7 +238,7 @@ function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePo
     canonicalUrl,
     publishedAt: new Date((parsed.message.date ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
     authorHandle: parsed.message.from?.username ?? `telegram_user_${parsed.reviewerId}`,
-    text: mergeSourceText(parsed.text, externalResolution?.text),
+    text: mergeSourceText(parsed.text, externalResolution?.text, parsed.urls),
     links: parsed.urls,
     media: parsed.media.map(toNormalizedMedia),
     rawPayload: {
@@ -258,9 +258,55 @@ function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePo
   };
 }
 
-function mergeSourceText(telegramText: string, externalText: string | undefined): string {
-  const parts = [telegramText.trim(), externalText?.trim()].filter((value): value is string => value !== undefined && value.length > 0);
+function mergeSourceText(telegramText: string, externalText: string | undefined, sourceUrls: string[]): string {
+  const resolvedExternalText = externalText?.trim();
+
+  const cleanedTelegramText = resolvedExternalText === undefined || resolvedExternalText.length === 0
+    ? telegramText.trim()
+    : removeOnlySourceUrls(telegramText, sourceUrls).trim();
+
+  const parts = [cleanedTelegramText, resolvedExternalText].filter((value): value is string => value !== undefined && value.length > 0);
   return Array.from(new Set(parts)).join("\n\n");
+}
+
+function removeOnlySourceUrls(value: string, sourceUrls: string[]): string {
+  const candidates = sourceUrls.flatMap(sourceUrlCandidates);
+  if (candidates.length === 0) return value;
+
+  return value
+    .split("\n")
+    .map((line) => removeCandidatesFromLine(line, candidates))
+    .filter((line) => line.trim().length > 0)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function removeCandidatesFromLine(line: string, candidates: string[]): string {
+  let next = line;
+  for (const candidate of candidates) {
+    if (candidate.length === 0) continue;
+    next = next.split(candidate).join("");
+  }
+  return next.replace(/[ \t]{2,}/g, " ").trimEnd();
+}
+
+function sourceUrlCandidates(sourceUrl: string): string[] {
+  const trimmed = sourceUrl.trim();
+  if (trimmed.length === 0) return [];
+
+  const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
+  const candidates = new Set([trimmed, withoutTrailingSlash]);
+
+  if (withoutTrailingSlash.startsWith("https://")) {
+    candidates.add(withoutTrailingSlash.replace(/^https:\/\//, "http://"));
+  }
+
+  if (withoutTrailingSlash.startsWith("http://")) {
+    candidates.add(withoutTrailingSlash.replace(/^http:\/\//, "https://"));
+  }
+
+  return [...candidates];
 }
 
 async function storeTelegramMediaMetadata(repository: MediaAssetsRepository, itemId: string, media: ParsedTelegramMedia[]): Promise<void> {

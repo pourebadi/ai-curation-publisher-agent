@@ -160,7 +160,7 @@ function titleText(html: string): string | undefined {
 }
 
 function cleanText(value: string): string {
-  return value.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function decodeHtml(value: string): string {
