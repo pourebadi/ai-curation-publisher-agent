@@ -3,7 +3,7 @@ import type { NormalizedMedia, NormalizedPost } from "@curator/core";
 import { buildTelegramOutputReviewDraft, MockTelegramClient, RealTelegramClient, type ParsedManualTelegramMessage, type ParsedTelegramMedia, type TelegramClient } from "@curator/telegram";
 import type { Env } from "../types";
 import { generateLocalizedTelegramOutput } from "./output-orchestrator";
-import { resolveExternalSourceText } from "./source-content-resolver";
+import { resolveExternalSourceText, type SourceContentResolution } from "./source-content-resolver";
 import { maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
 
 export type TelegramTopicIngestInput = {
@@ -39,7 +39,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
   const canonicalUrl = input.parsed.urls[0] ?? `telegram://topic/${input.parsed.chatId}/${input.parsed.threadId ?? "none"}/${input.parsed.messageId}`;
   const sourceAttributionText = `Source: ${canonicalUrl}`;
   const externalResolution = await resolveExternalSourceText(input.env, input.parsed.urls);
-  const post = createTopicNormalizedPost(input.parsed, sourcePostId, canonicalUrl, input.route, externalResolution.text);
+  const post = createTopicNormalizedPost(input.parsed, sourcePostId, canonicalUrl, input.route, externalResolution);
 
   await sourcesRepository.ensureManualTelegramSource();
   const gateResult = await ingestGateService.process({ sourceId: "manual_telegram", post });
@@ -229,7 +229,7 @@ function createTelegramReviewClient(env: Env): TelegramClient {
   return new MockTelegramClient();
 }
 
-function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePostId: string, canonicalUrl: string, route: TelegramRouteRecord, externalText?: string): NormalizedPost {
+function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePostId: string, canonicalUrl: string, route: TelegramRouteRecord, externalResolution?: SourceContentResolution): NormalizedPost {
   return {
     provider: "mock_social_provider",
     platform: "manual",
@@ -238,7 +238,7 @@ function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePo
     canonicalUrl,
     publishedAt: new Date((parsed.message.date ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
     authorHandle: parsed.message.from?.username ?? `telegram_user_${parsed.reviewerId}`,
-    text: mergeSourceText(parsed.text, externalText),
+    text: mergeSourceText(parsed.text, externalResolution?.text),
     links: parsed.urls,
     media: parsed.media.map(toNormalizedMedia),
     rawPayload: {
@@ -249,7 +249,11 @@ function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePo
       messageId: parsed.messageId,
       routeId: route.id,
       category: route.category,
-      promptProfile: route.promptProfile
+      promptProfile: route.promptProfile,
+      externalLinkMetadata: {
+        resolvedTextLength: externalResolution?.text?.length ?? 0,
+        warning: externalResolution?.warning ?? ""
+      }
     }
   };
 }

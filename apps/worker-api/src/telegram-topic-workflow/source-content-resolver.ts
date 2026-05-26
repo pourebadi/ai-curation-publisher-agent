@@ -58,7 +58,13 @@ async function fetchJson(url: string, timeoutMs: number, fetchImpl: typeof fetch
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(url, { headers: { accept: "application/json" }, signal: controller.signal });
+    const response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        "user-agent": "ai-curation-publisher-agent/1.0"
+      },
+      signal: controller.signal
+    });
     if (!response.ok) return undefined;
     return await response.json();
   } catch {
@@ -69,12 +75,52 @@ async function fetchJson(url: string, timeoutMs: number, fetchImpl: typeof fetch
 }
 
 function extractXText(value: unknown): string | undefined {
+  const direct = extractDirectXText(value);
+  if (direct) return direct;
+
   const candidates: string[] = [];
   walk(value, (entry) => {
-    const text = readString(entry.text) ?? readString(entry.full_text) ?? readString(entry.description);
+    const text = readString(entry.text)
+      ?? readString(entry.full_text)
+      ?? readString(entry.description)
+      ?? readNestedString(entry, ["status", "text"])
+      ?? readNestedString(entry, ["status", "raw_text", "text"]);
     if (text) candidates.push(cleanText(text));
-  }, 4);
+  }, 5);
+
   return candidates.find((entry) => entry.length > 0);
+}
+
+function extractDirectXText(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const directCandidates = [
+    readNestedString(value, ["status", "text"]),
+    readNestedString(value, ["status", "raw_text", "text"]),
+    readString(value.text),
+    readString(value.full_text),
+    readString(value.description)
+  ];
+
+  for (const candidate of directCandidates) {
+    const cleaned = candidate === undefined ? "" : cleanText(candidate);
+    if (cleaned.length > 0) return cleaned;
+  }
+
+  return undefined;
+}
+
+function readNestedString(value: unknown, path: string[]): string | undefined {
+  let cursor: unknown = value;
+  for (const key of path) {
+    if (!isRecord(cursor)) return undefined;
+    cursor = cursor[key];
+  }
+  return readString(cursor);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function walk(value: unknown, visitor: (entry: Record<string, unknown>) => void, depth: number): void {
