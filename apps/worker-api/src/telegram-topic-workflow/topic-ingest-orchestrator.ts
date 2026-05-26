@@ -95,48 +95,52 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
       });
       generatedOutputCount += 1;
 
-      const sourceButtonUrl = createReviewSourceButtonUrl(canonicalUrl);
-      const draft = buildTelegramOutputReviewDraft({
-        generatedOutputId: generatedOutput.id,
-        category: input.route.category,
-        language: routeOutput.language,
-        itemId: item.id,
-        sourceUrl: canonicalUrl,
-        originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
-        caption: localizedOutput.caption,
-        ...(localizedOutput.summary === undefined ? {} : { summary: localizedOutput.summary }),
-        riskFlags: localizedOutput.riskFlags,
-        status: generatedOutput.status,
-        callbackToken: generatedOutput.id,
-        scheduleSummary: createScheduleSummary(routeOutput),
-        mediaSummary: createMediaSummary(input.parsed.media, mediaDispatch),
-        hasPreviewMedia: input.parsed.media.length > 0,
-        publishMode: routeOutput.publishMode,
-        timezone: routeOutput.timezone,
-        allowedPublishWindows: routeOutput.allowedPublishWindows,
-        minimumGapMinutes: routeOutput.minimumGapMinutes,
-        ...(sourceButtonUrl === undefined ? {} : { sourceButtonUrl })
-      });
-      const sent = await telegramClient.sendReviewMessage({
-        chatId: routeOutput.reviewChatId,
-        messageThreadId: routeOutput.reviewThreadId,
-        text: draft.text,
-        replyMarkup: draft.reply_markup,
-        media: input.parsed.media,
-        mediaPreviewCaption: localizedOutput.caption
-      });
-      await reviewMessagesRepository.create({
-        generatedOutputId: generatedOutput.id,
-        itemId: item.id,
-        routeId: input.route.id,
-        routeOutputId: routeOutput.id,
-        language: routeOutput.language,
-        chatId: sent.chatId,
-        threadId: routeOutput.reviewThreadId,
-        messageId: sent.messageId,
-        status: "sent"
-      });
-      reviewMessageCount += 1;
+      const shouldWaitForExternalMediaReview = input.parsed.media.length === 0 && mediaDispatch.createdJobs.length > 0;
+
+      if (!shouldWaitForExternalMediaReview) {
+        const sourceButtonUrl = createReviewSourceButtonUrl(canonicalUrl);
+        const draft = buildTelegramOutputReviewDraft({
+          generatedOutputId: generatedOutput.id,
+          category: input.route.category,
+          language: routeOutput.language,
+          itemId: item.id,
+          sourceUrl: canonicalUrl,
+          originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
+          caption: localizedOutput.caption,
+          ...(localizedOutput.summary === undefined ? {} : { summary: localizedOutput.summary }),
+          riskFlags: localizedOutput.riskFlags,
+          status: generatedOutput.status,
+          callbackToken: generatedOutput.id,
+          scheduleSummary: createScheduleSummary(routeOutput),
+          mediaSummary: createMediaSummary(input.parsed.media, mediaDispatch),
+          hasPreviewMedia: input.parsed.media.length > 0,
+          publishMode: routeOutput.publishMode,
+          timezone: routeOutput.timezone,
+          allowedPublishWindows: routeOutput.allowedPublishWindows,
+          minimumGapMinutes: routeOutput.minimumGapMinutes,
+          ...(sourceButtonUrl === undefined ? {} : { sourceButtonUrl })
+        });
+        const sent = await telegramClient.sendReviewMessage({
+          chatId: routeOutput.reviewChatId,
+          messageThreadId: routeOutput.reviewThreadId,
+          text: draft.text,
+          replyMarkup: draft.reply_markup,
+          media: input.parsed.media,
+          mediaPreviewCaption: localizedOutput.caption
+        });
+        await reviewMessagesRepository.create({
+          generatedOutputId: generatedOutput.id,
+          itemId: item.id,
+          routeId: input.route.id,
+          routeOutputId: routeOutput.id,
+          language: routeOutput.language,
+          chatId: sent.chatId,
+          threadId: routeOutput.reviewThreadId,
+          messageId: sent.messageId,
+          status: "sent"
+        });
+        reviewMessageCount += 1;
+      }
     } catch (error) {
       await generatedOutputsRepository.save({
         itemId: item.id,
