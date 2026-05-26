@@ -277,7 +277,7 @@ def generate_thumbnail(video_path: Path) -> Path | None:
     if shutil.which("ffmpeg") is None:
         return None
     thumb = video_path.with_suffix(".jpg")
-    run(["ffmpeg", "-y", "-ss", "00:00:01", "-i", str(video_path), "-vframes", "1", "-vf", "scale='min(320,iw)':-2", "-q:v", "4", str(thumb)], allow_fail=True)
+    run(["ffmpeg", "-y", "-ss", "00:00:03", "-i", str(video_path), "-vframes", "1", "-vf", "scale='min(320,iw)':-2", "-q:v", "4", str(thumb)], allow_fail=True)
     if thumb.exists() and 0 < thumb.stat().st_size <= 200 * 1024:
         return thumb
     return None
