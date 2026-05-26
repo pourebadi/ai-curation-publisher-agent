@@ -172,7 +172,7 @@ export class RealTelegramClient implements TelegramClient {
     } catch (error) {
       throw new TelegramClientError({
         category: "network_error",
-        message: "Telegram Bot API request failed before receiving a response.",
+        message: describeTelegramNetworkError(error),
         cause: error
       });
     }
@@ -232,6 +232,19 @@ function telegramMediaFieldForMedia(media: ParsedTelegramMedia): "photo" | "vide
   if (media.kind === "photo") return "photo";
   if (media.kind === "video" || media.kind === "animation") return "video";
   return "document";
+}
+
+function describeTelegramNetworkError(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return `Telegram Bot API request failed before receiving a response: ${redactTelegramNetworkDetail(error.name)}: ${redactTelegramNetworkDetail(error.message)}`;
+  }
+  return "Telegram Bot API request failed before receiving a response.";
+}
+
+function redactTelegramNetworkDetail(value: string): string {
+  return value
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot<redacted>")
+    .replace(/https:\/\/api\.telegram\.org\/[^\s]+/g, "https://api.telegram.org/<redacted>");
 }
 
 export function redactTelegramApiError(_description: unknown): string {

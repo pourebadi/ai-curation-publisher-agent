@@ -148,7 +148,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
           riskFlags: ["generation_failed"],
           sourceAttributionText
         },
-        errorMessage: error instanceof Error ? error.message : "Localized Telegram output generation failed."
+        errorMessage: describeTopicOutputError(error)
       });
     }
   }
@@ -166,6 +166,17 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
     mediaMetadataCount: input.parsed.media.length,
     finalPublishingEnabled: false
   };
+}
+
+function describeTopicOutputError(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    if (cause instanceof Error && cause.message.trim().length > 0) {
+      return `${error.message}; cause: ${cause.name}: ${cause.message}`;
+    }
+    return error.message;
+  }
+  return "Localized Telegram output generation failed.";
 }
 
 function createScheduleSummary(routeOutput: TelegramRouteOutputRecord): string {
