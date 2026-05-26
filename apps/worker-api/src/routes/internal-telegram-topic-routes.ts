@@ -12,6 +12,14 @@ type TelegramRouteOutputBody = {
   finalChatId?: unknown;
   finalThreadId?: unknown;
   enabled?: unknown;
+  publishEnabled?: unknown;
+  publishMode?: unknown;
+  timezone?: unknown;
+  allowedPublishWindows?: unknown;
+  minimumGapMinutes?: unknown;
+  maxPostsPerHour?: unknown;
+  maxPostsPerDay?: unknown;
+  queuePriority?: unknown;
 };
 
 type TelegramRouteBody = {
@@ -194,6 +202,9 @@ function validateRouteRecords(routes: Array<TelegramRouteRecord & { outputs: Tel
       if (!output.reviewChatId.trim()) issues.push({ routeId: route.id, outputId: output.id, code: "missing_review_chat_id", message: "Review chat ID is required." });
       if (!Number.isInteger(output.reviewThreadId)) issues.push({ routeId: route.id, outputId: output.id, code: "invalid_review_thread_id", message: "Review topic ID must be numeric." });
       if (!output.finalChatId.trim()) issues.push({ routeId: route.id, outputId: output.id, code: "missing_final_chat_id", message: "Final channel/chat ID is required." });
+      if (output.enabled && !output.publishEnabled) issues.push({ routeId: route.id, outputId: output.id, code: "output_publish_disabled", message: "Publishing is disabled for this output." });
+      if (output.publishMode === "scheduled" && output.allowedPublishWindows.some((window) => !isPublishWindow(window))) issues.push({ routeId: route.id, outputId: output.id, code: "invalid_publish_window", message: "Allowed publish windows must use valid HH:MM-HH:MM values." });
+      if (!isValidTimezone(output.timezone)) issues.push({ routeId: route.id, outputId: output.id, code: "invalid_timezone", message: "Timezone must be a valid IANA timezone such as UTC, Asia/Tehran, or Asia/Dubai." });
     }
   }
   return { valid: issues.length === 0, invalidRouteCount: new Set(issues.map((issue) => issue.routeId).filter(Boolean)).size, issues };
@@ -243,8 +254,47 @@ function normalizeOutput(body: TelegramRouteOutputBody, routeId: string):
   const reviewThreadId = readInteger(body.reviewThreadId);
   const finalChatId = readNonEmptyString(body.finalChatId);
   const finalThreadId = readInteger(body.finalThreadId);
+  const publishMode = readPublishMode(body.publishMode);
+  const allowedPublishWindows = readStringArray(body.allowedPublishWindows);
+  const minimumGapMinutes = readInteger(body.minimumGapMinutes);
+  const maxPostsPerHour = readInteger(body.maxPostsPerHour);
+  const maxPostsPerDay = readInteger(body.maxPostsPerDay);
+  const queuePriority = readInteger(body.queuePriority);
+  const timezone = readNonEmptyString(body.timezone);
   if (!id || !language || !reviewChatId || reviewThreadId === undefined || !finalChatId) return { ok: false, error: "invalid_route_output", message: "Route output requires id, language, reviewChatId, reviewThreadId, and finalChatId." };
-  return { ok: true, output: { id, routeId, language, reviewChatId, reviewThreadId, finalChatId, ...(finalThreadId === undefined ? {} : { finalThreadId }), ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}) } };
+  if (body.publishMode !== undefined && publishMode === undefined) return { ok: false, error: "invalid_publish_mode", message: "publishMode must be immediate, scheduled, or queued." };
+  if (allowedPublishWindows.some((window) => !isPublishWindow(window))) return { ok: false, error: "invalid_publish_window", message: "allowedPublishWindows must contain valid HH:MM-HH:MM values." };
+  if (timezone !== undefined && !isValidTimezone(timezone)) return { ok: false, error: "invalid_timezone", message: "timezone must be a valid IANA timezone such as UTC, Asia/Tehran, or Asia/Dubai." };
+  return { ok: true, output: { id, routeId, language, reviewChatId, reviewThreadId, finalChatId, ...(finalThreadId === undefined ? {} : { finalThreadId }), ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}), ...(typeof body.publishEnabled === "boolean" ? { publishEnabled: body.publishEnabled } : {}), ...(publishMode === undefined ? {} : { publishMode }), ...(timezone === undefined ? {} : { timezone }), ...(allowedPublishWindows.length === 0 ? {} : { allowedPublishWindows }), ...(minimumGapMinutes === undefined ? {} : { minimumGapMinutes }), ...(maxPostsPerHour === undefined ? {} : { maxPostsPerHour }), ...(maxPostsPerDay === undefined ? {} : { maxPostsPerDay }), ...(queuePriority === undefined ? {} : { queuePriority }) } };
+}
+
+function readPublishMode(value: unknown): "immediate" | "scheduled" | "queued" | undefined {
+  return value === "immediate" || value === "scheduled" || value === "queued" ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0).map((entry) => entry.trim()) : [];
+}
+
+function isPublishWindow(value: string): boolean {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+  if (!match) return false;
+  const numbers = match.slice(1).map((part) => Number.parseInt(part, 10));
+  const [startHour, startMinute, endHour, endMinute] = numbers;
+  return numbers.every(Number.isFinite)
+    && startHour !== undefined && startHour >= 0 && startHour <= 23
+    && endHour !== undefined && endHour >= 0 && endHour <= 23
+    && startMinute !== undefined && startMinute >= 0 && startMinute <= 59
+    && endMinute !== undefined && endMinute >= 0 && endMinute <= 59;
+}
+
+function isValidTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readNonEmptyString(value: unknown): string | undefined {

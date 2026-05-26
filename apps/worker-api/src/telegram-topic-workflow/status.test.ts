@@ -112,13 +112,12 @@ describe("readTelegramTopicWorkflowSummary", () => {
     expect(summary).toMatchObject({
       routeManagerReady: true,
       topicWorkflowConfigured: true,
-      mediaMode: "metadata_only",
-      sendMediaGroupSupported: false,
+      mediaMode: "telegram_file_id_reuse",
+      sendMediaGroupSupported: true,
       wordpressOptional: true
     });
     expect(summary.warnings).toEqual(expect.arrayContaining([
-      "Media storage is not configured. Telegram file_id reuse is active.",
-      "sendMediaGroup is not enabled in this Worker path yet; mixed albums publish one safe file or fail clearly."
+      "External media processor is disabled. Telegram-origin file_id reuse remains active."
     ]));
   });
 });

@@ -18,6 +18,14 @@ export type TelegramTopicWorkflowRouteSummary = {
     finalThreadId?: number;
     enabled: boolean;
     warnings: string[];
+    publishEnabled: boolean;
+    publishMode: string;
+    timezone: string;
+    allowedPublishWindows: string[];
+    minimumGapMinutes: number;
+    maxPostsPerHour: number;
+    maxPostsPerDay: number;
+    queuePriority: number;
   }>;
 };
 
@@ -37,14 +45,18 @@ export type TelegramTopicWorkflowSummary = {
   reviewRoutingConfigured: boolean;
   finalPublishingEnabled: boolean;
   wordpressOptional: true;
-  mediaMode: "metadata_only";
-  sendMediaGroupSupported: false;
+  mediaMode: "telegram_file_id_reuse" | "telegram_file_id_reuse_plus_github_actions";
+  mediaProcessorEnabled: boolean;
+  sendMediaGroupSupported: true;
   routes: TelegramTopicWorkflowRouteSummary[];
   warnings: string[];
 };
 
 type EnvWithFinalPublish = Env & {
   TELEGRAM_FINAL_PUBLISH_ENABLED?: string;
+  GITHUB_MEDIA_PROCESSOR_ENABLED?: string;
+  GITHUB_MEDIA_PROCESSOR_REPOSITORY?: string;
+  TELEGRAM_MEDIA_STAGING_CHAT_ID?: string;
 };
 
 export async function readTelegramTopicWorkflowSummary(env: Env): Promise<TelegramTopicWorkflowSummary> {
@@ -56,6 +68,7 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
   let enabledOutputCount = 0;
   let reviewRoutingConfigured = false;
   let routes: TelegramTopicWorkflowRouteSummary[] = [];
+  const mediaProcessorEnabled = (env as EnvWithFinalPublish).GITHUB_MEDIA_PROCESSOR_ENABLED === "true";
   const finalPublishingEnabled = (env as EnvWithFinalPublish).TELEGRAM_FINAL_PUBLISH_ENABLED === "true";
 
   try {
@@ -87,8 +100,13 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
   if (!finalPublishingEnabled) {
     warnings.push("Final Telegram publishing is disabled. Send callbacks queue outputs only.");
   }
-  warnings.push("Media storage is not configured. Telegram file_id reuse is active.");
-  warnings.push("sendMediaGroup is not enabled in this Worker path yet; mixed albums publish one safe file or fail clearly.");
+  if (mediaProcessorEnabled) {
+    if (!(env as EnvWithFinalPublish).GITHUB_MEDIA_PROCESSOR_REPOSITORY?.trim()) warnings.push("GitHub media processor is enabled but repository is missing.");
+    if (!(env as EnvWithFinalPublish).TELEGRAM_MEDIA_STAGING_CHAT_ID?.trim()) warnings.push("GitHub media processor is enabled but Telegram media staging chat is missing.");
+    warnings.push("External media processor is enabled. Downloaded media will be staged through Telegram file_id reuse.");
+  } else {
+    warnings.push("External media processor is disabled. Telegram-origin file_id reuse remains active.");
+  }
 
   return {
     topicWorkflowConfigured: enabledRouteCount > 0 && enabledOutputCount > 0,
@@ -106,8 +124,9 @@ export async function readTelegramTopicWorkflowSummary(env: Env): Promise<Telegr
     reviewRoutingConfigured,
     finalPublishingEnabled,
     wordpressOptional: true,
-    mediaMode: "metadata_only",
-    sendMediaGroupSupported: false,
+    mediaMode: mediaProcessorEnabled ? "telegram_file_id_reuse_plus_github_actions" : "telegram_file_id_reuse",
+    mediaProcessorEnabled,
+    sendMediaGroupSupported: true,
     routes,
     warnings
   };
@@ -136,6 +155,14 @@ function buildRouteSummaries(routes: TelegramRouteRecord[], outputs: TelegramRou
         finalChatId: output.finalChatId,
         ...(output.finalThreadId === undefined ? {} : { finalThreadId: output.finalThreadId }),
         enabled: output.enabled,
+        publishEnabled: output.publishEnabled,
+        publishMode: output.publishMode,
+        timezone: output.timezone,
+        allowedPublishWindows: output.allowedPublishWindows,
+        minimumGapMinutes: output.minimumGapMinutes,
+        maxPostsPerHour: output.maxPostsPerHour,
+        maxPostsPerDay: output.maxPostsPerDay,
+        queuePriority: output.queuePriority,
         warnings: outputWarnings(output)
       }))
     };
@@ -146,5 +173,6 @@ function outputWarnings(output: TelegramRouteOutputRecord): string[] {
   const warnings: string[] = [];
   if (!output.reviewChatId.trim()) warnings.push("Review chat ID is missing.");
   if (!output.finalChatId.trim()) warnings.push("Final channel/chat ID is missing.");
+  if (output.enabled && !output.publishEnabled) warnings.push("Publishing is disabled for this output.");
   return warnings;
 }

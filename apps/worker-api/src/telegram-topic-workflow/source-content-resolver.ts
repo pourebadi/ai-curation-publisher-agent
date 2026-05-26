@@ -1,0 +1,131 @@
+import type { Env } from "../types";
+
+type EnvWithExternalLinkFetch = Env & {
+  EXTERNAL_LINK_METADATA_ENABLED?: string;
+  EXTERNAL_LINK_FETCH_TIMEOUT_MS?: string;
+};
+
+export type SourceContentResolution = {
+  text?: string;
+  warning?: string;
+};
+
+export async function resolveExternalSourceText(env: Env, urls: string[], fetchImpl: typeof fetch = fetch): Promise<SourceContentResolution> {
+  const config = env as EnvWithExternalLinkFetch;
+  if (config.EXTERNAL_LINK_METADATA_ENABLED !== "true") return {};
+
+  const url = urls.find((candidate) => candidate.startsWith("http://") || candidate.startsWith("https://"));
+  if (!url) return {};
+
+  const timeoutMs = readTimeout(config.EXTERNAL_LINK_FETCH_TIMEOUT_MS);
+  const xResolution = await resolveXText(url, timeoutMs, fetchImpl);
+  if (xResolution.text || xResolution.warning) return xResolution;
+
+  return resolveHtmlMetadata(url, timeoutMs, fetchImpl);
+}
+
+async function resolveXText(url: string, timeoutMs: number, fetchImpl: typeof fetch): Promise<SourceContentResolution> {
+  const statusId = xStatusId(url);
+  if (!statusId) return {};
+  const endpoints = [`https://api.fxtwitter.com/2/status/${statusId}`, `https://api.vxtwitter.com/i/status/${statusId}`];
+  for (const endpoint of endpoints) {
+    const payload = await fetchJson(endpoint, timeoutMs, fetchImpl);
+    const text = extractXText(payload);
+    if (text) return { text };
+  }
+  return { warning: "X/Twitter text could not be extracted through public metadata fallbacks." };
+}
+
+async function resolveHtmlMetadata(url: string, timeoutMs: number, fetchImpl: typeof fetch): Promise<SourceContentResolution> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, { method: "GET", headers: { "user-agent": "ai-curation-publisher-agent/1.0" }, signal: controller.signal });
+    if (!response.ok) return { warning: "External link metadata fetch failed." };
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml")) return { warning: "External link is not an HTML document." };
+    const html = (await response.text()).slice(0, 200_000);
+    const text = extractMetadataText(html);
+    return text.length > 0 ? { text } : { warning: "No readable external metadata was found." };
+  } catch {
+    return { warning: "External link metadata fetch failed." };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchJson(url: string, timeoutMs: number, fetchImpl: typeof fetch): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, { headers: { accept: "application/json" }, signal: controller.signal });
+    if (!response.ok) return undefined;
+    return await response.json();
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function extractXText(value: unknown): string | undefined {
+  const candidates: string[] = [];
+  walk(value, (entry) => {
+    const text = readString(entry.text) ?? readString(entry.full_text) ?? readString(entry.description);
+    if (text) candidates.push(cleanText(text));
+  }, 4);
+  return candidates.find((entry) => entry.length > 0);
+}
+
+function walk(value: unknown, visitor: (entry: Record<string, unknown>) => void, depth: number): void {
+  if (depth < 0 || value === null || value === undefined) return;
+  if (Array.isArray(value)) {
+    for (const entry of value.slice(0, 20)) walk(entry, visitor, depth - 1);
+    return;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    visitor(record);
+    for (const entry of Object.values(record)) walk(entry, visitor, depth - 1);
+  }
+}
+
+function xStatusId(url: string): string | undefined {
+  const match = url.match(/(?:x\.com|twitter\.com)\/(?:[A-Za-z0-9_]+\/status|i\/status)\/(\d+)/i);
+  return match?.[1];
+}
+
+function extractMetadataText(html: string): string {
+  const candidates = [metaContent(html, "property", "og:title"), metaContent(html, "name", "twitter:title"), titleText(html), metaContent(html, "property", "og:description"), metaContent(html, "name", "twitter:description"), metaContent(html, "name", "description")].filter((value): value is string => value !== undefined && value.trim().length > 0);
+  return Array.from(new Set(candidates.map(cleanText))).join("\n\n").trim();
+}
+
+function metaContent(html: string, attribute: "name" | "property", value: string): string | undefined {
+  const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`<meta[^>]+${attribute}=["']${escapedValue}["'][^>]+content=["']([^"']+)["'][^>]*>`, "i");
+  const reverseRegex = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+${attribute}=["']${escapedValue}["'][^>]*>`, "i");
+  const match = html.match(regex) ?? html.match(reverseRegex);
+  return match?.[1] === undefined ? undefined : decodeHtml(match[1]);
+}
+
+function titleText(html: string): string | undefined {
+  const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  return match?.[1] === undefined ? undefined : decodeHtml(match[1]);
+}
+
+function cleanText(value: string): string {
+  return value.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+}
+
+function decodeHtml(value: string): string {
+  return value.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readTimeout(value: string | undefined): number {
+  const parsed = value === undefined ? NaN : Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 10_000) : 3_000;
+}

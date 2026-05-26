@@ -1,0 +1,136 @@
+import type { AIProvider, AIProviderRequest, AIProviderResponse } from "./provider";
+
+export type HttpAIProviderOptions = {
+  apiKey?: string;
+  model?: string;
+  fetchImpl?: typeof fetch;
+  baseUrl?: string;
+};
+
+type ChatCompletionResponse = {
+  model?: unknown;
+  choices?: Array<{ message?: { content?: unknown } }>;
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+};
+
+type GeminiResponse = {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
+  usageMetadata?: { promptTokenCount?: unknown; candidatesTokenCount?: unknown };
+};
+
+export class OpenAIChatCompletionsProvider implements AIProvider {
+  readonly id = "openai";
+  private readonly apiKey: string | undefined;
+  private readonly model: string | undefined;
+  private readonly fetchImpl: typeof fetch;
+  private readonly baseUrl: string;
+
+  constructor(options: HttpAIProviderOptions = {}) {
+    this.apiKey = options.apiKey?.trim();
+    this.model = options.model;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.baseUrl = options.baseUrl ?? "https://api.openai.com/v1/chat/completions";
+  }
+
+  async generate(request: AIProviderRequest): Promise<AIProviderResponse> {
+    if (!this.apiKey) throw new Error("OpenAI API key is not configured.");
+    const model = this.model ?? request.model;
+    const response = await this.fetchImpl(this.baseUrl, {
+      method: "POST",
+      headers: {
+        "authorization": `Bearer ${this.apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages: request.messages,
+        temperature: request.temperature,
+        max_tokens: request.maxTokens,
+        response_format: { type: "json_object" }
+      })
+    });
+    const payload = await response.json().catch(() => null) as ChatCompletionResponse | null;
+    if (!response.ok || payload === null) throw new Error("OpenAI API request failed.");
+    const rawText = readString(payload.choices?.[0]?.message?.content);
+    if (!rawText) throw new Error("OpenAI API response did not include message content.");
+    const inputTokens = readNumber(payload.usage?.prompt_tokens);
+    const outputTokens = readNumber(payload.usage?.completion_tokens);
+    return {
+      provider: this.id,
+      model: readString(payload.model) ?? model,
+      rawText,
+      ...(inputTokens === undefined ? {} : { inputTokens }),
+      ...(outputTokens === undefined ? {} : { outputTokens })
+    };
+  }
+}
+
+export class GeminiGenerateContentProvider implements AIProvider {
+  readonly id = "gemini";
+  private readonly apiKey: string | undefined;
+  private readonly model: string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly baseUrl: string;
+
+  constructor(options: HttpAIProviderOptions = {}) {
+    this.apiKey = options.apiKey?.trim();
+    this.model = options.model ?? "gemini-2.5-flash";
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.baseUrl = options.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta/models";
+  }
+
+  async generate(request: AIProviderRequest): Promise<AIProviderResponse> {
+    if (!this.apiKey) throw new Error("Gemini API key is not configured.");
+    const model = this.model || request.model;
+    const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+    const user = request.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
+    const response = await this.fetchImpl(`${this.baseUrl}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: {
+          temperature: request.temperature,
+          maxOutputTokens: request.maxTokens,
+          responseMimeType: "application/json"
+        }
+      })
+    });
+    const payload = await response.json().catch(() => null) as GeminiResponse | null;
+    if (!response.ok || payload === null) throw new Error("Gemini API request failed.");
+    const rawText = readString(payload.candidates?.[0]?.content?.parts?.[0]?.text);
+    if (!rawText) throw new Error("Gemini API response did not include text content.");
+    const inputTokens = readNumber(payload.usageMetadata?.promptTokenCount);
+    const outputTokens = readNumber(payload.usageMetadata?.candidatesTokenCount);
+    return {
+      provider: this.id,
+      model,
+      rawText,
+      ...(inputTokens === undefined ? {} : { inputTokens }),
+      ...(outputTokens === undefined ? {} : { outputTokens })
+    };
+  }
+}
+
+export class CustomJsonAIProvider implements AIProvider {
+  readonly id = "custom";
+  private readonly delegate: OpenAIChatCompletionsProvider;
+
+  constructor(options: HttpAIProviderOptions = {}) {
+    this.delegate = new OpenAIChatCompletionsProvider(options);
+  }
+
+  async generate(request: AIProviderRequest): Promise<AIProviderResponse> {
+    const response = await this.delegate.generate(request);
+    return { ...response, provider: this.id };
+  }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}

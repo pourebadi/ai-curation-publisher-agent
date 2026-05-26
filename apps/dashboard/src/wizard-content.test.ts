@@ -7,7 +7,7 @@ const emptyTelegramSummary: TelegramRouteManagerSummary = {
   finalPublishing: "Disabled",
   routeCount: 0,
   enabledOutputCount: 0,
-  mediaMode: "metadata_only",
+  mediaMode: "telegram_file_id_reuse",
   wordpress: "Optional",
   routeCards: []
 };
@@ -55,8 +55,8 @@ describe("wizard guidance content", () => {
     expect(text).toContain("Routes configured");
     expect(text).toContain("WordPress optional");
     expect(text).toContain("Final publishing disabled/safe");
-    expect(text).toContain("Media mode: metadata_only");
-    expect(text).toContain("sendMediaGroup: unsupported until Phase 36");
+    expect(text).toContain("Media mode: telegram_file_id_reuse");
+    expect(text).toContain("sendMediaGroup: supported for Telegram file_id albums with 2-10 safe media items");
   });
 
   it("does not add dangerous publishing controls", () => {

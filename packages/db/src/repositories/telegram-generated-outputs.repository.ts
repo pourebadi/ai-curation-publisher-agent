@@ -5,6 +5,7 @@ export const TELEGRAM_GENERATED_OUTPUT_STATUSES = [
   "ready_for_review",
   "approved",
   "queued_for_publish",
+  "scheduled",
   "publishing",
   "published",
   "failed",

@@ -14,6 +14,7 @@ export type TelegramPublishQueueRecord = {
   finalThreadId?: number;
   status: TelegramPublishQueueStatus;
   scheduledFor?: string;
+  priority: number;
   attemptCount: number;
   lastError?: string;
   finalMessageId?: string;
@@ -30,6 +31,7 @@ export type EnqueueTelegramPublishInput = {
   finalChatId: string;
   finalThreadId?: number;
   scheduledFor?: string;
+  priority?: number;
 };
 
 type TelegramPublishQueueRow = {
@@ -43,6 +45,7 @@ type TelegramPublishQueueRow = {
   final_thread_id: number | null;
   status: TelegramPublishQueueStatus;
   scheduled_for: string | null;
+  priority?: number | null;
   attempt_count: number;
   last_error: string | null;
   final_message_id: string | null;
@@ -64,8 +67,8 @@ export class TelegramPublishQueueRepository {
     const status: TelegramPublishQueueStatus = input.scheduledFor === undefined ? "pending" : "scheduled";
 
     await this.db.prepare(
-      `INSERT INTO telegram_publish_queue (id, item_id, generated_output_id, route_id, route_output_id, language, final_chat_id, final_thread_id, status, scheduled_for, attempt_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO telegram_publish_queue (id, item_id, generated_output_id, route_id, route_output_id, language, final_chat_id, final_thread_id, status, scheduled_for, priority, attempt_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id,
       input.itemId,
@@ -77,6 +80,7 @@ export class TelegramPublishQueueRepository {
       input.finalThreadId ?? null,
       status,
       input.scheduledFor ?? null,
+      input.priority ?? 0,
       0,
       now,
       now
@@ -93,6 +97,7 @@ export class TelegramPublishQueueRepository {
       ...(input.finalThreadId === undefined ? {} : { finalThreadId: input.finalThreadId }),
       status,
       ...(input.scheduledFor === undefined ? {} : { scheduledFor: input.scheduledFor }),
+      priority: input.priority ?? 0,
       attemptCount: 0,
       createdAt: now,
       updatedAt: now
@@ -104,6 +109,59 @@ export class TelegramPublishQueueRepository {
       .bind(generatedOutputId)
       .first<TelegramPublishQueueRow>();
     return row ? toRecord(row) : null;
+  }
+
+  async findById(id: string): Promise<TelegramPublishQueueRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM telegram_publish_queue WHERE id = ? LIMIT 1")
+      .bind(id)
+      .first<TelegramPublishQueueRow>();
+    return row ? toRecord(row) : null;
+  }
+
+
+  async listRecent(limit = 25, status?: TelegramPublishQueueStatus): Promise<TelegramPublishQueueRecord[]> {
+    const cappedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+    const sql = status === undefined
+      ? `SELECT * FROM telegram_publish_queue ORDER BY updated_at DESC, created_at DESC LIMIT ?`
+      : `SELECT * FROM telegram_publish_queue WHERE status = ? ORDER BY updated_at DESC, created_at DESC LIMIT ?`;
+    const statement = this.db.prepare(sql);
+    const result = status === undefined
+      ? await statement.bind(cappedLimit).all<TelegramPublishQueueRow>()
+      : await statement.bind(status, cappedLimit).all<TelegramPublishQueueRow>();
+    return (result.results ?? []).map(toRecord);
+  }
+
+  async listDue(nowIso: string, limit = 5): Promise<TelegramPublishQueueRecord[]> {
+    const cappedLimit = Math.max(1, Math.min(Math.floor(limit), 25));
+    const result = await this.db.prepare(
+      `SELECT * FROM telegram_publish_queue
+       WHERE status IN ('pending', 'scheduled') AND (scheduled_for IS NULL OR scheduled_for <= ?)
+       ORDER BY priority DESC, COALESCE(scheduled_for, created_at) ASC, created_at ASC
+       LIMIT ?`
+    ).bind(nowIso, cappedLimit).all<TelegramPublishQueueRow>();
+    return (result.results ?? []).map(toRecord);
+  }
+
+  async findLatestForFinalTarget(finalChatId: string, finalThreadId?: number): Promise<TelegramPublishQueueRecord | null> {
+    const sql = finalThreadId === undefined
+      ? `SELECT * FROM telegram_publish_queue WHERE final_chat_id = ? AND final_thread_id IS NULL AND status IN ('pending', 'scheduled', 'publishing', 'published') ORDER BY COALESCE(scheduled_for, updated_at, created_at) DESC LIMIT 1`
+      : `SELECT * FROM telegram_publish_queue WHERE final_chat_id = ? AND final_thread_id = ? AND status IN ('pending', 'scheduled', 'publishing', 'published') ORDER BY COALESCE(scheduled_for, updated_at, created_at) DESC LIMIT 1`;
+    const statement = this.db.prepare(sql);
+    const row = finalThreadId === undefined
+      ? await statement.bind(finalChatId).first<TelegramPublishQueueRow>()
+      : await statement.bind(finalChatId, finalThreadId).first<TelegramPublishQueueRow>();
+    return row ? toRecord(row) : null;
+  }
+
+  async countForFinalTargetBetween(finalChatId: string, startIso: string, endIso: string, finalThreadId?: number): Promise<number> {
+    const sql = finalThreadId === undefined
+      ? `SELECT COUNT(*) AS count FROM telegram_publish_queue WHERE final_chat_id = ? AND final_thread_id IS NULL AND status IN ('pending', 'scheduled', 'publishing', 'published') AND COALESCE(scheduled_for, created_at) >= ? AND COALESCE(scheduled_for, created_at) < ?`
+      : `SELECT COUNT(*) AS count FROM telegram_publish_queue WHERE final_chat_id = ? AND final_thread_id = ? AND status IN ('pending', 'scheduled', 'publishing', 'published') AND COALESCE(scheduled_for, created_at) >= ? AND COALESCE(scheduled_for, created_at) < ?`;
+    const statement = this.db.prepare(sql);
+    const row = finalThreadId === undefined
+      ? await statement.bind(finalChatId, startIso, endIso).first<{ count: number }>()
+      : await statement.bind(finalChatId, finalThreadId, startIso, endIso).first<{ count: number }>();
+    return row?.count ?? 0;
   }
 
   async markPublishing(id: string): Promise<void> {
@@ -137,6 +195,7 @@ function toRecord(row: TelegramPublishQueueRow): TelegramPublishQueueRecord {
     ...(row.final_thread_id === null ? {} : { finalThreadId: row.final_thread_id }),
     status: row.status,
     ...(row.scheduled_for === null ? {} : { scheduledFor: row.scheduled_for }),
+    priority: row.priority ?? 0,
     attemptCount: row.attempt_count,
     ...(row.last_error === null ? {} : { lastError: row.last_error }),
     ...(row.final_message_id === null ? {} : { finalMessageId: row.final_message_id }),

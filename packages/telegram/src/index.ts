@@ -1,7 +1,7 @@
 export const TELEGRAM_REVIEW_ACTIONS = ["edit", "send", "cancel", "status"] as const;
 export type TelegramReviewAction = typeof TELEGRAM_REVIEW_ACTIONS[number];
 
-export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status"] as const;
+export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status", "schedule"] as const;
 export type TelegramOutputReviewAction = typeof TELEGRAM_OUTPUT_REVIEW_ACTIONS[number];
 
 export type TelegramWebhookAck = {
@@ -188,6 +188,12 @@ export type BuildTelegramOutputReviewDraftInput = {
   riskFlags: string[];
   status: string;
   callbackToken: string;
+  scheduleSummary?: string;
+  mediaSummary?: string;
+  publishMode?: string;
+  timezone?: string;
+  allowedPublishWindows?: string[];
+  minimumGapMinutes?: number;
 };
 
 export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
@@ -371,7 +377,8 @@ export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string): 
         { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
       ],
       [
-        { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) }
+        { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) },
+        { text: "Schedule", callback_data: buildTelegramOutputCallbackData("schedule", callbackToken) }
       ]
     ]
   };
@@ -400,6 +407,15 @@ export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): 
 
 export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewDraftInput): TelegramReviewDraft {
   const riskFlags = input.riskFlags.length > 0 ? input.riskFlags.join(", ") : "none";
+  const windows = input.allowedPublishWindows && input.allowedPublishWindows.length > 0 ? input.allowedPublishWindows.join(", ") : "any time";
+  const scheduleLines = input.publishMode === undefined ? [] : [
+    "",
+    "Publishing plan:",
+    `Mode: ${input.publishMode}`,
+    `Timezone: ${input.timezone ?? "UTC"}`,
+    `Window: ${windows}`,
+    `Minimum gap: ${input.minimumGapMinutes ?? 0} minutes`
+  ];
   return {
     text: [
       "Telegram topic review draft",
@@ -415,7 +431,10 @@ export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewD
       input.caption,
       "",
       ...(input.summary === undefined ? [] : ["Summary:", input.summary, ""]),
+      ...(input.scheduleSummary === undefined ? [] : ["Schedule:", input.scheduleSummary, ""]),
+      ...(input.mediaSummary === undefined ? [] : ["Media:", input.mediaSummary, ""]),
       `Risk flags: ${riskFlags}`,
+      ...scheduleLines,
       "",
       "Original excerpt:",
       input.originalExcerpt ?? "none"
@@ -448,4 +467,5 @@ function videoLikeToMedia(kind: "video" | "animation", value: TelegramVideo | Te
 
 export * from "./client";
 export * from "./real-telegram-client";
+export * from "./media-policy";
 export * from "./review-message";

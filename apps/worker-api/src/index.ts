@@ -4,13 +4,18 @@ import { handleHealth } from "./routes/health";
 import { handleInternalAdminConfig } from "./routes/internal-admin-config";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
+import { handleInternalMediaProcessed } from "./routes/internal-media-processed";
 import { handleInternalPoll } from "./routes/internal-poll";
+import { handleInternalMediaJobs } from "./routes/internal-media-jobs";
 import { handleInternalRealIntegrationsPilot } from "./routes/internal-real-integrations-pilot";
 import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleInternalSchedulerRun } from "./routes/internal-scheduler-run";
 import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
 import { handleInternalTelegramOutputsRecent } from "./routes/internal-telegram-outputs-recent";
+import { handleInternalTelegramPublishDue } from "./routes/internal-telegram-publish-due";
 import { handleInternalTelegramPublishRetry } from "./routes/internal-telegram-publish-retry";
+import { handleInternalTelegramPublishQueue } from "./routes/internal-telegram-publish-queue";
+import { handleInternalMediaProcessing } from "./routes/internal-media-processing";
 import { handleInternalTelegramTopicRoutes } from "./routes/internal-telegram-topic-routes";
 import { handleInternalWordPressDryRun } from "./routes/internal-wordpress-dry-run";
 import { handleReady } from "./routes/ready";
@@ -57,6 +62,14 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalPoll(request, env);
   }
 
+  if (url.pathname === "/internal/media/jobs" || url.pathname.startsWith("/internal/media/jobs/")) {
+    return handleInternalMediaJobs(request, env);
+  }
+
+  if (url.pathname === "/internal/media/processed") {
+    return handleInternalMediaProcessed(request, env);
+  }
+
   if (url.pathname === "/internal/scheduler/run") {
     return handleInternalSchedulerRun(request, env);
   }
@@ -81,8 +94,20 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramTopicRoutes(request, env);
   }
 
+  if (url.pathname === "/internal/telegram/publish/due") {
+    return handleInternalTelegramPublishDue(request, env);
+  }
+
   if (url.pathname === "/internal/telegram/publish/retry") {
     return handleInternalTelegramPublishRetry(request, env);
+  }
+
+  if (url.pathname === "/internal/telegram/publish/queue") {
+    return handleInternalTelegramPublishQueue(request, env);
+  }
+
+  if (url.pathname === "/internal/media/processing" || url.pathname === "/internal/media/processing/callback" || url.pathname === "/internal/media/processing/jobs") {
+    return handleInternalMediaProcessing(request, env);
   }
 
   if (url.pathname === "/internal/wordpress/dry-run") {

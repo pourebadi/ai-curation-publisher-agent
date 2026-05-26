@@ -34,7 +34,7 @@ export type SafeConfigSummary = {
     model: string;
     fallbackModels: string[];
     fallbackRuntime: "configured_partial";
-    runtimeProviderSwitching: "stored_config_only";
+    runtimeProviderSwitching: "active_for_telegram_topic_outputs";
     outputLanguage: string;
     translationEnabled: boolean;
     rewriteEnabled: boolean;
@@ -140,7 +140,7 @@ export function buildSafeConfigSummary(env: Env): SafeConfigSummary {
     defaultContentSourceMode: normalizeEnum(env.DEFAULT_CONTENT_SOURCE_MODE, ["manual", "mock", "provider"], "manual"),
     providersMode: providerConfig.mode,
     hasInternalSecret: hasValue(env.INTERNAL_API_SECRET),
-    ai: { provider: aiProvider, modelConfigured, model: model || "missing", fallbackModels: parseModelFallbacks(env.AI_MODEL_FALLBACKS), fallbackRuntime: "configured_partial", runtimeProviderSwitching: "stored_config_only", outputLanguage: normalizeEnum(env.AI_OUTPUT_LANGUAGE, ["fa", "en", "ar", "auto"], "fa"), translationEnabled: readBoolean(env.AI_TRANSLATION_ENABLED, true), rewriteEnabled: readBoolean(env.AI_REWRITE_ENABLED, true), summaryEnabled: readBoolean(env.AI_SUMMARY_ENABLED, true), tonePreset: normalizeEnum(env.AI_TONE_PRESET, ["neutral", "editorial", "concise", "professional", "social", "custom"], "neutral"), maxOutputTokens: readInteger(env.AI_MAX_OUTPUT_TOKENS, 1200), temperature: readNumber(env.AI_TEMPERATURE, 0.4), retryEnabled: readBoolean(env.AI_RETRY_ENABLED, true), maxRetries: readInteger(env.AI_MAX_RETRIES, 2), genericCredentialConfigured: genericAiCredential, providerCredentialConfigured: providerAiCredential, ready: aiReady, productionGrade: aiProvider !== "mock" && aiReady, nextAction: aiReady ? "AI settings are usable. Runtime provider switching and fallback execution are partially implemented." : "Configure an AI model and provider credential in Dashboard -> Settings -> AI." },
+    ai: { provider: aiProvider, modelConfigured, model: model || "missing", fallbackModels: parseModelFallbacks(env.AI_MODEL_FALLBACKS), fallbackRuntime: "configured_partial", runtimeProviderSwitching: "active_for_telegram_topic_outputs", outputLanguage: normalizeEnum(env.AI_OUTPUT_LANGUAGE, ["fa", "en", "ar", "auto"], "fa"), translationEnabled: readBoolean(env.AI_TRANSLATION_ENABLED, true), rewriteEnabled: readBoolean(env.AI_REWRITE_ENABLED, true), summaryEnabled: readBoolean(env.AI_SUMMARY_ENABLED, true), tonePreset: normalizeEnum(env.AI_TONE_PRESET, ["neutral", "editorial", "concise", "professional", "social", "custom"], "neutral"), maxOutputTokens: readInteger(env.AI_MAX_OUTPUT_TOKENS, 1200), temperature: readNumber(env.AI_TEMPERATURE, 0.4), retryEnabled: readBoolean(env.AI_RETRY_ENABLED, true), maxRetries: readInteger(env.AI_MAX_RETRIES, 2), genericCredentialConfigured: genericAiCredential, providerCredentialConfigured: providerAiCredential, ready: aiReady, productionGrade: aiProvider !== "mock" && aiReady, nextAction: aiReady ? "AI settings are usable. Runtime provider switching is active for Telegram topic outputs; fallback execution remains partially implemented." : "Configure an AI model and provider credential in Dashboard -> Settings -> AI." },
     hasTelegramConfig,
     hasTelegramBotToken,
     telegramRealReviewEnabled: env.TELEGRAM_REAL_REVIEW_ENABLED === "true",

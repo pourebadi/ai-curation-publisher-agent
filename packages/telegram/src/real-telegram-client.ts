@@ -7,12 +7,14 @@ import type {
   TelegramClientMessage
 } from "./client";
 import type { ParsedTelegramMedia } from "./index";
+import { validateTelegramPublishMedia } from "./media-policy";
 
 export type TelegramClientErrorCategory =
   | "missing_credentials"
   | "telegram_api_error"
   | "network_error"
-  | "invalid_response";
+  | "invalid_response"
+  | "invalid_media";
 
 export type TelegramClientErrorDetails = {
   category: TelegramClientErrorCategory;
@@ -94,8 +96,16 @@ export class RealTelegramClient implements TelegramClient {
   }
 
   async publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage> {
-    const firstMedia = input.media?.[0];
-    if (!firstMedia) {
+    const media = input.media ?? [];
+    const mediaValidation = validateTelegramPublishMedia(media);
+    if (!mediaValidation.ok) {
+      throw new TelegramClientError({
+        category: "invalid_media",
+        message: mediaValidation.errorMessage
+      });
+    }
+
+    if (media.length === 0) {
       const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
         chat_id: input.chatId,
         ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
@@ -105,6 +115,24 @@ export class RealTelegramClient implements TelegramClient {
       return toTelegramClientMessage(result, input.chatId, input.text, undefined, input.messageThreadId);
     }
 
+    if (media.length > 1) {
+      const result = await this.callTelegramApi<TelegramApiMessage[]>("sendMediaGroup", {
+        chat_id: input.chatId,
+        ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+        media: media.map((entry, index) => ({
+          type: telegramInputMediaType(entry),
+          media: entry.fileId,
+          ...(index === 0 ? { caption: input.text } : {})
+        }))
+      });
+      const firstResult = result[0];
+      if (firstResult === undefined) {
+        throw new TelegramClientError({ category: "invalid_response", message: "Telegram Bot API response did not include a media group message." });
+      }
+      return toTelegramClientMessage(firstResult, input.chatId, input.text, undefined, input.messageThreadId);
+    }
+
+    const firstMedia = media[0]!;
     const method = telegramMethodForMedia(firstMedia);
     const mediaField = telegramMediaFieldForMedia(firstMedia);
     const result = await this.callTelegramApi<TelegramApiMessage>(method, {
@@ -192,6 +220,12 @@ function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "send
   if (media.kind === "photo") return "sendPhoto";
   if (media.kind === "video" || media.kind === "animation") return "sendVideo";
   return "sendDocument";
+}
+
+function telegramInputMediaType(media: ParsedTelegramMedia): "photo" | "video" | "document" {
+  if (media.kind === "photo") return "photo";
+  if (media.kind === "video" || media.kind === "animation") return "video";
+  return "document";
 }
 
 function telegramMediaFieldForMedia(media: ParsedTelegramMedia): "photo" | "video" | "document" {

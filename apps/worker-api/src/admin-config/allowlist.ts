@@ -47,6 +47,8 @@ export const FORBIDDEN_ADMIN_CONFIG_KEYS = new Set([
 export const ADMIN_CONFIG_DEFINITIONS = [
   def("OPERATING_MODE", "operating_mode", "Operating mode", "Choose how the product should run day to day.", "Controls readiness guidance and which setup steps are required.", "enum", { defaultValue: "manual_only", enumValues: ["manual_only", "mock_demo", "provider_assisted"], safetyLevel: "safe", setupVisible: true, requiredForProduction: true }),
   def("DEFAULT_CONTENT_SOURCE_MODE", "content_input", "Default content input", "Choose whether content is usually added manually, mocked, or provider-assisted.", "Guides dashboard setup and default workflow expectations.", "enum", { defaultValue: "manual", enumValues: ["manual", "mock", "provider"], setupVisible: true, requiredForProduction: true }),
+  def("EXTERNAL_LINK_METADATA_ENABLED", "content_input", "External link metadata", "Fetch safe HTML metadata from source links when source text is link-only.", "Used by Telegram topic source ingestion before AI output generation.", "boolean", { defaultValue: "false", safetyLevel: "warning", optionalInManualOnly: true }),
+  def("EXTERNAL_LINK_FETCH_TIMEOUT_MS", "content_input", "External link timeout", "Maximum external metadata fetch time in milliseconds.", "Used by Telegram topic source ingestion.", "integer", { defaultValue: "3000", min: 500, max: 10000, optionalInManualOnly: true }),
 
   def("AI_PROVIDER", "ai", "AI provider", "Choose the AI provider used for processing.", "Controls AI readiness and future AI output calls.", "enum", { defaultValue: "mock", enumValues: ["mock", "openai", "gemini", "custom"], safetyLevel: "warning", setupVisible: true, requiredForProduction: true }),
   def("AI_MODEL", "ai", "Primary AI model", "Primary model ID. Presets are suggestions; manual model IDs are allowed.", "Used by AI processing where implemented.", "string", { defaultValue: "mock", maxLength: 120, setupVisible: true, requiredForProduction: true }),
@@ -65,6 +67,16 @@ export const ADMIN_CONFIG_DEFINITIONS = [
   def("TELEGRAM_REVIEW_CHAT_ID", "telegram", "Telegram review chat", "Chat where review messages are sent.", "Used by Telegram review dry-run and review workflow.", "string", { setupVisible: true, requiredForProduction: true }),
   def("TELEGRAM_FINAL_CHAT_ID", "telegram", "Telegram final chat", "Final chat id is tracked for readiness only. Dashboard does not publish to it.", "Used only for safe readiness status in this phase.", "string", { safetyLevel: "warning" }),
   def("TELEGRAM_REAL_REVIEW_ENABLED", "telegram", "Telegram review dry-run", "Allows review-channel dry-run when the backend is configured.", "Used by Telegram review dry-run only, not final publishing.", "boolean", { defaultValue: "false", safetyLevel: "warning", setupVisible: true }),
+  def("TELEGRAM_FINAL_PUBLISH_ENABLED", "telegram", "Telegram final publishing", "Allows approved Telegram outputs to be published to final channels.", "Used by Telegram Send callbacks and due publish worker.", "boolean", { defaultValue: "false", safetyLevel: "risky", setupVisible: true, requiredForProduction: true }),
+  def("GITHUB_MEDIA_PROCESSOR_ENABLED", "telegram", "GitHub media processor", "Dispatches optional GitHub Actions jobs to download external X/Instagram/direct media and stage Telegram file IDs.", "Used by Telegram topic source ingestion when source messages contain external links.", "boolean", { defaultValue: "false", safetyLevel: "warning", optionalInManualOnly: true }),
+  def("GITHUB_MEDIA_PROCESSOR_REPOSITORY", "telegram", "Media processor repository", "GitHub repository in owner/name form that contains media-processor.yml.", "Used by Worker workflow_dispatch for optional media processing.", "string", { defaultValue: "", maxLength: 160, optionalInManualOnly: true }),
+  def("GITHUB_MEDIA_PROCESSOR_WORKFLOW_ID", "telegram", "Media processor workflow", "Workflow file name or ID for GitHub media processing.", "Used by Worker workflow_dispatch for optional media processing.", "string", { defaultValue: "media-processor.yml", maxLength: 120, optionalInManualOnly: true }),
+  def("GITHUB_MEDIA_PROCESSOR_REF", "telegram", "Media processor branch", "Git ref used for workflow_dispatch.", "Used by Worker workflow_dispatch for optional media processing.", "string", { defaultValue: "main", maxLength: 80, optionalInManualOnly: true }),
+  def("GITHUB_MEDIA_PROCESSOR_CALLBACK_URL", "telegram", "Media processor callback URL", "Full Worker URL for /internal/media/processing/callback.", "Used by GitHub Actions to register staged Telegram file IDs.", "url", { defaultValue: "", preferHttps: true, allowLocalHttp: true, optionalInManualOnly: true }),
+  def("TELEGRAM_MEDIA_STAGING_CHAT_ID", "telegram", "Media staging chat", "Internal Telegram chat where GitHub Actions uploads downloaded media to obtain reusable file IDs.", "Used only by the optional media processor.", "string", { defaultValue: "", optionalInManualOnly: true }),
+  def("TELEGRAM_MEDIA_STAGING_THREAD_ID", "telegram", "Media staging topic", "Optional Telegram topic/thread ID for staging uploads.", "Used only by the optional media processor.", "string", { defaultValue: "", maxLength: 32, optionalInManualOnly: true }),
+  def("TELEGRAM_MEDIA_MAX_PHOTO_MB", "telegram", "Safe photo limit MB", "Practical Telegram photo limit used before dispatch/publish.", "Used by media processing and validation.", "integer", { defaultValue: "9", min: 1, max: 10, optionalInManualOnly: true }),
+  def("TELEGRAM_MEDIA_MAX_FILE_MB", "telegram", "Safe video/file limit MB", "Practical Telegram file limit used before dispatch/publish.", "Used by media processing and validation.", "integer", { defaultValue: "49", min: 1, max: 50, optionalInManualOnly: true }),
 
   def("WORDPRESS_BASE_URL", "wordpress", "WordPress site URL", "WordPress site used for draft-only checks.", "Used by WordPress draft dry-run.", "url", { preferHttps: true, allowLocalHttp: true, setupVisible: true }),
   def("WORDPRESS_USERNAME", "wordpress", "WordPress username", "WordPress REST username for draft-only checks.", "Used by WordPress draft dry-run.", "string", { setupVisible: true }),
@@ -81,6 +93,8 @@ export const ADMIN_CONFIG_DEFINITIONS = [
   def("SCHEDULER_DRY_RUN", "scheduler", "Scheduler dry-run", "Keeps scheduler work safe.", "Used by scheduler safety summary and manual dry-run.", "boolean", { defaultValue: "true", requiredForProduction: true }),
   def("SCHEDULER_MAX_SOURCES_PER_RUN", "scheduler", "Scheduler source limit", "Maximum sources per scheduler run.", "Used by scheduler safety and cost limits.", "integer", { defaultValue: "1", min: 0, max: 10 }),
   def("SCHEDULER_MAX_ITEMS_PER_RUN", "scheduler", "Scheduler item limit", "Maximum items per scheduler run.", "Used by scheduler safety and cost limits.", "integer", { defaultValue: "2", min: 0, max: 25 }),
+  def("TELEGRAM_PUBLISH_SCHEDULER_ENABLED", "scheduler", "Telegram publish scheduler", "Runs due Telegram publish queue items from the scheduled Worker handler.", "Used by Telegram queue publishing.", "boolean", { defaultValue: "false", safetyLevel: "warning" }),
+  def("TELEGRAM_PUBLISH_DUE_LIMIT", "scheduler", "Telegram due publish limit", "Maximum due Telegram publish jobs handled per run.", "Used by Telegram queue publishing.", "integer", { defaultValue: "5", min: 1, max: 25 }),
 
   def("MAX_AI_ITEMS_PER_RUN", "quotas", "AI item quota", "Maximum AI items per run.", "Used by quota summaries and cost guards.", "integer", { defaultValue: "0", min: 0, max: 25 }),
   def("MAX_PROVIDER_ITEMS_PER_RUN", "quotas", "Provider item quota", "Maximum provider items per run.", "Used by provider/scheduler item caps and cost guards.", "integer", { defaultValue: "5", min: 0, max: 50, optionalInManualOnly: true }),
@@ -92,6 +106,7 @@ export const ADMIN_CONFIG_DEFINITIONS = [
   secret("CUSTOM_AI_API_KEY", "ai", "Custom AI API key", "Credential used by custom AI provider integrations.", { requiredForProduction: false }),
   secret("TELEGRAM_BOT_TOKEN", "telegram", "Telegram bot token", "Bot token used by the Worker for Telegram review dry-run.", { requiredForProduction: true }),
   secret("TELEGRAM_WEBHOOK_SECRET", "telegram", "Telegram webhook secret", "Shared secret for Telegram webhook verification."),
+  secret("GITHUB_MEDIA_PROCESSOR_TOKEN", "telegram", "GitHub media processor token", "Fine-scoped GitHub token with Actions workflow dispatch permission for the media processor repository.", { optionalInManualOnly: true }),
   secret("WORDPRESS_APPLICATION_PASSWORD", "wordpress", "WordPress application password", "WordPress REST application password for draft-only checks."),
   secret("FIRECRAWL_API_KEY", "providers", "Firecrawl API key", "Firecrawl credential for sandbox fetch.", { optionalInManualOnly: true }),
   secret("APIFY_TOKEN", "providers", "Apify token", "Apify credential for provider-assisted mode.", { optionalInManualOnly: true }),
@@ -109,6 +124,7 @@ export function isEditableAdminConfigKey(key: string): key is EditableAdminConfi
 }
 
 export function isForbiddenAdminConfigKey(key: string): boolean {
+  if (findAdminConfigDefinition(key) !== undefined) return false;
   const normalized = key.toLowerCase();
   return FORBIDDEN_ADMIN_CONFIG_KEYS.has(key)
     || key.startsWith("CLOUDFLARE_")

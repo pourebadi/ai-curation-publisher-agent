@@ -227,4 +227,54 @@ describe("RealTelegramClient", () => {
       caption: "Document caption"
     });
   });
+
+  it("publishes media groups without silently dropping extra valid items", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ ok: true, result: [
+      { message_id: 201, chat: { id: "final-chat" }, caption: "Album caption" },
+      { message_id: 202, chat: { id: "final-chat" }, caption: "" }
+    ] })) as unknown as typeof fetch;
+    const client = new RealTelegramClient({ botToken: "configured-token", fetchImpl, apiBaseUrl: "https://telegram.local" });
+
+    await client.publishFinalMessage({
+      chatId: "final-chat",
+      text: "Album caption",
+      media: [
+        { kind: "photo", fileId: "photo-1", fileSize: 1024 },
+        { kind: "photo", fileId: "photo-2", fileSize: 1024 }
+      ]
+    });
+
+    expect(requestUrl(fetchImpl)).toBe("https://telegram.local/botconfigured-token/sendMediaGroup");
+    const body = requestBody(fetchImpl);
+    expect(body).toMatchObject({ chat_id: "final-chat" });
+    expect(body.media).toEqual([
+      { type: "photo", media: "photo-1", caption: "Album caption" },
+      { type: "photo", media: "photo-2" }
+    ]);
+  });
+
+  it("rejects oversized media before calling Telegram", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const client = new RealTelegramClient({ botToken: "configured-token", fetchImpl, apiBaseUrl: "https://telegram.local" });
+
+    await expect(client.publishFinalMessage({
+      chatId: "final-chat",
+      text: "Too large",
+      media: [{ kind: "video", fileId: "video-file-id", fileSize: 50 * 1024 * 1024 }]
+    })).rejects.toMatchObject({ category: "invalid_media" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects media groups larger than Telegram supports instead of truncating them", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const client = new RealTelegramClient({ botToken: "configured-token", fetchImpl, apiBaseUrl: "https://telegram.local" });
+
+    await expect(client.publishFinalMessage({
+      chatId: "final-chat",
+      text: "Album",
+      media: Array.from({ length: 11 }, (_, index) => ({ kind: "photo" as const, fileId: `photo-${index}`, fileSize: 1024 }))
+    })).rejects.toMatchObject({ category: "invalid_media" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
 });

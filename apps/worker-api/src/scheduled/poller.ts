@@ -1,4 +1,6 @@
 import { runScheduledPollOperation, type ScheduledPollOperationResult } from "../operations/scheduled-poll";
+import { runTelegramPublishDueOperation } from "../operations/telegram-publish-due";
+import { getEffectiveEnv } from "../admin-config/service";
 import type { Env } from "../types";
 
 export type ScheduledPollResult = ScheduledPollOperationResult & {
@@ -26,9 +28,13 @@ export async function runScheduledPoll(input: {
 export async function handleScheduledPoll(controller: ScheduledController, env: Env): Promise<void> {
   const result = await runScheduledPoll({
     scheduledTime: controller.scheduledTime,
-    cron: controller.cron,
+    ...(controller.cron === undefined ? {} : { cron: controller.cron }),
     env
   });
+
+  const effectiveEnv = await getEffectiveEnv(env);
+  const telegramPublishSchedulerEnabled = (effectiveEnv as Env & { TELEGRAM_PUBLISH_SCHEDULER_ENABLED?: string }).TELEGRAM_PUBLISH_SCHEDULER_ENABLED === "true";
+  const publishResult = telegramPublishSchedulerEnabled ? await runTelegramPublishDueOperation(effectiveEnv) : undefined;
 
   console.log("Scheduled poll completed", {
     ok: result.ok,
@@ -46,6 +52,10 @@ export async function handleScheduledPoll(controller: ScheduledController, env: 
     totalInvalid: result.totalInvalid,
     totalErrors: result.totalErrors,
     scheduledTime: result.scheduledTime,
-    cron: result.cron
+    cron: result.cron,
+    telegramPublishSchedulerEnabled,
+    telegramPublishDueCount: publishResult?.dueCount ?? 0,
+    telegramPublishPublishedCount: publishResult?.publishedCount ?? 0,
+    telegramPublishFailedCount: publishResult?.failedCount ?? 0
   });
 }

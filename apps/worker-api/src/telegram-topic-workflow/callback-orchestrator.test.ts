@@ -31,6 +31,14 @@ type RouteOutputRow = {
   final_chat_id: string;
   final_thread_id: number | null;
   enabled: number;
+  publish_enabled?: number | null;
+  publish_mode?: string | null;
+  timezone?: string | null;
+  allowed_publish_windows_json?: string | null;
+  minimum_gap_minutes?: number | null;
+  max_posts_per_hour?: number | null;
+  max_posts_per_day?: number | null;
+  queue_priority?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -46,6 +54,7 @@ type QueueRow = {
   final_thread_id: number | null;
   status: string;
   scheduled_for: string | null;
+  priority: number;
   attempt_count: number;
   last_error: string | null;
   final_message_id: string | null;
@@ -135,11 +144,12 @@ class FakeStatement implements D1PreparedStatementLike {
         final_thread_id: this.values[7] === null ? null : Number(this.values[7]),
         status: String(this.values[8]),
         scheduled_for: this.values[9] === null ? null : String(this.values[9]),
-        attempt_count: Number(this.values[10]),
+        priority: Number(this.values[10]),
+        attempt_count: Number(this.values[11]),
         last_error: null,
         final_message_id: null,
-        created_at: String(this.values[11]),
-        updated_at: String(this.values[12])
+        created_at: String(this.values[12]),
+        updated_at: String(this.values[13])
       };
       this.db.queue.set(row.id, row);
     }
@@ -210,6 +220,14 @@ function makeDb(): FakeDb {
     final_chat_id: "final-chat",
     final_thread_id: null,
     enabled: 1,
+    publish_enabled: 1,
+    publish_mode: "scheduled",
+    timezone: "UTC",
+    allowed_publish_windows_json: "[]",
+    minimum_gap_minutes: 10,
+    max_posts_per_hour: 4,
+    max_posts_per_day: 24,
+    queue_priority: 0,
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString()
   });
@@ -248,14 +266,15 @@ describe("handleTelegramOutputCallback", () => {
     const telegramClient = new MockTelegramClient();
     const result = await handleTelegramOutputCallback(makeParsed(), makeEnv(db, false), telegramClient);
 
-    expect(result).toMatchObject({ ok: true, status: "queued_for_publish", finalPublishingTriggered: false });
-    expect(Array.from(db.queue.values())[0]?.status).toBe("pending");
-    expect(db.outputs.get("tgout_local")?.status).toBe("queued_for_publish");
-    expect(telegramClient.answeredCallbacks[0]?.text).toBe("Queued. Final Telegram publishing is disabled.");
+    expect(result).toMatchObject({ ok: true, status: "scheduled", publishQueueStatus: "scheduled", finalPublishingTriggered: false });
+    expect(Array.from(db.queue.values())[0]?.status).toBe("scheduled");
+    expect(db.outputs.get("tgout_local")?.status).toBe("scheduled");
+    expect(telegramClient.answeredCallbacks[0]?.text).toContain("Scheduled for");
   });
 
   it("publishes and marks output plus queue as published when enabled", async () => {
     const db = makeDb();
+    db.routeOutputs.get("crypto_fa")!.publish_mode = "immediate";
     const telegramClient = new MockTelegramClient();
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, result: { message_id: 900, chat: { id: "final-chat" }, text: "Final caption" } })));
 
@@ -268,6 +287,7 @@ describe("handleTelegramOutputCallback", () => {
 
   it("marks output and queue as failed with redacted error when final publishing fails", async () => {
     const db = makeDb();
+    db.routeOutputs.get("crypto_fa")!.publish_mode = "immediate";
     const telegramClient = new MockTelegramClient();
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: false, description: "remote failure with configured-token" }, 401)));
 
@@ -278,4 +298,18 @@ describe("handleTelegramOutputCallback", () => {
     expect(db.outputs.get("tgout_local")?.error_message).toBe("Telegram Bot API returned an error.");
     expect(Array.from(db.queue.values())[0]).toMatchObject({ status: "failed", last_error: "Telegram Bot API returned an error." });
   });
+
+  it("does not enqueue duplicates when Send is pressed repeatedly", async () => {
+    const db = makeDb();
+    const telegramClient = new MockTelegramClient();
+
+    const first = await handleTelegramOutputCallback(makeParsed(), makeEnv(db, false), telegramClient);
+    const second = await handleTelegramOutputCallback(makeParsed(), makeEnv(db, false), telegramClient);
+
+    expect(first.ok).toBe(true);
+    expect(second).toMatchObject({ ok: true, publishQueueStatus: "scheduled", finalPublishingTriggered: false });
+    expect(Array.from(db.queue.values())).toHaveLength(1);
+    expect(telegramClient.answeredCallbacks[1]?.text).toContain("Already queued");
+  });
+
 });

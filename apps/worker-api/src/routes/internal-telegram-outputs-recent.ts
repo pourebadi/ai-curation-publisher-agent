@@ -15,6 +15,7 @@ type RecentOutputRow = {
   category: string | null;
   final_chat_id: string | null;
   queue_status: string | null;
+  scheduled_for: string | null;
   queue_error: string | null;
 };
 
@@ -27,7 +28,7 @@ export async function handleInternalTelegramOutputsRecent(request: Request, env:
   const limit = clampLimit(Number(url.searchParams.get("limit") ?? 20));
   const result = await env.DB.prepare(
     `SELECT g.id, g.item_id, g.route_id, g.route_output_id, g.language, g.status, g.error_message, g.updated_at,
-            r.category, o.final_chat_id, q.status AS queue_status, q.last_error AS queue_error
+            r.category, o.final_chat_id, q.status AS queue_status, q.scheduled_for, q.last_error AS queue_error
        FROM telegram_generated_outputs g
        LEFT JOIN telegram_routes r ON r.id = g.route_id
        LEFT JOIN telegram_route_outputs o ON o.id = g.route_output_id
@@ -47,6 +48,7 @@ function toSafeRecentOutput(row: RecentOutputRow): Record<string, unknown> {
     language: row.language,
     reviewStatus: row.status,
     publishQueueStatus: row.queue_status ?? "not_queued",
+    scheduledFor: row.scheduled_for ?? undefined,
     finalChatId: row.final_chat_id ?? "not_configured",
     lastError: redactError(row.queue_error ?? row.error_message ?? ""),
     updatedAt: row.updated_at

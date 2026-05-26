@@ -1,5 +1,7 @@
 import type { D1DatabaseLike } from "../client";
 
+export type TelegramPublishMode = "immediate" | "scheduled" | "queued";
+
 export type TelegramRouteRecord = {
   id: string;
   category: string;
@@ -20,6 +22,14 @@ export type TelegramRouteOutputRecord = {
   finalChatId: string;
   finalThreadId?: number;
   enabled: boolean;
+  publishEnabled: boolean;
+  publishMode: TelegramPublishMode;
+  timezone: string;
+  allowedPublishWindows: string[];
+  minimumGapMinutes: number;
+  maxPostsPerHour: number;
+  maxPostsPerDay: number;
+  queuePriority: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -47,6 +57,14 @@ export type UpsertTelegramRouteOutputInput = {
   finalChatId: string;
   finalThreadId?: number;
   enabled?: boolean;
+  publishEnabled?: boolean;
+  publishMode?: TelegramPublishMode;
+  timezone?: string;
+  allowedPublishWindows?: string[];
+  minimumGapMinutes?: number;
+  maxPostsPerHour?: number;
+  maxPostsPerDay?: number;
+  queuePriority?: number;
 };
 
 type TelegramRouteRow = {
@@ -69,6 +87,14 @@ type TelegramRouteOutputRow = {
   final_chat_id: string;
   final_thread_id: number | null;
   enabled: number;
+  publish_enabled?: number | null;
+  publish_mode?: string | null;
+  timezone?: string | null;
+  allowed_publish_windows_json?: string | null;
+  minimum_gap_minutes?: number | null;
+  max_posts_per_hour?: number | null;
+  max_posts_per_day?: number | null;
+  queue_priority?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -158,11 +184,12 @@ export class TelegramRoutesRepository {
 
   async upsertRouteOutput(input: UpsertTelegramRouteOutputInput): Promise<TelegramRouteOutputRecord> {
     const now = new Date().toISOString();
+    const settings = normalizeRouteOutputSettings(input);
     await this.db.prepare(
-      `INSERT INTO telegram_route_outputs (id, route_id, language, review_chat_id, review_thread_id, final_chat_id, final_thread_id, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET route_id = excluded.route_id, language = excluded.language, review_chat_id = excluded.review_chat_id, review_thread_id = excluded.review_thread_id, final_chat_id = excluded.final_chat_id, final_thread_id = excluded.final_thread_id, enabled = excluded.enabled, updated_at = excluded.updated_at`
-    ).bind(input.id, input.routeId, input.language, input.reviewChatId, input.reviewThreadId, input.finalChatId, input.finalThreadId ?? null, input.enabled === false ? 0 : 1, now, now).run();
+      `INSERT INTO telegram_route_outputs (id, route_id, language, review_chat_id, review_thread_id, final_chat_id, final_thread_id, enabled, publish_enabled, publish_mode, timezone, allowed_publish_windows_json, minimum_gap_minutes, max_posts_per_hour, max_posts_per_day, queue_priority, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET route_id = excluded.route_id, language = excluded.language, review_chat_id = excluded.review_chat_id, review_thread_id = excluded.review_thread_id, final_chat_id = excluded.final_chat_id, final_thread_id = excluded.final_thread_id, enabled = excluded.enabled, publish_enabled = excluded.publish_enabled, publish_mode = excluded.publish_mode, timezone = excluded.timezone, allowed_publish_windows_json = excluded.allowed_publish_windows_json, minimum_gap_minutes = excluded.minimum_gap_minutes, max_posts_per_hour = excluded.max_posts_per_hour, max_posts_per_day = excluded.max_posts_per_day, queue_priority = excluded.queue_priority, updated_at = excluded.updated_at`
+    ).bind(input.id, input.routeId, input.language, input.reviewChatId, input.reviewThreadId, input.finalChatId, input.finalThreadId ?? null, input.enabled === false ? 0 : 1, settings.publishEnabled ? 1 : 0, settings.publishMode, settings.timezone, JSON.stringify(settings.allowedPublishWindows), settings.minimumGapMinutes, settings.maxPostsPerHour, settings.maxPostsPerDay, settings.queuePriority, now, now).run();
 
     return {
       id: input.id,
@@ -173,6 +200,7 @@ export class TelegramRoutesRepository {
       finalChatId: input.finalChatId,
       ...(input.finalThreadId === undefined ? {} : { finalThreadId: input.finalThreadId }),
       enabled: input.enabled !== false,
+      ...settings,
       createdAt: now,
       updatedAt: now
     };
@@ -212,6 +240,18 @@ function toRouteRecord(row: TelegramRouteRow): TelegramRouteRecord {
 }
 
 function toRouteOutputRecord(row: TelegramRouteOutputRow): TelegramRouteOutputRecord {
+  const settingsInput: Partial<UpsertTelegramRouteOutputInput> = {};
+  if (row.publish_enabled !== undefined && row.publish_enabled !== null) settingsInput.publishEnabled = row.publish_enabled === 1;
+  const publishMode = normalizePublishMode(row.publish_mode);
+  if (publishMode !== undefined) settingsInput.publishMode = publishMode;
+  if (row.timezone !== undefined && row.timezone !== null) settingsInput.timezone = row.timezone;
+  const windows = parseWindows(row.allowed_publish_windows_json);
+  if (windows !== undefined) settingsInput.allowedPublishWindows = windows;
+  if (row.minimum_gap_minutes !== undefined && row.minimum_gap_minutes !== null) settingsInput.minimumGapMinutes = row.minimum_gap_minutes;
+  if (row.max_posts_per_hour !== undefined && row.max_posts_per_hour !== null) settingsInput.maxPostsPerHour = row.max_posts_per_hour;
+  if (row.max_posts_per_day !== undefined && row.max_posts_per_day !== null) settingsInput.maxPostsPerDay = row.max_posts_per_day;
+  if (row.queue_priority !== undefined && row.queue_priority !== null) settingsInput.queuePriority = row.queue_priority;
+  const settings = normalizeRouteOutputSettings(settingsInput);
   return {
     id: row.id,
     routeId: row.route_id,
@@ -221,7 +261,43 @@ function toRouteOutputRecord(row: TelegramRouteOutputRow): TelegramRouteOutputRe
     finalChatId: row.final_chat_id,
     ...(row.final_thread_id === null ? {} : { finalThreadId: row.final_thread_id }),
     enabled: row.enabled === 1,
+    ...settings,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function normalizeRouteOutputSettings(input: Partial<UpsertTelegramRouteOutputInput>): Required<Pick<TelegramRouteOutputRecord, "publishEnabled" | "publishMode" | "timezone" | "allowedPublishWindows" | "minimumGapMinutes" | "maxPostsPerHour" | "maxPostsPerDay" | "queuePriority">> {
+  return {
+    publishEnabled: input.publishEnabled !== false,
+    publishMode: input.publishMode ?? "scheduled",
+    timezone: input.timezone?.trim() || "UTC",
+    allowedPublishWindows: Array.isArray(input.allowedPublishWindows) ? input.allowedPublishWindows.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim()) : [],
+    minimumGapMinutes: normalizeNonNegativeInteger(input.minimumGapMinutes, 10),
+    maxPostsPerHour: normalizeNonNegativeInteger(input.maxPostsPerHour, 4),
+    maxPostsPerDay: normalizeNonNegativeInteger(input.maxPostsPerDay, 24),
+    queuePriority: normalizeInteger(input.queuePriority, 0)
+  };
+}
+
+function normalizePublishMode(value: string | null | undefined): TelegramPublishMode | undefined {
+  return value === "immediate" || value === "scheduled" || value === "queued" ? value : undefined;
+}
+
+function parseWindows(value: string | null | undefined): string[] | undefined {
+  if (value === undefined || value === null || value.trim().length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed)) return parsed.filter((entry): entry is string => typeof entry === "string");
+  } catch {}
+  return undefined;
+}
+
+function normalizeInteger(value: number | undefined, fallback: number): number {
+  return value === undefined || !Number.isFinite(value) ? fallback : Math.floor(value);
+}
+
+function normalizeNonNegativeInteger(value: number | undefined, fallback: number): number {
+  const normalized = normalizeInteger(value, fallback);
+  return normalized < 0 ? fallback : normalized;
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { describeConnectionBundle, validateWorkerBaseUrl, WorkerApiClient } from "./api";
 import { buildWizardSteps, DASHBOARD_TABS, deriveOverviewCards, nextRecommendedAction, SAFE_TESTS, type DashboardTab, type WizardStepId } from "./dashboard-ux";
-import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, telegramBotMissingText, telegramRouteManagerCopy, telegramRoutesEmptyStateText, telegramRoutesEmptyStateTitle, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS, type TelegramRouteManagerSummary } from "./telegram-route-manager";
+import { buildTelegramRouteManagerSummary, summarizeRecentTelegramOutputs, summarizeTelegramPublishQueue, telegramBotMissingText, telegramRouteManagerCopy, telegramRoutesEmptyStateText, telegramRoutesEmptyStateTitle, TELEGRAM_OUTPUT_FORM_FIELDS, TELEGRAM_ROUTE_FORM_FIELDS, type TelegramRouteManagerSummary } from "./telegram-route-manager";
 import { redactSensitiveJson } from "./setup";
 import { countErrors, countWarnings } from "./status";
 import { clearOperationHistory, clearSettings, getInternalCredential, loadOperationHistory, loadSettings, saveApiBaseUrl, saveInternalCredential, saveOperationRecord } from "./storage";
@@ -36,6 +36,7 @@ const idleConnectionFeedback: ConnectionFeedback = {
 
 type SettingsSection = "general" | "telegram" | "activity" | "technical";
 type RecentTelegramOutput = ReturnType<typeof summarizeRecentTelegramOutputs>[number];
+type TelegramQueueItem = ReturnType<typeof summarizeTelegramPublishQueue>[number];
 
 function App(): JSX.Element {
   const [settings, setSettings] = useState<DashboardSettings>(() => loadSettings());
@@ -58,6 +59,8 @@ function App(): JSX.Element {
   const [confirmWordPress, setConfirmWordPress] = useState(false);
   const [routeManagerData, setRouteManagerData] = useState<JsonObject | undefined>();
   const [recentTelegramOutputs, setRecentTelegramOutputs] = useState<RecentTelegramOutput[]>([]);
+  const [telegramQueueItems, setTelegramQueueItems] = useState<TelegramQueueItem[]>([]);
+  const [routeSeedJson, setRouteSeedJson] = useState(defaultRouteSeedJson);
 
   const client = useMemo(() => new WorkerApiClient(settings.apiBaseUrl, getInternalCredential()), [settings]);
   const workerReachable = bundle.health?.ok === true && bundle.status?.ok === true;
@@ -109,6 +112,7 @@ function App(): JSX.Element {
     if (internalReady) {
       void loadRouteManager();
       void loadRecentTelegramOutputs();
+      void loadTelegramQueue();
     }
   }, [internalReady, settings.apiBaseUrl]);
 
@@ -163,6 +167,41 @@ function App(): JSX.Element {
     setBusy(undefined);
   }
 
+  async function loadTelegramQueue(): Promise<void> {
+    if (!internalReady) return;
+    setBusy("telegram_publish_queue");
+    const response = await client.getTelegramPublishQueue(25);
+    if (response.ok) {
+      setTelegramQueueItems(summarizeTelegramPublishQueue(response.data.queue));
+      setNotice("Telegram publish queue loaded.");
+    } else {
+      setNotice(response.message);
+    }
+    setBusy(undefined);
+  }
+
+  async function saveRouteSeedFromDashboard(): Promise<void> {
+    if (!internalReady) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(routeSeedJson) as unknown;
+    } catch {
+      setNotice("Route JSON is invalid.");
+      return;
+    }
+    const routes = Array.isArray(parsed) ? parsed : typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as JsonObject).routes : undefined;
+    if (!Array.isArray(routes)) {
+      setNotice("Route JSON must be an array or an object with a routes array.");
+      return;
+    }
+    setBusy("telegram_route_save");
+    const response = await client.seedTelegramTopicRoutes(routes as JsonValue);
+    recordOperation("refresh_status", response.ok, resultToJson(response));
+    setNotice(response.ok ? "Telegram routes saved." : response.message);
+    await loadRouteManager();
+    setBusy(undefined);
+  }
+
   async function loadActivity(): Promise<void> {
     if (!internalReady) {
       setNotice("Admin access is needed first.");
@@ -204,9 +243,9 @@ function App(): JSX.Element {
       <nav className="topTabs" aria-label="Dashboard sections">{DASHBOARD_TABS.map((tab) => <button type="button" key={tab.id} className={activeTab === tab.id ? "active" : "secondary"} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}</nav>
       {activeTab === "overview" && <OverviewPage cards={overviewCards} onRefresh={() => void refreshStatus()} busy={busy !== undefined} />}
       {activeTab === "setup" && <SetupPage steps={wizardSteps} activeStep={activeWizardStep} setActiveStep={setActiveStep} body={<WizardBody id={activeWizardStep.id} connectionFeedback={connectionFeedback} apiBaseUrlInput={apiBaseUrlInput} setApiBaseUrlInput={setApiBaseUrlInput} credentialInput={credentialInput} setCredentialInput={setCredentialInput} saveAndCheckConnection={saveAndCheckConnection} clearLocalSettings={clearLocalSettings} routeManagerSummary={routeManagerSummary} workerReachable={workerReachable} internalReady={internalReady} operatingMode={operatingMode} aiProvider={aiProvider} wordpressReady={wordpressReady} />} />}
-      {activeTab === "settings" && <SettingsPage internalReady={internalReady} section={settingsSection} setSection={setSettingsSection} routeManagerSummary={routeManagerSummary} onLoadRoutes={() => void loadRouteManager()} onValidateRoutes={() => void validateRoutes()} busy={busy !== undefined} />}
-      {activeTab === "tests" && <TestsPage internalReady={internalReady} busy={busy} latest={history} telegramText={telegramText} setTelegramText={setTelegramText} wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} confirmTelegram={confirmTelegram} setConfirmTelegram={setConfirmTelegram} confirmWordPress={confirmWordPress} setConfirmWordPress={setConfirmWordPress} runOperation={runOperation} refreshStatus={refreshStatus} validateRoutes={() => void validateRoutes()} loadRecentOutputs={() => void loadRecentTelegramOutputs()} client={client} />}
-      {activeTab === "activity" && <ActivityPage audit={audit} recentTelegramOutputs={recentTelegramOutputs} enabled={internalReady} busy={busy} loadActivity={loadActivity} loadRecentTelegramOutputs={() => void loadRecentTelegramOutputs()} />}
+      {activeTab === "settings" && <SettingsPage internalReady={internalReady} section={settingsSection} setSection={setSettingsSection} routeManagerSummary={routeManagerSummary} onLoadRoutes={() => void loadRouteManager()} onValidateRoutes={() => void validateRoutes()} routeSeedJson={routeSeedJson} setRouteSeedJson={setRouteSeedJson} onSaveRouteSeed={() => void saveRouteSeedFromDashboard()} busy={busy !== undefined} />}
+      {activeTab === "tests" && <TestsPage internalReady={internalReady} busy={busy} latest={history} telegramText={telegramText} setTelegramText={setTelegramText} wordpressTitle={wordpressTitle} setWordpressTitle={setWordpressTitle} wordpressContent={wordpressContent} setWordpressContent={setWordpressContent} confirmTelegram={confirmTelegram} setConfirmTelegram={setConfirmTelegram} confirmWordPress={confirmWordPress} setConfirmWordPress={setConfirmWordPress} runOperation={runOperation} refreshStatus={refreshStatus} validateRoutes={() => void validateRoutes()} loadRecentOutputs={() => { void loadRecentTelegramOutputs(); void loadTelegramQueue(); }} client={client} />}
+      {activeTab === "activity" && <ActivityPage audit={audit} recentTelegramOutputs={recentTelegramOutputs} telegramQueueItems={telegramQueueItems} enabled={internalReady} busy={busy} loadActivity={loadActivity} loadRecentTelegramOutputs={() => void loadRecentTelegramOutputs()} loadTelegramQueue={() => void loadTelegramQueue()} />}
       {activeTab === "technical" && <TechnicalPage bundle={bundle} adminConfig={adminConfig} history={history} clearHistory={() => { clearOperationHistory(); setHistory([]); }} />}
     </main>
   );
@@ -234,13 +273,13 @@ function GuidancePanel({ guidance }: { guidance: ReturnType<typeof buildWizardGu
   return <div className="panel"><h3>{guidance.title}</h3>{guidance.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{guidance.bullets.length > 0 && <ul>{guidance.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}{guidance.status.length > 0 && <div className="overviewCards">{guidance.status.map((item) => <StatusMini key={item.label} label={item.label} value={item.value} />)}</div>}</div>;
 }
 
-function SettingsPage(props: { internalReady: boolean; section: SettingsSection; setSection: (section: SettingsSection) => void; routeManagerSummary: TelegramRouteManagerSummary; onLoadRoutes: () => void; onValidateRoutes: () => void; busy: boolean }): JSX.Element {
-  return <section className="pageStack"><PageHeader eyebrow="Settings" title="Simple product controls" text="Telegram operations are shown as route cards, not raw database rows." />{!props.internalReady && <EmptyState title="Admin access needed" text="Enter admin access in Setup Wizard before managing routes." />}{props.internalReady && <div className="settingsLayout"><aside className="settingsSide">{(["telegram", "general", "activity", "technical"] as SettingsSection[]).map((section) => <button type="button" key={section} className={props.section === section ? "active" : "ghost"} onClick={() => props.setSection(section)}>{section === "telegram" ? "Telegram" : section === "general" ? "General" : section === "activity" ? "Activity" : "Technical"}</button>)}</aside><div className="settingsForm">{props.section === "telegram" ? <><div className="buttonRow"><button type="button" onClick={props.onLoadRoutes} disabled={props.busy}>Load routes</button><button type="button" className="secondary" onClick={props.onValidateRoutes} disabled={props.busy}>Check route config</button></div><TelegramRouteManager summary={props.routeManagerSummary} /></> : props.section === "technical" ? <p className="muted">Raw route payloads are available only in Technical. Normal Settings stay operator-friendly.</p> : <p className="muted">This build focuses on Telegram route operations polish.</p>}</div></div>}</section>;
+function SettingsPage(props: { internalReady: boolean; section: SettingsSection; setSection: (section: SettingsSection) => void; routeManagerSummary: TelegramRouteManagerSummary; onLoadRoutes: () => void; onValidateRoutes: () => void; routeSeedJson: string; setRouteSeedJson: (value: string) => void; onSaveRouteSeed: () => void; busy: boolean }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Settings" title="Simple product controls" text="Telegram operations are shown as route cards, not raw database rows." />{!props.internalReady && <EmptyState title="Admin access needed" text="Enter admin access in Setup Wizard before managing routes." />}{props.internalReady && <div className="settingsLayout"><aside className="settingsSide">{(["telegram", "general", "activity", "technical"] as SettingsSection[]).map((section) => <button type="button" key={section} className={props.section === section ? "active" : "ghost"} onClick={() => props.setSection(section)}>{section === "telegram" ? "Telegram" : section === "general" ? "General" : section === "activity" ? "Activity" : "Technical"}</button>)}</aside><div className="settingsForm">{props.section === "telegram" ? <><div className="buttonRow"><button type="button" onClick={props.onLoadRoutes} disabled={props.busy}>Load routes</button><button type="button" className="secondary" onClick={props.onValidateRoutes} disabled={props.busy}>Check route config</button><button type="button" onClick={props.onSaveRouteSeed} disabled={props.busy}>Save route JSON</button></div><label>Route/output JSON<textarea value={props.routeSeedJson} onChange={(event) => props.setRouteSeedJson(event.target.value)} rows={14} /></label><TelegramRouteManager summary={props.routeManagerSummary} /></> : props.section === "technical" ? <p className="muted">Raw route payloads are available only in Technical. Normal Settings stay operator-friendly.</p> : <p className="muted">This build focuses on Telegram route operations polish.</p>}</div></div>}</section>;
 }
 
 function TelegramRouteManager({ summary, compact = false }: { summary: TelegramRouteManagerSummary; compact?: boolean }): JSX.Element {
   const botMissing = telegramBotMissingText(summary);
-  return <div className="wizardContent"><div className="callout neutralSoft"><strong>{telegramRouteManagerCopy()}</strong><span>Use chat IDs and numeric topic IDs, not visible topic names.</span></div>{botMissing && <div className="callout warningSoft"><strong>Bot missing</strong><span>{botMissing}</span></div>}<div className="overviewCards"><StatusMini label="Bot" value={summary.botStatus} /><StatusMini label="Final publishing" value={summary.finalPublishing} /><StatusMini label="Routes" value={String(summary.routeCount)} /><StatusMini label="Enabled outputs" value={String(summary.enabledOutputCount)} /><StatusMini label="Media mode" value={summary.mediaMode} /><StatusMini label="WordPress" value={summary.wordpress} /></div>{!compact && <FormFieldSummary />}{summary.routeCards.length === 0 && <EmptyState title={telegramRoutesEmptyStateTitle()} text={telegramRoutesEmptyStateText(summary)} />}{summary.routeCards.map((route) => <article className="panel" key={`${route.sourceChatId}:${route.sourceThreadId}`}><div className="cardHeader"><span className={`badge ${route.enabledLabel === "Enabled" ? "safe" : "neutral"}`}>{route.enabledLabel}</span><h3>{route.category}</h3></div><p>Source chat: <code>{route.sourceChatId}</code> · Topic ID: <code>{route.sourceThreadId}</code></p><p>Prompt profile: <code>{route.promptProfile}</code></p><p>{route.outputsCount} output{route.outputsCount === 1 ? "" : "s"}</p>{route.warnings.map((warning) => <p className="warningText" key={warning}>{warning}</p>)}<div className="grid two">{route.outputs.map((output) => <div className="callout neutralSoft" key={`${route.category}:${output.language}:${output.finalChatId}`}><strong>{output.language.toUpperCase()} · {output.enabledLabel}</strong><span>Review: {output.reviewChatId} / topic {output.reviewThreadId}</span><span>Final: {output.finalChatId}{output.finalThreadId === undefined ? "" : ` / topic ${output.finalThreadId}`}</span><span>Status: {output.latestStatus}</span></div>)}</div></article>)}</div>;
+  return <div className="wizardContent"><div className="callout neutralSoft"><strong>{telegramRouteManagerCopy()}</strong><span>Use chat IDs and numeric topic IDs, not visible topic names.</span></div>{botMissing && <div className="callout warningSoft"><strong>Bot missing</strong><span>{botMissing}</span></div>}<div className="overviewCards"><StatusMini label="Bot" value={summary.botStatus} /><StatusMini label="Final publishing" value={summary.finalPublishing} /><StatusMini label="Routes" value={String(summary.routeCount)} /><StatusMini label="Enabled outputs" value={String(summary.enabledOutputCount)} /><StatusMini label="Media mode" value={summary.mediaMode} /><StatusMini label="WordPress" value={summary.wordpress} /></div>{!compact && <FormFieldSummary />}{summary.routeCards.length === 0 && <EmptyState title={telegramRoutesEmptyStateTitle()} text={telegramRoutesEmptyStateText(summary)} />}{summary.routeCards.map((route) => <article className="panel" key={`${route.sourceChatId}:${route.sourceThreadId}`}><div className="cardHeader"><span className={`badge ${route.enabledLabel === "Enabled" ? "safe" : "neutral"}`}>{route.enabledLabel}</span><h3>{route.category}</h3></div><p>Source chat: <code>{route.sourceChatId}</code> · Topic ID: <code>{route.sourceThreadId}</code></p><p>Prompt profile: <code>{route.promptProfile}</code></p><p>{route.outputsCount} output{route.outputsCount === 1 ? "" : "s"}</p>{route.warnings.map((warning) => <p className="warningText" key={warning}>{warning}</p>)}<div className="grid two">{route.outputs.map((output) => <div className="callout neutralSoft" key={`${route.category}:${output.language}:${output.finalChatId}`}><strong>{output.language.toUpperCase()} · {output.enabledLabel}</strong><span>Review: {output.reviewChatId} / topic {output.reviewThreadId}</span><span>Final: {output.finalChatId}{output.finalThreadId === undefined ? "" : ` / topic ${output.finalThreadId}`}</span><span>Status: {output.latestStatus}</span><span>Publish: {output.publishEnabledLabel} · {output.publishMode}</span><span>Schedule: {output.timezone} · gap {output.minimumGapMinutes}m · {output.allowedPublishWindows.length === 0 ? "anytime" : output.allowedPublishWindows.join(", ")}</span><span>Limits: {output.maxPostsPerHour}/hour · {output.maxPostsPerDay}/day · priority {output.queuePriority}</span></div>)}</div></article>)}</div>;
 }
 
 function FormFieldSummary(): JSX.Element {
@@ -255,8 +294,8 @@ function TestsPage(props: { internalReady: boolean; busy: string | undefined; la
   return <section className="pageStack"><PageHeader eyebrow="Tests" title="Safe checks only" text="No final publishing, no public publishing, and no scheduler publishing controls." /><div className="testGrid">{SAFE_TESTS.map((test) => <article className="testCard" key={test.id}><span className={`badge ${test.safety === "Safe" ? "safe" : "warning"}`}>{test.safety}</span><h3>{test.title}</h3><p>{test.description}</p><small>{test.external}</small><small>{test.publishes}</small>{test.id === "readiness" && <button type="button" onClick={() => void props.refreshStatus()} disabled={props.busy !== undefined}>Run readiness check</button>}{test.id === "mock_e2e" && <button type="button" onClick={() => void props.runOperation("mock_e2e_smoke", () => props.client.runMockE2E())} disabled={!props.internalReady || props.busy !== undefined}>Run mock E2E</button>}{test.id === "telegram_route_config" && <button type="button" onClick={props.validateRoutes} disabled={!props.internalReady || props.busy !== undefined}>Check route config</button>}{test.id === "telegram_publish_queue_dry_run" && <button type="button" onClick={props.loadRecentOutputs} disabled={!props.internalReady || props.busy !== undefined}>Load queue status</button>}{test.id === "telegram_review" && <><textarea value={props.telegramText} onChange={(event) => props.setTelegramText(event.target.value)} /><label className="checkRow"><input type="checkbox" checked={props.confirmTelegram} onChange={(event) => props.setConfirmTelegram(event.target.checked)} />I understand this is review-only.</label><button type="button" onClick={() => void props.runOperation("telegram_review_dry_run", () => props.client.runTelegramReviewDryRun({ text: props.telegramText }), "Run Telegram review dry-run?")} disabled={!props.internalReady || !props.confirmTelegram || props.busy !== undefined}>Run review dry-run</button></>}{test.id === "wordpress_draft" && <><input value={props.wordpressTitle} onChange={(event) => props.setWordpressTitle(event.target.value)} /><textarea value={props.wordpressContent} onChange={(event) => props.setWordpressContent(event.target.value)} /><label className="checkRow"><input type="checkbox" checked={props.confirmWordPress} onChange={(event) => props.setConfirmWordPress(event.target.checked)} />I understand this creates draft-only output.</label><button type="button" onClick={() => void props.runOperation("wordpress_draft_dry_run", () => props.client.runWordPressDraftDryRun({ title: props.wordpressTitle, content: props.wordpressContent }), "Run WordPress draft dry-run?")} disabled={!props.internalReady || !props.confirmWordPress || props.busy !== undefined}>Run draft dry-run</button></>}<LatestResult records={props.latest} title={test.title} /></article>)}</div></section>;
 }
 
-function ActivityPage({ audit, recentTelegramOutputs, enabled, busy, loadActivity, loadRecentTelegramOutputs }: { audit: AdminAuditEntry[]; recentTelegramOutputs: RecentTelegramOutput[]; enabled: boolean; busy: string | undefined; loadActivity: () => Promise<void>; loadRecentTelegramOutputs: () => void }): JSX.Element {
-  return <section className="pageStack"><PageHeader eyebrow="Activity" title="Recent Telegram outputs and changes" text="Operational status stays readable. Raw payloads stay in Technical." action={<div className="buttonRow"><button type="button" onClick={loadRecentTelegramOutputs} disabled={!enabled || busy !== undefined}>Load Telegram outputs</button><button type="button" className="secondary" onClick={() => void loadActivity()} disabled={!enabled || busy !== undefined}>Load audit</button></div>} />{!enabled && <EmptyState title="Admin access needed" text="Save admin access in Setup Wizard to load activity." />}<div className="grid two">{recentTelegramOutputs.map((output) => <article className="activityItem" key={`${output.itemId}:${output.language}:${output.updatedAt}`}><div><span className="badge neutral">{output.language}</span><h3>{output.category}</h3><p>Item: {output.itemId}</p><p>Review: {output.reviewStatus} · Queue: {output.publishQueueStatus}</p><p>Final: {output.finalChatId}</p>{output.lastError !== "none" && output.lastError.length > 0 && <p className="warningText">{output.lastError}</p>}<small>{output.updatedAt}</small></div></article>)}</div>{audit.map((entry) => <article className="activityItem" key={entry.id}><div><span className="badge neutral">{entry.action}</span><h3>{entry.key}</h3><p>{new Date(entry.changed_at).toLocaleString()}</p></div><div className="auditValues"><span>Previous: {entry.previous_value_redacted ?? "[missing]"}</span><span>New: {entry.new_value_redacted ?? "[missing]"}</span></div></article>)}</section>;
+function ActivityPage({ audit, recentTelegramOutputs, telegramQueueItems, enabled, busy, loadActivity, loadRecentTelegramOutputs, loadTelegramQueue }: { audit: AdminAuditEntry[]; recentTelegramOutputs: RecentTelegramOutput[]; telegramQueueItems: TelegramQueueItem[]; enabled: boolean; busy: string | undefined; loadActivity: () => Promise<void>; loadRecentTelegramOutputs: () => void; loadTelegramQueue: () => void }): JSX.Element {
+  return <section className="pageStack"><PageHeader eyebrow="Activity" title="Recent Telegram outputs, queue, and changes" text="Operational status stays readable. Raw payloads stay in Technical." action={<div className="buttonRow"><button type="button" onClick={loadRecentTelegramOutputs} disabled={!enabled || busy !== undefined}>Load Telegram outputs</button><button type="button" className="secondary" onClick={loadTelegramQueue} disabled={!enabled || busy !== undefined}>Load publish queue</button><button type="button" className="secondary" onClick={() => void loadActivity()} disabled={!enabled || busy !== undefined}>Load audit</button></div>} />{!enabled && <EmptyState title="Admin access needed" text="Save admin access in Setup Wizard to load activity." />}<div className="grid two">{recentTelegramOutputs.map((output) => <article className="activityItem" key={`${output.itemId}:${output.language}:${output.updatedAt}`}><div><span className="badge neutral">{output.language}</span><h3>{output.category}</h3><p>Item: {output.itemId}</p><p>Review: {output.reviewStatus} · Queue: {output.publishQueueStatus}</p><p>Final: {output.finalChatId}</p>{output.lastError !== "none" && output.lastError.length > 0 && <p className="warningText">{output.lastError}</p>}<small>{output.updatedAt}</small></div></article>)}</div><h3>Publish queue</h3><div className="grid two">{telegramQueueItems.map((item) => <article className="activityItem" key={item.queueId}><div><span className="badge neutral">{item.language}</span><h3>{item.status}</h3><p>Output: {item.generatedOutputId}</p><p>Final: {item.finalChatId}</p><p>Scheduled: {item.scheduledFor}</p><p>Priority: {item.priority} · Attempts: {item.attemptCount}</p>{item.lastError !== "none" && item.lastError.length > 0 && <p className="warningText">{item.lastError}</p>}<small>{item.updatedAt}</small></div></article>)}</div>{audit.map((entry) => <article className="activityItem" key={entry.id}><div><span className="badge neutral">{entry.action}</span><h3>{entry.key}</h3><p>{new Date(entry.changed_at).toLocaleString()}</p></div><div className="auditValues"><span>Previous: {entry.previous_value_redacted ?? "[missing]"}</span><span>New: {entry.new_value_redacted ?? "[missing]"}</span></div></article>)}</section>;
 }
 
 function TechnicalPage({ bundle, adminConfig, history, clearHistory }: { bundle: StatusBundle; adminConfig: AdminConfigResponse | undefined; history: OperationRecord[]; clearHistory: () => void }): JSX.Element {
@@ -283,5 +322,21 @@ function resultToJson(result: ApiResult | undefined): JsonValue {
 function readObject(value: unknown, key: string): JsonObject | undefined { return typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as JsonObject)[key] === "object" && (value as JsonObject)[key] !== null && !Array.isArray((value as JsonObject)[key]) ? (value as JsonObject)[key] as JsonObject : undefined; }
 function readString(value: unknown, key: string): string | undefined { const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : undefined; const raw = record?.[key]; return typeof raw === "string" ? raw : undefined; }
 function readBoolean(value: unknown, key: string): boolean | undefined { const record = typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonObject : undefined; const raw = record?.[key]; return typeof raw === "boolean" ? raw : undefined; }
+
+const defaultRouteSeedJson = JSON.stringify([
+  {
+    id: "crypto",
+    category: "crypto",
+    sourceChatId: "-1001111111111",
+    sourceThreadId: 101,
+    promptProfile: "crypto_editorial",
+    enabled: true,
+    outputs: [
+      { id: "crypto_fa", language: "fa", reviewChatId: "-1001111111111", reviewThreadId: 201, finalChatId: "@crypto_fa", publishMode: "scheduled", timezone: "Asia/Tehran", allowedPublishWindows: ["09:00-23:00"], minimumGapMinutes: 10, maxPostsPerHour: 4, maxPostsPerDay: 24, queuePriority: 0, enabled: true },
+      { id: "crypto_ar", language: "ar", reviewChatId: "-1001111111111", reviewThreadId: 202, finalChatId: "@crypto_ar", publishMode: "scheduled", timezone: "Asia/Dubai", allowedPublishWindows: ["10:00-23:00"], minimumGapMinutes: 10, maxPostsPerHour: 4, maxPostsPerDay: 24, queuePriority: 0, enabled: true },
+      { id: "crypto_en", language: "en", reviewChatId: "-1001111111111", reviewThreadId: 203, finalChatId: "@crypto_en", publishMode: "scheduled", timezone: "UTC", allowedPublishWindows: ["08:00-22:00"], minimumGapMinutes: 15, maxPostsPerHour: 3, maxPostsPerDay: 24, queuePriority: 0, enabled: true }
+    ]
+  }
+], null, 2);
 
 export default App;

@@ -64,6 +64,6 @@ describe("operating mode readiness", () => {
 
     expect(summary.ai.ready).toBe(true);
     expect(summary.ai.productionGrade).toBe(false);
-    expect(summary.ai.runtimeProviderSwitching).toBe("stored_config_only");
+    expect(summary.ai.runtimeProviderSwitching).toBe("active_for_telegram_topic_outputs");
   });
 });

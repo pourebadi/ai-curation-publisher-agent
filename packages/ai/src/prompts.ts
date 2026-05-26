@@ -16,6 +16,7 @@ export type PromptDefinition = {
 export type RenderPromptInput = {
   post: NormalizedPost;
   sourceAttributionText?: string;
+  templateValues?: Record<string, string>;
 };
 
 export type RenderedPrompt = PromptDefinition & {
@@ -54,7 +55,8 @@ export function renderTelegramPrompt(input: RenderPromptInput, prompt: PromptDef
     authorHandle: input.post.authorHandle ?? "unknown",
     text: input.post.text ?? "",
     links: input.post.links.length > 0 ? input.post.links.join("\n") : "none",
-    sourceAttributionText: input.sourceAttributionText ?? `Source: ${input.post.canonicalUrl}`
+    sourceAttributionText: input.sourceAttributionText ?? `Source: ${input.post.canonicalUrl}`,
+    ...(input.templateValues ?? {})
   };
 
   return {

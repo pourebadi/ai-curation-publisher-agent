@@ -157,7 +157,7 @@ export function buildWizardGuidance(input: WizardGuidanceInput): WizardGuidance 
           "WordPress optional: yes",
           `Final publishing disabled/safe: ${input.routeManagerSummary.finalPublishing === "Disabled" ? "yes" : "review required"}`,
           `Media mode: ${input.routeManagerSummary.mediaMode}`,
-          "sendMediaGroup: unsupported until Phase 36"
+          "sendMediaGroup: supported for Telegram file_id albums with 2-10 safe media items"
         ],
         status: [{ label: "Readiness", value: input.workerReachable && input.hasAdminAccess ? "Review checklist" : "Needs setup" }]
       };

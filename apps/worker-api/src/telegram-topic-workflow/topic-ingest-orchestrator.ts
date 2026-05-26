@@ -2,7 +2,9 @@ import { IngestGateService, ItemsRepository, MediaAssetsRepository, SourcesRepos
 import type { NormalizedMedia, NormalizedPost } from "@curator/core";
 import { buildTelegramOutputReviewDraft, MockTelegramClient, RealTelegramClient, type ParsedManualTelegramMessage, type ParsedTelegramMedia, type TelegramClient } from "@curator/telegram";
 import type { Env } from "../types";
-import { buildMockLocalizedTelegramOutput } from "./output-orchestrator";
+import { generateLocalizedTelegramOutput } from "./output-orchestrator";
+import { resolveExternalSourceText } from "./source-content-resolver";
+import { maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
 
 export type TelegramTopicIngestInput = {
   env: Env;
@@ -36,7 +38,8 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
   const sourcePostId = createTopicSourcePostId(input.parsed);
   const canonicalUrl = input.parsed.urls[0] ?? `telegram://topic/${input.parsed.chatId}/${input.parsed.threadId ?? "none"}/${input.parsed.messageId}`;
   const sourceAttributionText = `Source: ${canonicalUrl}`;
-  const post = createTopicNormalizedPost(input.parsed, sourcePostId, canonicalUrl, input.route);
+  const externalResolution = await resolveExternalSourceText(input.env, input.parsed.urls);
+  const post = createTopicNormalizedPost(input.parsed, sourcePostId, canonicalUrl, input.route, externalResolution.text);
 
   await sourcesRepository.ensureManualTelegramSource();
   const gateResult = await ingestGateService.process({ sourceId: "manual_telegram", post });
@@ -57,62 +60,97 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
 
   const item = gateResult.item;
   await storeTelegramMediaMetadata(mediaAssetsRepository, item.id, input.parsed.media);
+  const mediaDispatch = await maybeDispatchExternalMediaProcessing({
+    env: input.env,
+    itemId: item.id,
+    sourceUrls: input.parsed.urls,
+    requestedBy: `telegram:${input.parsed.chatId}:${input.parsed.threadId ?? "none"}:${input.parsed.messageId}`
+  });
 
   let generatedOutputCount = 0;
   let reviewMessageCount = 0;
 
   for (const routeOutput of input.outputs) {
-    const localizedOutput = buildMockLocalizedTelegramOutput({
-      route: input.route,
-      routeOutput,
-      post,
-      sourceAttributionText
-    });
-    const generatedOutput = await generatedOutputsRepository.save({
-      itemId: item.id,
-      routeId: input.route.id,
-      routeOutputId: routeOutput.id,
-      language: routeOutput.language,
-      status: "ready_for_review",
-      promptProfile: input.route.promptProfile,
-      model: "mock",
-      output: localizedOutput,
-      inputTokens: estimateTokens(post.text ?? canonicalUrl),
-      outputTokens: estimateTokens(localizedOutput.caption)
-    });
-    generatedOutputCount += 1;
+    try {
+      const localized = await generateLocalizedTelegramOutput({
+        env: input.env,
+        itemId: item.id,
+        route: input.route,
+        routeOutput,
+        post,
+        sourceAttributionText
+      });
+      const localizedOutput = localized.output;
+      const generatedOutput = await generatedOutputsRepository.save({
+        itemId: item.id,
+        routeId: input.route.id,
+        routeOutputId: routeOutput.id,
+        language: routeOutput.language,
+        status: "ready_for_review",
+        promptProfile: input.route.promptProfile,
+        model: localized.model,
+        output: localizedOutput,
+        inputTokens: localized.inputTokens ?? estimateTokens(post.text ?? canonicalUrl),
+        outputTokens: localized.outputTokens ?? estimateTokens(localizedOutput.caption)
+      });
+      generatedOutputCount += 1;
 
-    const draft = buildTelegramOutputReviewDraft({
-      generatedOutputId: generatedOutput.id,
-      category: input.route.category,
-      language: routeOutput.language,
-      itemId: item.id,
-      sourceUrl: canonicalUrl,
-      originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
-      caption: localizedOutput.caption,
-      ...(localizedOutput.summary === undefined ? {} : { summary: localizedOutput.summary }),
-      riskFlags: localizedOutput.riskFlags,
-      status: generatedOutput.status,
-      callbackToken: generatedOutput.id
-    });
-    const sent = await telegramClient.sendReviewMessage({
-      chatId: routeOutput.reviewChatId,
-      messageThreadId: routeOutput.reviewThreadId,
-      text: draft.text,
-      replyMarkup: draft.reply_markup
-    });
-    await reviewMessagesRepository.create({
-      generatedOutputId: generatedOutput.id,
-      itemId: item.id,
-      routeId: input.route.id,
-      routeOutputId: routeOutput.id,
-      language: routeOutput.language,
-      chatId: sent.chatId,
-      threadId: routeOutput.reviewThreadId,
-      messageId: sent.messageId,
-      status: "sent"
-    });
-    reviewMessageCount += 1;
+      const draft = buildTelegramOutputReviewDraft({
+        generatedOutputId: generatedOutput.id,
+        category: input.route.category,
+        language: routeOutput.language,
+        itemId: item.id,
+        sourceUrl: canonicalUrl,
+        originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
+        caption: localizedOutput.caption,
+        ...(localizedOutput.summary === undefined ? {} : { summary: localizedOutput.summary }),
+        riskFlags: localizedOutput.riskFlags,
+        status: generatedOutput.status,
+        callbackToken: generatedOutput.id,
+        scheduleSummary: createScheduleSummary(routeOutput),
+        mediaSummary: createMediaSummary(input.parsed.media, mediaDispatch),
+        publishMode: routeOutput.publishMode,
+        timezone: routeOutput.timezone,
+        allowedPublishWindows: routeOutput.allowedPublishWindows,
+        minimumGapMinutes: routeOutput.minimumGapMinutes
+      });
+      const sent = await telegramClient.sendReviewMessage({
+        chatId: routeOutput.reviewChatId,
+        messageThreadId: routeOutput.reviewThreadId,
+        text: draft.text,
+        replyMarkup: draft.reply_markup
+      });
+      await reviewMessagesRepository.create({
+        generatedOutputId: generatedOutput.id,
+        itemId: item.id,
+        routeId: input.route.id,
+        routeOutputId: routeOutput.id,
+        language: routeOutput.language,
+        chatId: sent.chatId,
+        threadId: routeOutput.reviewThreadId,
+        messageId: sent.messageId,
+        status: "sent"
+      });
+      reviewMessageCount += 1;
+    } catch (error) {
+      await generatedOutputsRepository.save({
+        itemId: item.id,
+        routeId: input.route.id,
+        routeOutputId: routeOutput.id,
+        language: routeOutput.language,
+        status: "failed",
+        promptProfile: input.route.promptProfile,
+        model: input.env.AI_MODEL ?? "unknown",
+        output: {
+          language: routeOutput.language,
+          caption: "",
+          hashtags: [],
+          riskFlags: ["generation_failed"],
+          sourceAttributionText
+        },
+        errorMessage: error instanceof Error ? error.message : "Localized Telegram output generation failed."
+      });
+    }
   }
 
   await itemsRepository.updateStatus(item.id, "sent_to_review");
@@ -130,6 +168,27 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
   };
 }
 
+function createScheduleSummary(routeOutput: TelegramRouteOutputRecord): string {
+  const windows = routeOutput.allowedPublishWindows.length === 0 ? "anytime" : routeOutput.allowedPublishWindows.join(", ");
+  return `${routeOutput.publishMode}; ${routeOutput.timezone}; window ${windows}; gap ${routeOutput.minimumGapMinutes}m; max ${routeOutput.maxPostsPerHour}/hour, ${routeOutput.maxPostsPerDay}/day`;
+}
+
+function createMediaSummary(media: ParsedTelegramMedia[], dispatch: MediaProcessingDispatchResult): string {
+  const parts: string[] = [];
+  if (media.length > 0) {
+    const counts = media.reduce<Record<string, number>>((accumulator, entry) => {
+      accumulator[entry.kind] = (accumulator[entry.kind] ?? 0) + 1;
+      return accumulator;
+    }, {});
+    parts.push(Object.entries(counts).map(([kind, count]) => `${count} ${kind}`).join(", "));
+  }
+  if (dispatch.enabled) {
+    parts.push(`external processor: ${dispatch.createdJobs.length} jobs, ${dispatch.dispatchedJobs.length} dispatched`);
+    if (dispatch.warnings.length > 0) parts.push(`warnings: ${dispatch.warnings.join("; ")}`);
+  }
+  return parts.length === 0 ? "none" : parts.join(" | ");
+}
+
 function createTelegramReviewClient(env: Env): TelegramClient {
   const botToken = env.TELEGRAM_BOT_TOKEN?.trim();
   if (env.TELEGRAM_REAL_REVIEW_ENABLED === "true" && botToken) {
@@ -138,7 +197,7 @@ function createTelegramReviewClient(env: Env): TelegramClient {
   return new MockTelegramClient();
 }
 
-function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePostId: string, canonicalUrl: string, route: TelegramRouteRecord): NormalizedPost {
+function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePostId: string, canonicalUrl: string, route: TelegramRouteRecord, externalText?: string): NormalizedPost {
   return {
     provider: "mock_social_provider",
     platform: "manual",
@@ -147,7 +206,7 @@ function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePo
     canonicalUrl,
     publishedAt: new Date((parsed.message.date ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
     authorHandle: parsed.message.from?.username ?? `telegram_user_${parsed.reviewerId}`,
-    text: parsed.text,
+    text: mergeSourceText(parsed.text, externalText),
     links: parsed.urls,
     media: parsed.media.map(toNormalizedMedia),
     rawPayload: {
@@ -161,6 +220,11 @@ function createTopicNormalizedPost(parsed: ParsedManualTelegramMessage, sourcePo
       promptProfile: route.promptProfile
     }
   };
+}
+
+function mergeSourceText(telegramText: string, externalText: string | undefined): string {
+  const parts = [telegramText.trim(), externalText?.trim()].filter((value): value is string => value !== undefined && value.length > 0);
+  return Array.from(new Set(parts)).join("\n\n");
 }
 
 async function storeTelegramMediaMetadata(repository: MediaAssetsRepository, itemId: string, media: ParsedTelegramMedia[]): Promise<void> {

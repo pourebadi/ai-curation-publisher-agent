@@ -26,6 +26,14 @@ export type TelegramRouteCard = {
     finalThreadId?: number;
     enabledLabel: "Enabled" | "Disabled";
     latestStatus: string;
+    publishEnabledLabel: "Enabled" | "Disabled";
+    publishMode: string;
+    timezone: string;
+    allowedPublishWindows: string[];
+    minimumGapMinutes: number;
+    maxPostsPerHour: number;
+    maxPostsPerDay: number;
+    queuePriority: number;
   }>;
 };
 
@@ -45,7 +53,15 @@ export const TELEGRAM_OUTPUT_FORM_FIELDS = [
   { label: "Review topic ID", helper: "Technical name: reviewThreadId. Example: 201", secret: false },
   { label: "Final channel/chat ID", helper: "Technical name: finalChatId. Example: @crypto_fa", secret: false },
   { label: "Final topic ID", helper: "Optional technical name: finalThreadId.", secret: false },
-  { label: "Enabled", helper: "Disabled outputs are skipped safely.", secret: false }
+  { label: "Enabled", helper: "Disabled outputs are skipped safely.", secret: false },
+  { label: "Publish enabled", helper: "Technical name: publishEnabled. Controls whether this output can be queued/published.", secret: false },
+  { label: "Publish mode", helper: "Technical name: publishMode. Use immediate, scheduled, or queued.", secret: false },
+  { label: "Timezone", helper: "Technical name: timezone. Example: Asia/Tehran or UTC.", secret: false },
+  { label: "Allowed windows", helper: "Technical name: allowedPublishWindows. Example: 09:00-23:00.", secret: false },
+  { label: "Minimum gap", helper: "Technical name: minimumGapMinutes. Example: 10.", secret: false },
+  { label: "Max per hour", helper: "Technical name: maxPostsPerHour. Example: 4.", secret: false },
+  { label: "Max per day", helper: "Technical name: maxPostsPerDay. Example: 24.", secret: false },
+  { label: "Queue priority", helper: "Technical name: queuePriority. Higher values publish first.", secret: false }
 ] as const;
 
 export function telegramRouteManagerCopy(): string {
@@ -75,7 +91,7 @@ export function buildTelegramRouteManagerSummary(topicWorkflow: Record<string, u
     finalPublishing: topicWorkflow?.finalPublishingEnabled === true ? "Enabled" : "Disabled",
     routeCount: readNumber(topicWorkflow?.routeCount) ?? routes.length,
     enabledOutputCount: readNumber(topicWorkflow?.enabledOutputCount) ?? 0,
-    mediaMode: readString(topicWorkflow?.mediaMode) ?? "metadata_only",
+    mediaMode: readString(topicWorkflow?.mediaMode) ?? "telegram_file_id_reuse",
     wordpress: "Optional",
     routeCards: routes.map(toRouteCard)
   };
@@ -91,6 +107,36 @@ export function summarizeRecentTelegramOutputs(rawOutputs: unknown): Array<{ ite
     publishQueueStatus: readString(entry.publishQueueStatus) ?? "not queued",
     finalChatId: readString(entry.finalChatId) ?? "not configured",
     lastError: redactStatusText(readString(entry.lastError) ?? readString(entry.errorMessage) ?? "none"),
+    updatedAt: readString(entry.updatedAt) ?? "unknown"
+  }));
+}
+
+
+export function summarizeTelegramPublishQueue(rawQueue: unknown): Array<{ queueId: string; generatedOutputId: string; language: string; finalChatId: string; status: string; scheduledFor: string; priority: number; attemptCount: number; lastError: string; updatedAt: string }> {
+  if (!Array.isArray(rawQueue)) return [];
+  return rawQueue.filter(isRecord).map((entry) => ({
+    queueId: readString(entry.queueId) ?? "unknown",
+    generatedOutputId: readString(entry.generatedOutputId) ?? "unknown",
+    language: readString(entry.language) ?? "unknown",
+    finalChatId: readString(entry.finalChatId) ?? "not configured",
+    status: readString(entry.status) ?? "unknown",
+    scheduledFor: readString(entry.scheduledFor) ?? "not scheduled",
+    priority: readNumber(entry.priority) ?? 0,
+    attemptCount: readNumber(entry.attemptCount) ?? 0,
+    lastError: redactStatusText(readString(entry.lastError) ?? "none"),
+    updatedAt: readString(entry.updatedAt) ?? "unknown"
+  }));
+}
+
+export function summarizeMediaJobs(rawJobs: unknown): Array<{ jobId: string; itemId: string; mediaAssetId: string; sourceUrl: string; status: string; errorMessage: string; updatedAt: string }> {
+  if (!Array.isArray(rawJobs)) return [];
+  return rawJobs.filter(isRecord).map((entry) => ({
+    jobId: readString(entry.jobId) ?? "unknown",
+    itemId: readString(entry.itemId) ?? "unknown",
+    mediaAssetId: readString(entry.mediaAssetId) ?? "unknown",
+    sourceUrl: readString(entry.sourceUrl) ?? "unknown",
+    status: readString(entry.status) ?? "unknown",
+    errorMessage: redactStatusText(readString(entry.errorMessage) ?? "none"),
     updatedAt: readString(entry.updatedAt) ?? "unknown"
   }));
 }
@@ -114,7 +160,15 @@ function toRouteCard(route: Record<string, unknown>): TelegramRouteCard {
       finalChatId: readString(output.finalChatId) ?? "missing",
       ...(readNumber(output.finalThreadId) === undefined ? {} : { finalThreadId: readNumber(output.finalThreadId)! }),
       enabledLabel: output.enabled === false ? "Disabled" : "Enabled",
-      latestStatus: readString(output.latestStatus) ?? "not generated yet"
+      latestStatus: readString(output.latestStatus) ?? "not generated yet",
+      publishEnabledLabel: output.publishEnabled === false ? "Disabled" : "Enabled",
+      publishMode: readString(output.publishMode) ?? "scheduled",
+      timezone: readString(output.timezone) ?? "UTC",
+      allowedPublishWindows: readStringArray(output.allowedPublishWindows),
+      minimumGapMinutes: readNumber(output.minimumGapMinutes) ?? 10,
+      maxPostsPerHour: readNumber(output.maxPostsPerHour) ?? 4,
+      maxPostsPerDay: readNumber(output.maxPostsPerDay) ?? 24,
+      queuePriority: readNumber(output.queuePriority) ?? 0
     }))
   };
 }

@@ -205,7 +205,7 @@ describe("telegram manual ingest parsing", () => {
     expect(draft.text).toContain("Telegram topic review draft");
     expect(draft.text).toContain("crypto");
     expect(draft.text).toContain("fa");
-    expect(draft.reply_markup.inline_keyboard.flat().map((button) => button.text)).toEqual(["Send", "Cancel", "Status"]);
+    expect(draft.reply_markup.inline_keyboard.flat().map((button) => button.text)).toEqual(["Send", "Cancel", "Status", "Schedule"]);
   });
 
   it("parses comma-separated reviewer allowlists", () => {
