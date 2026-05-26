@@ -81,12 +81,11 @@ export async function generateLocalizedTelegramOutput(input: GenerateLocalizedTe
 
 export function buildMockLocalizedTelegramOutput(input: BuildLocalizedTelegramOutputInput): TelegramLocalizedOutput {
   const sourceText = input.post.text?.trim() || "Source content has no text caption.";
-  const excerpt = sourceText.length > 180 ? `${sourceText.slice(0, 179)}…` : sourceText;
   const language = input.routeOutput.language;
   return {
     language,
     headline: `${input.route.category} update (${language})`,
-    caption: excerpt,
+    caption: sourceText,
     summary: `Mock ${language} summary for ${input.route.category}.`,
     hashtags: [`#${input.route.category}`, `#${language}`],
     riskFlags: [],
