@@ -136,7 +136,7 @@ WORDPRESS_DEFAULT_STATUS = "draft"
 TELEGRAM_ALLOWED_REVIEWER_IDS = "6286008147"
 
 AI_PROVIDER = "gemini"
-AI_MODEL = "gemini-2.5-flash"
+AI_MODEL = "gemini-2.0-flash"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "curator_mvp_staging"
