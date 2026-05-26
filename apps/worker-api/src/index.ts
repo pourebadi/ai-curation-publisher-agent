@@ -106,7 +106,12 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramPublishQueue(request, env);
   }
 
-  if (url.pathname === "/internal/media/processing" || url.pathname === "/internal/media/processing/callback" || url.pathname === "/internal/media/processing/jobs") {
+  if (
+    url.pathname === "/internal/media/processing"
+    || url.pathname === "/internal/media/processing/callback"
+    || url.pathname === "/internal/media/processing/jobs"
+    || url.pathname.startsWith("/internal/media/processing/jobs/")
+  ) {
     return handleInternalMediaProcessing(request, env);
   }
 
