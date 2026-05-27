@@ -1,7 +1,7 @@
 export const TELEGRAM_REVIEW_ACTIONS = ["edit", "send", "cancel", "status"] as const;
 export type TelegramReviewAction = typeof TELEGRAM_REVIEW_ACTIONS[number];
 
-export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status"] as const;
+export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status", "schedule"] as const;
 export type TelegramOutputReviewAction = typeof TELEGRAM_OUTPUT_REVIEW_ACTIONS[number];
 
 export type TelegramWebhookAck = {
@@ -156,7 +156,8 @@ export type ParsedTelegramUpdate = ParsedManualTelegramMessage | ParsedTelegramC
 
 export type TelegramInlineKeyboardButton = {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  url?: string;
 };
 
 export type TelegramInlineKeyboardMarkup = {
@@ -188,6 +189,14 @@ export type BuildTelegramOutputReviewDraftInput = {
   riskFlags: string[];
   status: string;
   callbackToken: string;
+  scheduleSummary?: string;
+  mediaSummary?: string;
+  publishMode?: string;
+  timezone?: string;
+  allowedPublishWindows?: string[];
+  minimumGapMinutes?: number;
+  sourceButtonUrl?: string;
+  hasPreviewMedia?: boolean;
 };
 
 export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
@@ -363,18 +372,23 @@ export function buildReviewInlineKeyboard(itemId: string): TelegramInlineKeyboar
   };
 }
 
-export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string): TelegramInlineKeyboardMarkup {
-  return {
-    inline_keyboard: [
-      [
-        { text: "Send", callback_data: buildTelegramOutputCallbackData("send", callbackToken) },
-        { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
-      ],
-      [
-        { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) }
-      ]
+export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string, sourceButtonUrl?: string): TelegramInlineKeyboardMarkup {
+  const inlineKeyboard: TelegramInlineKeyboardButton[][] = [
+    [
+      { text: "Send", callback_data: buildTelegramOutputCallbackData("send", callbackToken) },
+      { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
+    ],
+    [
+      { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) },
+      { text: "Schedule", callback_data: buildTelegramOutputCallbackData("schedule", callbackToken) }
     ]
-  };
+  ];
+
+  if (sourceButtonUrl !== undefined && sourceButtonUrl.trim().length > 0) {
+    inlineKeyboard.push([{ text: "Source", url: sourceButtonUrl.trim() }]);
+  }
+
+  return { inline_keyboard: inlineKeyboard };
 }
 
 export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): TelegramReviewDraft {
@@ -398,29 +412,45 @@ export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): 
   };
 }
 
+function buildMinimalReviewText(input: {
+  category: string;
+  language: string;
+  caption: string;
+  publishMode: string;
+  timezone: string;
+  minimumGapMinutes: number;
+  hasMedia: boolean;
+}): string {
+  const controls = [
+    "🔴 Review controls",
+    "",
+    `Category: ${input.category}`,
+    `Language: ${input.language}`,
+    `Timezone: ${input.timezone}`,
+    `Minimum gap: ${input.minimumGapMinutes} minutes`
+  ].join("\n");
+
+  if (input.hasMedia) return controls;
+
+  return [
+    input.caption,
+    "",
+    controls
+  ].join("\n");
+}
+
 export function buildTelegramOutputReviewDraft(input: BuildTelegramOutputReviewDraftInput): TelegramReviewDraft {
-  const riskFlags = input.riskFlags.length > 0 ? input.riskFlags.join(", ") : "none";
   return {
-    text: [
-      "Telegram topic review draft",
-      "",
-      `Category: ${input.category}`,
-      `Language: ${input.language}`,
-      `Item: ${input.itemId}`,
-      `Output: ${input.generatedOutputId}`,
-      `Status: ${input.status}`,
-      `Source: ${input.sourceUrl}`,
-      "",
-      "Generated caption:",
-      input.caption,
-      "",
-      ...(input.summary === undefined ? [] : ["Summary:", input.summary, ""]),
-      `Risk flags: ${riskFlags}`,
-      "",
-      "Original excerpt:",
-      input.originalExcerpt ?? "none"
-    ].join("\n"),
-    reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken)
+    text: buildMinimalReviewText({
+      category: input.category,
+      language: input.language,
+      caption: input.caption,
+      publishMode: input.publishMode ?? "queued",
+      timezone: input.timezone ?? "UTC",
+      minimumGapMinutes: input.minimumGapMinutes ?? 0,
+      hasMedia: input.hasPreviewMedia === true
+    }),
+    reply_markup: buildTelegramOutputReviewInlineKeyboard(input.callbackToken, input.sourceButtonUrl)
   };
 }
 
@@ -448,4 +478,5 @@ function videoLikeToMedia(kind: "video" | "animation", value: TelegramVideo | Te
 
 export * from "./client";
 export * from "./real-telegram-client";
+export * from "./media-policy";
 export * from "./review-message";

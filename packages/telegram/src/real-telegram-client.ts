@@ -7,12 +7,14 @@ import type {
   TelegramClientMessage
 } from "./client";
 import type { ParsedTelegramMedia } from "./index";
+import { validateTelegramPublishMedia } from "./media-policy";
 
 export type TelegramClientErrorCategory =
   | "missing_credentials"
   | "telegram_api_error"
   | "network_error"
-  | "invalid_response";
+  | "invalid_response"
+  | "invalid_media";
 
 export type TelegramClientErrorDetails = {
   category: TelegramClientErrorCategory;
@@ -65,15 +67,51 @@ export class RealTelegramClient implements TelegramClient {
 
   constructor(options: RealTelegramClientOptions) {
     this.botToken = options.botToken?.trim();
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init));
     this.apiBaseUrl = options.apiBaseUrl ?? "https://api.telegram.org";
   }
 
   async sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage> {
+    const media = input.media ?? [];
+    const mediaPreviewCaption = input.mediaPreviewCaption?.trim() || input.text;
+
+    if (media.length > 0) {
+      const mediaValidation = validateTelegramPublishMedia(media);
+      if (!mediaValidation.ok) {
+        throw new TelegramClientError({
+          category: "invalid_media",
+          message: mediaValidation.errorMessage
+        });
+      }
+
+      if (media.length > 1) {
+        await this.callTelegramApi<TelegramApiMessage[]>("sendMediaGroup", {
+          chat_id: input.chatId,
+          ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+          media: media.map((entry, index) => ({
+            type: telegramInputMediaType(entry),
+            media: entry.fileId,
+            ...(index === 0 ? { caption: mediaPreviewCaption } : {})
+          }))
+        });
+      } else {
+        const firstMedia = media[0]!;
+        const method = telegramMethodForMedia(firstMedia);
+        const mediaField = telegramMediaFieldForMedia(firstMedia);
+
+        await this.callTelegramApi<TelegramApiMessage>(method, {
+          chat_id: input.chatId,
+          ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+          [mediaField]: firstMedia.fileId,
+          caption: mediaPreviewCaption
+        });
+      }
+    }
+
     const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-      text: input.text,
+      text: media.length > 0 ? buildReviewControlText(input.text, input.sourceUrl) : input.text,
       reply_markup: input.replyMarkup,
       disable_web_page_preview: true
     });
@@ -94,8 +132,16 @@ export class RealTelegramClient implements TelegramClient {
   }
 
   async publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage> {
-    const firstMedia = input.media?.[0];
-    if (!firstMedia) {
+    const media = input.media ?? [];
+    const mediaValidation = validateTelegramPublishMedia(media);
+    if (!mediaValidation.ok) {
+      throw new TelegramClientError({
+        category: "invalid_media",
+        message: mediaValidation.errorMessage
+      });
+    }
+
+    if (media.length === 0) {
       const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
         chat_id: input.chatId,
         ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
@@ -105,6 +151,24 @@ export class RealTelegramClient implements TelegramClient {
       return toTelegramClientMessage(result, input.chatId, input.text, undefined, input.messageThreadId);
     }
 
+    if (media.length > 1) {
+      const result = await this.callTelegramApi<TelegramApiMessage[]>("sendMediaGroup", {
+        chat_id: input.chatId,
+        ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+        media: media.map((entry, index) => ({
+          type: telegramInputMediaType(entry),
+          media: entry.fileId,
+          ...(index === 0 ? { caption: input.text } : {})
+        }))
+      });
+      const firstResult = result[0];
+      if (firstResult === undefined) {
+        throw new TelegramClientError({ category: "invalid_response", message: "Telegram Bot API response did not include a media group message." });
+      }
+      return toTelegramClientMessage(firstResult, input.chatId, input.text, undefined, input.messageThreadId);
+    }
+
+    const firstMedia = media[0]!;
     const method = telegramMethodForMedia(firstMedia);
     const mediaField = telegramMediaFieldForMedia(firstMedia);
     const result = await this.callTelegramApi<TelegramApiMessage>(method, {
@@ -144,7 +208,7 @@ export class RealTelegramClient implements TelegramClient {
     } catch (error) {
       throw new TelegramClientError({
         category: "network_error",
-        message: "Telegram Bot API request failed before receiving a response.",
+        message: describeTelegramNetworkError(error),
         cause: error
       });
     }
@@ -188,16 +252,63 @@ export class RealTelegramClient implements TelegramClient {
   }
 }
 
+function buildReviewControlText(reviewText: string, _sourceUrl?: string): string {
+  const category = extractReviewField(reviewText, "Category") ?? "unknown";
+  const language = extractReviewField(reviewText, "Language") ?? "unknown";
+  const timezone = extractReviewPublishingField(reviewText, "Timezone") ?? "unknown";
+  const minimumGap = extractReviewPublishingField(reviewText, "Minimum gap") ?? "unknown";
+
+  return [
+    "🔴 Review controls",
+    "",
+    `Category: ${category}`,
+    `Language: ${language}`,
+    `Timezone: ${timezone}`,
+    `Minimum gap: ${minimumGap}`
+  ].join("\n");
+}
+
+function extractReviewField(reviewText: string, field: string): string | undefined {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = reviewText.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
+  return match?.[1]?.trim();
+}
+
+function extractReviewPublishingField(reviewText: string, field: string): string | undefined {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = reviewText.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
+  return match?.[1]?.trim();
+}
+
 function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "sendVideo" | "sendDocument" {
   if (media.kind === "photo") return "sendPhoto";
   if (media.kind === "video" || media.kind === "animation") return "sendVideo";
   return "sendDocument";
 }
 
+function telegramInputMediaType(media: ParsedTelegramMedia): "photo" | "video" | "document" {
+  if (media.kind === "photo") return "photo";
+  if (media.kind === "video" || media.kind === "animation") return "video";
+  return "document";
+}
+
 function telegramMediaFieldForMedia(media: ParsedTelegramMedia): "photo" | "video" | "document" {
   if (media.kind === "photo") return "photo";
   if (media.kind === "video" || media.kind === "animation") return "video";
   return "document";
+}
+
+function describeTelegramNetworkError(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return `Telegram Bot API request failed before receiving a response: ${redactTelegramNetworkDetail(error.name)}: ${redactTelegramNetworkDetail(error.message)}`;
+  }
+  return "Telegram Bot API request failed before receiving a response.";
+}
+
+function redactTelegramNetworkDetail(value: string): string {
+  return value
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot<redacted>")
+    .replace(/https:\/\/api\.telegram\.org\/[^\s]+/g, "https://api.telegram.org/<redacted>");
 }
 
 export function redactTelegramApiError(_description: unknown): string {

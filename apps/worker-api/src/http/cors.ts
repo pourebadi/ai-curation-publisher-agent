@@ -5,13 +5,14 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const PAGE_PREVIEW_PATTERN = /^https:\/\/[a-z0-9-]+\.ai-curation-dashboard\.pages\.dev$/;
+const CODESPACES_PATTERN = /^https:\/\/[a-z0-9-]+(?:-[0-9]+)?\.app\.github\.dev$/;
 const ALLOWED_METHODS = "GET,POST,PUT,OPTIONS";
 const ALLOWED_HEADERS = "Content-Type, x-internal-api-secret";
 const MAX_AGE_SECONDS = "86400";
 
 export function isAllowedCorsOrigin(origin: string | null): boolean {
   if (origin === null || origin.length === 0) return false;
-  return ALLOWED_ORIGINS.has(origin) || PAGE_PREVIEW_PATTERN.test(origin);
+  return ALLOWED_ORIGINS.has(origin) || PAGE_PREVIEW_PATTERN.test(origin) || CODESPACES_PATTERN.test(origin);
 }
 
 export function corsHeadersForRequest(request: Request): Headers {

@@ -9,6 +9,7 @@ export type GenerateTelegramOutputInput = {
   post: NormalizedPost;
   sourceAttributionText?: string;
   prompt?: PromptDefinition;
+  templateValues?: Record<string, string>;
 };
 
 export type GenerateTelegramOutputResult = {
@@ -29,7 +30,8 @@ export class AIOutputService {
   async generateTelegramOutput(input: GenerateTelegramOutputInput): Promise<GenerateTelegramOutputResult> {
     const renderedPrompt = renderTelegramPrompt({
       post: input.post,
-      ...(input.sourceAttributionText === undefined ? {} : { sourceAttributionText: input.sourceAttributionText })
+      ...(input.sourceAttributionText === undefined ? {} : { sourceAttributionText: input.sourceAttributionText }),
+      ...(input.templateValues === undefined ? {} : { templateValues: input.templateValues })
     }, input.prompt);
 
     const providerResponse = await this.provider.generate({

@@ -7,6 +7,7 @@ export * from "./repositories/review-actions.repository";
 export * from "./repositories/dedupe-keys.repository";
 export * from "./repositories/publish-queue.repository";
 export * from "./repositories/media-assets.repository";
+export * from "./repositories/media-processing-jobs.repository";
 export * from "./repositories/telegram-routes.repository";
 export * from "./repositories/telegram-generated-outputs.repository";
 export * from "./repositories/telegram-review-messages.repository";

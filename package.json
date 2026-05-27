@@ -28,7 +28,10 @@
     "db:migrate:local": "wrangler d1 migrations apply curator_mvp --local --config wrangler.toml",
     "d1:migrate:local": "pnpm db:migrate:local",
     "d1:migrate:remote": "wrangler d1 migrations apply curator_mvp --remote --config wrangler.toml",
-    "d1:migrate:production": "wrangler d1 migrations apply curator_mvp --remote --env production --config wrangler.toml"
+    "d1:migrate:production": "wrangler d1 migrations apply curator_mvp --remote --env production --config wrangler.toml",
+    "telegram:mvp-smoke": "node scripts/telegram-mvp-smoke.mjs",
+    "media:process:local": "python scripts/media_processor.py",
+    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",

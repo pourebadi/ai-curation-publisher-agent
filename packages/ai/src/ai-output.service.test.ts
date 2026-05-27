@@ -4,7 +4,7 @@ import { AIOutputService } from "./ai-output.service";
 import { MockAIProvider } from "./mock-ai-provider";
 import type { AIProvider, AIProviderRequest, AIProviderResponse } from "./provider";
 import { renderTelegramPrompt } from "./prompts";
-import { validateTelegramStructuredOutput } from "./telegram-output";
+import { parseTelegramStructuredOutput, validateTelegramStructuredOutput } from "./telegram-output";
 
 function makePost(overrides: Partial<NormalizedPost> = {}): NormalizedPost {
   return {
@@ -87,6 +87,24 @@ describe("AI output pipeline", () => {
 
     expect(result.valid).toBe(true);
     expect(result.output?.headline).toBe("Headline");
+  });
+
+  it("parses Telegram structured output wrapped in markdown JSON fences", () => {
+    const result = parseTelegramStructuredOutput(`\`\`\`json
+{"headline":"Headline","rewrittenPersianCaption":"کپشن فارسی","shortSummary":"Summary","language":"fa","riskFlags":[],"relevanceScore":0.9,"suggestedHashtags":["#ETH"],"sourceAttributionText":"Source"}
+\`\`\``);
+
+    expect(result.valid).toBe(true);
+    expect(result.output?.headline).toBe("Headline");
+  });
+
+  it("extracts a Telegram structured JSON object from surrounding model text", () => {
+    const result = parseTelegramStructuredOutput(`Here is the JSON:
+{"headline":"Headline","rewrittenPersianCaption":"کپشن فارسی","shortSummary":"Summary","language":"fa","riskFlags":["Market Volatility"],"relevanceScore":0.8,"suggestedHashtags":["#Crypto"],"sourceAttributionText":"Source"}
+Thanks.`);
+
+    expect(result.valid).toBe(true);
+    expect(result.output?.riskFlags).toEqual(["Market Volatility"]);
   });
 
   it("generates a valid Telegram output through the service", async () => {

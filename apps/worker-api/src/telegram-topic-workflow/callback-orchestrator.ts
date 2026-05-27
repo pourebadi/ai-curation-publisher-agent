@@ -1,6 +1,8 @@
-import { MediaAssetsRepository, TelegramGeneratedOutputsRepository, TelegramPublishQueueRepository, TelegramRoutesRepository } from "@curator/db";
-import { RealTelegramClient, redactTelegramApiError, type ParsedTelegramMedia, type ParsedTelegramOutputCallback, type TelegramClient } from "@curator/telegram";
+import { TelegramGeneratedOutputsRepository, TelegramPublishQueueRepository, TelegramRoutesRepository } from "@curator/db";
+import type { ParsedTelegramOutputCallback, TelegramClient } from "@curator/telegram";
 import type { Env } from "../types";
+import { decideTelegramPublishSchedule } from "./publish-scheduler";
+import { publishTelegramQueueItem } from "./publish-runner";
 
 export type TelegramOutputCallbackResult = {
   ok: boolean;
@@ -9,19 +11,17 @@ export type TelegramOutputCallbackResult = {
   action: ParsedTelegramOutputCallback["action"];
   status?: string;
   publishQueueStatus?: string;
+  scheduledFor?: string;
   message: string;
   finalPublishingTriggered: boolean;
 };
 
-type EnvWithFinalPublish = Env & {
-  TELEGRAM_FINAL_PUBLISH_ENABLED?: string;
-};
+type EnvWithFinalPublish = Env & { TELEGRAM_FINAL_PUBLISH_ENABLED?: string };
 
 export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputCallback, env: Env, telegramClient?: TelegramClient): Promise<TelegramOutputCallbackResult> {
   const generatedOutputsRepository = new TelegramGeneratedOutputsRepository(env.DB);
   const publishQueueRepository = new TelegramPublishQueueRepository(env.DB);
   const routesRepository = new TelegramRoutesRepository(env.DB);
-  const mediaAssetsRepository = new MediaAssetsRepository(env.DB);
   const generatedOutput = await generatedOutputsRepository.findById(parsed.token);
 
   if (!generatedOutput) {
@@ -38,7 +38,9 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
 
   if (parsed.action === "status") {
     const queueItem = await publishQueueRepository.findByGeneratedOutputId(generatedOutput.id);
-    const message = queueItem ? `Status: ${generatedOutput.status}. Publish queue: ${queueItem.status}.` : `Status: ${generatedOutput.status}. Not queued for final publishing.`;
+    const message = queueItem
+      ? `Status: ${generatedOutput.status}. Publish queue: ${queueItem.status}${queueItem.scheduledFor ? `. Scheduled for: ${queueItem.scheduledFor}` : ""}.`
+      : `Status: ${generatedOutput.status}. Not queued for final publishing.`;
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
     return {
       ok: true,
@@ -47,6 +49,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
       action: parsed.action,
       status: generatedOutput.status,
       ...(queueItem === null ? {} : { publishQueueStatus: queueItem.status }),
+      ...(queueItem?.scheduledFor === undefined ? {} : { scheduledFor: queueItem.scheduledFor }),
       message,
       finalPublishingTriggered: false
     };
@@ -94,6 +97,25 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
     };
   }
 
+  const existingQueueItem = await publishQueueRepository.findByGeneratedOutputId(generatedOutput.id);
+  if (existingQueueItem) {
+    const message = existingQueueItem.status === "failed"
+      ? "Already failed. Use the retry action after checking status."
+      : `Already queued for Telegram publishing. Queue status: ${existingQueueItem.status}${existingQueueItem.scheduledFor ? `. Scheduled for: ${existingQueueItem.scheduledFor}` : ""}.`;
+    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
+    return {
+      ok: existingQueueItem.status !== "failed",
+      kind: "output_callback",
+      generatedOutputId: generatedOutput.id,
+      action: parsed.action,
+      status: generatedOutput.status,
+      publishQueueStatus: existingQueueItem.status,
+      ...(existingQueueItem.scheduledFor === undefined ? {} : { scheduledFor: existingQueueItem.scheduledFor }),
+      message,
+      finalPublishingTriggered: false
+    };
+  }
+
   const routeOutput = await routesRepository.findOutputById(generatedOutput.routeOutputId);
   if (!routeOutput) {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Route output is missing.");
@@ -109,6 +131,22 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
     };
   }
 
+  const scheduleRouteOutput = parsed.action === "schedule" ? { ...routeOutput, publishMode: "scheduled" as const } : routeOutput;
+  const schedule = await decideTelegramPublishSchedule({ routeOutput: scheduleRouteOutput, queueRepository: publishQueueRepository });
+  if (schedule.reason === "publish_disabled") {
+    await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Publishing is disabled for this route output.");
+    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Publishing is disabled for this output." });
+    return {
+      ok: false,
+      kind: "output_callback",
+      generatedOutputId: generatedOutput.id,
+      action: parsed.action,
+      status: "failed",
+      message: "Publishing is disabled for this route output.",
+      finalPublishingTriggered: false
+    };
+  }
+
   await generatedOutputsRepository.updateStatus(generatedOutput.id, "approved");
   const queueItem = await publishQueueRepository.enqueue({
     itemId: generatedOutput.itemId,
@@ -117,115 +155,53 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
     routeOutputId: generatedOutput.routeOutputId,
     language: generatedOutput.language,
     finalChatId: routeOutput.finalChatId,
-    ...(routeOutput.finalThreadId === undefined ? {} : { finalThreadId: routeOutput.finalThreadId })
+    ...(routeOutput.finalThreadId === undefined ? {} : { finalThreadId: routeOutput.finalThreadId }),
+    ...(schedule.scheduledFor === undefined ? {} : { scheduledFor: schedule.scheduledFor }),
+    priority: schedule.priority
   });
 
-  if (!isFinalPublishingEnabled(env)) {
-    await generatedOutputsRepository.updateStatus(generatedOutput.id, "queued_for_publish");
-    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Queued. Final Telegram publishing is disabled." });
+  const finalPublishingEnabled = isFinalPublishingEnabled(env);
+  const scheduledInFuture = schedule.scheduledFor !== undefined && new Date(schedule.scheduledFor).getTime() > Date.now() + 5_000;
+  const shouldPublishNow = finalPublishingEnabled && schedule.publishMode === "immediate" && !scheduledInFuture;
+
+  if (!shouldPublishNow) {
+    const nextStatus = schedule.scheduledFor === undefined ? "queued_for_publish" : "scheduled";
+    await generatedOutputsRepository.updateStatus(generatedOutput.id, nextStatus);
+    const text = finalPublishingEnabled
+      ? schedule.scheduledFor === undefined ? "Queued for Telegram publishing." : `Scheduled for ${schedule.scheduledFor}.`
+      : schedule.scheduledFor === undefined ? "Queued. Final Telegram publishing is disabled." : `Scheduled for ${schedule.scheduledFor}. Final Telegram publishing is disabled.`;
+    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text });
     return {
       ok: true,
       kind: "output_callback",
       generatedOutputId: generatedOutput.id,
       action: parsed.action,
-      status: "queued_for_publish",
+      status: nextStatus,
       publishQueueStatus: queueItem.status,
-      message: "Queued. Final Telegram publishing is disabled.",
+      ...(schedule.scheduledFor === undefined ? {} : { scheduledFor: schedule.scheduledFor }),
+      message: text,
       finalPublishingTriggered: false
     };
   }
 
-  const botToken = env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!botToken) {
-    await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Telegram bot token is not configured.");
-    await publishQueueRepository.markFailed(queueItem.id, "Telegram bot token is not configured.");
-    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Publish failed. Telegram bot token is missing." });
-    return {
-      ok: false,
-      kind: "output_callback",
-      generatedOutputId: generatedOutput.id,
-      action: parsed.action,
-      status: "failed",
-      publishQueueStatus: "failed",
-      message: "Publish failed. Telegram bot token is missing.",
-      finalPublishingTriggered: true
-    };
+  const publishResult = await publishTelegramQueueItem({ env, queueItem });
+  if (publishResult.status === "skipped") {
+    await generatedOutputsRepository.updateStatus(generatedOutput.id, queueItem.scheduledFor === undefined ? "queued_for_publish" : "scheduled");
   }
-
-  await generatedOutputsRepository.updateStatus(generatedOutput.id, "publishing");
-  await publishQueueRepository.markPublishing(queueItem.id);
-
-  try {
-    const publishClient = new RealTelegramClient({ botToken });
-    const media = await mediaForItem(mediaAssetsRepository, generatedOutput.itemId);
-    const sent = await publishClient.publishFinalMessage({
-      chatId: routeOutput.finalChatId,
-      ...(routeOutput.finalThreadId === undefined ? {} : { messageThreadId: routeOutput.finalThreadId }),
-      text: generatedOutput.output.caption,
-      ...(media.length === 0 ? {} : { media })
-    });
-    await publishQueueRepository.markPublished(queueItem.id, sent.messageId);
-    await generatedOutputsRepository.updateStatus(generatedOutput.id, "published");
-    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Published to Telegram." });
-    return {
-      ok: true,
-      kind: "output_callback",
-      generatedOutputId: generatedOutput.id,
-      action: parsed.action,
-      status: "published",
-      publishQueueStatus: "published",
-      message: "Published to Telegram.",
-      finalPublishingTriggered: true
-    };
-  } catch (error) {
-    const message = redactPublishError(error);
-    await publishQueueRepository.markFailed(queueItem.id, message);
-    await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", message);
-    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Publish failed. Check status for details." });
-    return {
-      ok: false,
-      kind: "output_callback",
-      generatedOutputId: generatedOutput.id,
-      action: parsed.action,
-      status: "failed",
-      publishQueueStatus: "failed",
-      message,
-      finalPublishingTriggered: true
-    };
-  }
+  await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: publishResult.message });
+  const callbackStatus = publishResult.status === "published" ? "published" : publishResult.status === "skipped" ? queueItem.status : "failed";
+  return {
+    ok: publishResult.ok,
+    kind: "output_callback",
+    generatedOutputId: generatedOutput.id,
+    action: parsed.action,
+    status: callbackStatus,
+    publishQueueStatus: publishResult.status === "skipped" ? queueItem.status : publishResult.status,
+    message: publishResult.message,
+    finalPublishingTriggered: publishResult.status !== "skipped"
+  };
 }
 
 function isFinalPublishingEnabled(env: Env): boolean {
   return (env as EnvWithFinalPublish).TELEGRAM_FINAL_PUBLISH_ENABLED === "true";
-}
-
-async function mediaForItem(repository: MediaAssetsRepository, itemId: string): Promise<ParsedTelegramMedia[]> {
-  const assets = await repository.findByItemId(itemId);
-  return assets
-    .filter((asset) => asset.telegramFileId !== undefined && asset.telegramFileType !== undefined)
-    .map((asset) => ({
-      kind: toParsedMediaKind(asset.telegramFileType),
-      fileId: asset.telegramFileId!,
-      ...(asset.telegramFileUniqueId === undefined ? {} : { fileUniqueId: asset.telegramFileUniqueId }),
-      ...(asset.telegramMediaGroupId === undefined ? {} : { mediaGroupId: asset.telegramMediaGroupId }),
-      ...(asset.telegramMimeType === undefined ? {} : { mimeType: asset.telegramMimeType }),
-      ...(asset.telegramFileSize === undefined ? {} : { fileSize: asset.telegramFileSize }),
-      ...(asset.width === undefined ? {} : { width: asset.width }),
-      ...(asset.height === undefined ? {} : { height: asset.height }),
-      ...(asset.durationSeconds === undefined ? {} : { durationSeconds: asset.durationSeconds })
-    }));
-}
-
-function toParsedMediaKind(value: string | undefined): ParsedTelegramMedia["kind"] {
-  if (value === "photo") return "photo";
-  if (value === "video") return "video";
-  if (value === "animation") return "animation";
-  return "document";
-}
-
-function redactPublishError(error: unknown): string {
-  if (error instanceof Error) {
-    return redactTelegramApiError(error.message);
-  }
-  return "Telegram publish failed.";
 }

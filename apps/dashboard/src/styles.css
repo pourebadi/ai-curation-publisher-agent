@@ -95,3 +95,10 @@ summary { cursor: pointer; font-weight: 820; }
   .sectionTitle, .buttonRow, .fieldActions { align-items: stretch; flex-direction: column; }
   button { width: 100%; }
 }
+.nestedPanel { border-style: dashed; }
+.checkRow { display: flex; align-items: center; gap: 0.5rem; min-height: 3rem; }
+.checkRow input { width: auto; }
+select { width: 100%; padding: 0.75rem; border-radius: 0.75rem; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.softPanel { background: #f8fafc; box-shadow: none; }
+@media (max-width: 1024px) { .grid.three { grid-template-columns: 1fr; } }

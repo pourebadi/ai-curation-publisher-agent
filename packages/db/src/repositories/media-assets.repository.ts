@@ -1,6 +1,6 @@
 import type { D1DatabaseLike } from "../client";
 
-export type MediaAssetStatus = "pending" | "ready" | "failed" | "skipped";
+export type MediaAssetStatus = "pending" | "processing" | "ready" | "failed" | "skipped";
 
 export type MediaAssetRecord = {
   id: string;
@@ -36,6 +36,7 @@ export type CreateMediaAssetInput = {
   sourceUrl: string;
   canonicalUrl?: string;
   storageKey?: string;
+  r2Key?: string;
   publicUrl?: string;
   sizeBytes?: number;
   mimeType?: string;
@@ -51,17 +52,38 @@ export type CreateMediaAssetInput = {
   telegramFileSize?: number;
 };
 
+export type UpdateTelegramMediaInput = {
+  id: string;
+  status?: MediaAssetStatus;
+  kind?: string;
+  errorMessage?: string;
+  telegramFileId?: string;
+  telegramFileUniqueId?: string;
+  telegramMediaGroupId?: string;
+  telegramFileType?: string;
+  telegramMimeType?: string;
+  telegramFileSize?: number;
+  sizeBytes?: number;
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+  publicUrl?: string;
+  storageKey?: string;
+};
+
 export class MediaAssetsRepository {
   constructor(private readonly db: D1DatabaseLike) {}
 
   async createMany(assets: CreateMediaAssetInput[]): Promise<void> {
     for (const asset of assets) {
-      if (hasTelegramMetadata(asset)) {
-        await this.createWithTelegramMetadata(asset);
-      } else {
-        await this.createCoreAsset(asset);
-      }
+      await this.createAsset(asset);
     }
+  }
+
+  async findById(id: string): Promise<MediaAssetRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM media_assets WHERE id = ? LIMIT 1").bind(id).first<MediaAssetRow>();
+    return row ? toMediaAssetRecord(row) : null;
   }
 
   async findByItemId(itemId: string): Promise<MediaAssetRecord[]> {
@@ -80,30 +102,53 @@ export class MediaAssetsRepository {
       .run();
   }
 
-  private async createCoreAsset(asset: CreateMediaAssetInput): Promise<void> {
+  async updateTelegramMetadata(input: UpdateTelegramMediaInput): Promise<void> {
+    await this.completeTelegramProcessing(input);
+  }
+
+  async completeTelegramProcessing(input: UpdateTelegramMediaInput): Promise<void> {
     await this.db.prepare(
-      `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      `UPDATE media_assets
+       SET status = COALESCE(?, status),
+           kind = COALESCE(?, kind),
+           error_message = ?,
+           telegram_file_id = COALESCE(?, telegram_file_id),
+           telegram_file_unique_id = COALESCE(?, telegram_file_unique_id),
+           telegram_media_group_id = COALESCE(?, telegram_media_group_id),
+           telegram_file_type = COALESCE(?, telegram_file_type),
+           telegram_mime_type = COALESCE(?, telegram_mime_type),
+           telegram_file_size = COALESCE(?, telegram_file_size),
+           size_bytes = COALESCE(?, size_bytes),
+           mime_type = COALESCE(?, mime_type),
+           width = COALESCE(?, width),
+           height = COALESCE(?, height),
+           duration_seconds = COALESCE(?, duration_seconds),
+           public_url = COALESCE(?, public_url),
+           r2_key = COALESCE(?, r2_key),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
     ).bind(
-      asset.id,
-      asset.itemId,
-      asset.kind,
-      asset.status ?? "pending",
-      asset.sourceUrl,
-      asset.canonicalUrl ?? null,
-      stableHash(asset.canonicalUrl ?? asset.sourceUrl),
-      asset.storageKey ?? null,
-      asset.publicUrl ?? null,
-      asset.sizeBytes ?? null,
-      asset.mimeType ?? null,
-      asset.width ?? null,
-      asset.height ?? null,
-      asset.durationSeconds ?? null,
-      asset.errorMessage ?? null
+      input.status ?? null,
+      input.kind ?? null,
+      input.errorMessage ?? null,
+      input.telegramFileId ?? null,
+      input.telegramFileUniqueId ?? null,
+      input.telegramMediaGroupId ?? null,
+      input.telegramFileType ?? null,
+      input.telegramMimeType ?? null,
+      input.telegramFileSize ?? null,
+      input.sizeBytes ?? null,
+      input.mimeType ?? null,
+      input.width ?? null,
+      input.height ?? null,
+      input.durationSeconds ?? null,
+      input.publicUrl ?? null,
+      input.storageKey ?? null,
+      input.id
     ).run();
   }
 
-  private async createWithTelegramMetadata(asset: CreateMediaAssetInput): Promise<void> {
+  private async createAsset(asset: CreateMediaAssetInput): Promise<void> {
     await this.db.prepare(
       `INSERT OR REPLACE INTO media_assets (id, item_id, kind, status, source_url, canonical_url, media_url_hash, r2_key, public_url, size_bytes, mime_type, width, height, duration_seconds, error_message, telegram_file_id, telegram_file_unique_id, telegram_media_group_id, telegram_file_type, telegram_mime_type, telegram_file_size, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
@@ -115,7 +160,7 @@ export class MediaAssetsRepository {
       asset.sourceUrl,
       asset.canonicalUrl ?? null,
       stableHash(asset.canonicalUrl ?? asset.sourceUrl),
-      asset.storageKey ?? null,
+      asset.r2Key ?? asset.storageKey ?? null,
       asset.publicUrl ?? null,
       asset.sizeBytes ?? null,
       asset.mimeType ?? null,
@@ -187,20 +232,8 @@ function toMediaAssetRecord(row: MediaAssetRow): MediaAssetRecord {
   };
 }
 
-function hasTelegramMetadata(asset: CreateMediaAssetInput): boolean {
-  return asset.telegramFileId !== undefined
-    || asset.telegramFileUniqueId !== undefined
-    || asset.telegramMediaGroupId !== undefined
-    || asset.telegramFileType !== undefined
-    || asset.telegramMimeType !== undefined
-    || asset.telegramFileSize !== undefined;
-}
-
 function stableHash(value: string): string {
   let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
-  }
-
+  for (let index = 0; index < value.length; index += 1) hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
