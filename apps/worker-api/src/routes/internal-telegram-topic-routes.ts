@@ -20,6 +20,10 @@ type TelegramRouteOutputBody = {
   maxPostsPerHour?: unknown;
   maxPostsPerDay?: unknown;
   queuePriority?: unknown;
+  signatureEnabled?: unknown;
+  signatureText?: unknown;
+  signatureChannelHandle?: unknown;
+  signaturePosition?: unknown;
 };
 
 type TelegramRouteBody = {
@@ -205,6 +209,8 @@ function validateRouteRecords(routes: Array<TelegramRouteRecord & { outputs: Tel
       if (output.enabled && !output.publishEnabled) issues.push({ routeId: route.id, outputId: output.id, code: "output_publish_disabled", message: "Publishing is disabled for this output." });
       if (output.publishMode === "scheduled" && output.allowedPublishWindows.some((window) => !isPublishWindow(window))) issues.push({ routeId: route.id, outputId: output.id, code: "invalid_publish_window", message: "Allowed publish windows must use valid HH:MM-HH:MM values." });
       if (!isValidTimezone(output.timezone)) issues.push({ routeId: route.id, outputId: output.id, code: "invalid_timezone", message: "Timezone must be a valid IANA timezone such as UTC, Asia/Tehran, or Asia/Dubai." });
+      if (output.signatureEnabled && !output.signatureText && !output.signatureChannelHandle) issues.push({ routeId: route.id, outputId: output.id, code: "signature_content_missing", message: "Enabled signatures need signature text or a public channel handle." });
+      if (output.signatureChannelHandle !== undefined && !isValidChannelHandle(output.signatureChannelHandle)) issues.push({ routeId: route.id, outputId: output.id, code: "invalid_signature_channel_handle", message: "Signature channel handle must start with @ and use Telegram-safe characters." });
     }
   }
   return { valid: issues.length === 0, invalidRouteCount: new Set(issues.map((issue) => issue.routeId).filter(Boolean)).size, issues };
@@ -260,12 +266,19 @@ function normalizeOutput(body: TelegramRouteOutputBody, routeId: string):
   const maxPostsPerHour = readInteger(body.maxPostsPerHour);
   const maxPostsPerDay = readInteger(body.maxPostsPerDay);
   const queuePriority = readInteger(body.queuePriority);
+  const signatureEnabled = typeof body.signatureEnabled === "boolean" ? body.signatureEnabled : undefined;
+  const signatureText = readOptionalBoundedString(body.signatureText, 500);
+  const signatureChannelHandle = readNonEmptyString(body.signatureChannelHandle);
+  const signaturePosition = body.signaturePosition === "append" ? "append" : undefined;
   const timezone = readNonEmptyString(body.timezone);
   if (!id || !language || !reviewChatId || reviewThreadId === undefined || !finalChatId) return { ok: false, error: "invalid_route_output", message: "Route output requires id, language, reviewChatId, reviewThreadId, and finalChatId." };
   if (body.publishMode !== undefined && publishMode === undefined) return { ok: false, error: "invalid_publish_mode", message: "publishMode must be immediate, scheduled, or queued." };
   if (allowedPublishWindows.some((window) => !isPublishWindow(window))) return { ok: false, error: "invalid_publish_window", message: "allowedPublishWindows must contain valid HH:MM-HH:MM values." };
   if (timezone !== undefined && !isValidTimezone(timezone)) return { ok: false, error: "invalid_timezone", message: "timezone must be a valid IANA timezone such as UTC, Asia/Tehran, or Asia/Dubai." };
-  return { ok: true, output: { id, routeId, language, reviewChatId, reviewThreadId, finalChatId, ...(finalThreadId === undefined ? {} : { finalThreadId }), ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}), ...(typeof body.publishEnabled === "boolean" ? { publishEnabled: body.publishEnabled } : {}), ...(publishMode === undefined ? {} : { publishMode }), ...(timezone === undefined ? {} : { timezone }), ...(allowedPublishWindows.length === 0 ? {} : { allowedPublishWindows }), ...(minimumGapMinutes === undefined ? {} : { minimumGapMinutes }), ...(maxPostsPerHour === undefined ? {} : { maxPostsPerHour }), ...(maxPostsPerDay === undefined ? {} : { maxPostsPerDay }), ...(queuePriority === undefined ? {} : { queuePriority }) } };
+  if (body.signatureText !== undefined && signatureText === undefined) return { ok: false, error: "invalid_signature_text", message: "signatureText must be a string up to 500 characters." };
+  if (signatureChannelHandle !== undefined && !isValidChannelHandle(signatureChannelHandle)) return { ok: false, error: "invalid_signature_channel_handle", message: "signatureChannelHandle must start with @ and contain only Telegram-safe characters." };
+  if (signatureEnabled === true && signatureText === undefined && signatureChannelHandle === undefined) return { ok: false, error: "signature_content_missing", message: "Enabled signatures need signatureText or signatureChannelHandle." };
+  return { ok: true, output: { id, routeId, language, reviewChatId, reviewThreadId, finalChatId, ...(finalThreadId === undefined ? {} : { finalThreadId }), ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}), ...(typeof body.publishEnabled === "boolean" ? { publishEnabled: body.publishEnabled } : {}), ...(publishMode === undefined ? {} : { publishMode }), ...(timezone === undefined ? {} : { timezone }), ...(allowedPublishWindows.length === 0 ? {} : { allowedPublishWindows }), ...(minimumGapMinutes === undefined ? {} : { minimumGapMinutes }), ...(maxPostsPerHour === undefined ? {} : { maxPostsPerHour }), ...(maxPostsPerDay === undefined ? {} : { maxPostsPerDay }), ...(queuePriority === undefined ? {} : { queuePriority }), ...(signatureEnabled === undefined ? {} : { signatureEnabled }), ...(signatureText === undefined ? {} : { signatureText }), ...(signatureChannelHandle === undefined ? {} : { signatureChannelHandle }), ...(signaturePosition === undefined ? {} : { signaturePosition }) } };
 }
 
 function readPublishMode(value: unknown): "immediate" | "scheduled" | "queued" | undefined {
@@ -295,6 +308,18 @@ function isValidTimezone(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isValidChannelHandle(value: string): boolean {
+  return /^@[A-Za-z0-9_]{5,32}$/.test(value.trim());
+}
+
+function readOptionalBoundedString(value: unknown, maxLength: number): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length <= maxLength ? trimmed : undefined;
 }
 
 function readNonEmptyString(value: unknown): string | undefined {

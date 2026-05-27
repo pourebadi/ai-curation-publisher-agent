@@ -1,6 +1,6 @@
 import type { ConnectionFeedback, StatusBundle } from "./types";
 
-export type DashboardTab = "overview" | "setup" | "settings" | "tests" | "activity" | "technical";
+export type DashboardTab = "overview" | "setup" | "settings" | "diagnostics" | "tests" | "activity" | "technical";
 export type WizardStepId = "connect" | "admin" | "mode" | "ai" | "telegram" | "wordpress" | "providers" | "tests" | "readiness";
 export type WizardStepState = "active" | "complete" | "locked" | "optional" | "needs_action";
 export type OperatorStatusLabel = "Connected" | "Missing" | "Optional" | "Safe" | "Warning" | "Not configured";
@@ -23,6 +23,7 @@ export const DASHBOARD_TABS: Array<{ id: DashboardTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "setup", label: "Setup Wizard" },
   { id: "settings", label: "Settings" },
+  { id: "diagnostics", label: "Diagnostics" },
   { id: "tests", label: "Tests" },
   { id: "activity", label: "Activity" },
   { id: "technical", label: "Technical" }

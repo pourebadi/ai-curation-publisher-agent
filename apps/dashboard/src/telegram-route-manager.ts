@@ -34,6 +34,9 @@ export type TelegramRouteCard = {
     maxPostsPerHour: number;
     maxPostsPerDay: number;
     queuePriority: number;
+    signatureEnabled: boolean;
+    signatureText: string;
+    signatureChannelHandle: string;
   }>;
 };
 
@@ -61,7 +64,9 @@ export const TELEGRAM_OUTPUT_FORM_FIELDS = [
   { label: "Minimum gap", helper: "Technical name: minimumGapMinutes. Example: 10.", secret: false },
   { label: "Max per hour", helper: "Technical name: maxPostsPerHour. Example: 4.", secret: false },
   { label: "Max per day", helper: "Technical name: maxPostsPerDay. Example: 24.", secret: false },
-  { label: "Queue priority", helper: "Technical name: queuePriority. Higher values publish first.", secret: false }
+  { label: "Queue priority", helper: "Technical name: queuePriority. Higher values publish first.", secret: false },
+  { label: "Channel signature", helper: "Optional output footer shown in review and final publish.", secret: false },
+  { label: "Signature channel handle", helper: "Public channel handle for the signature. Must start with @.", secret: false }
 ] as const;
 
 export function telegramRouteManagerCopy(): string {
@@ -168,7 +173,10 @@ function toRouteCard(route: Record<string, unknown>): TelegramRouteCard {
       minimumGapMinutes: readNumber(output.minimumGapMinutes) ?? 10,
       maxPostsPerHour: readNumber(output.maxPostsPerHour) ?? 4,
       maxPostsPerDay: readNumber(output.maxPostsPerDay) ?? 24,
-      queuePriority: readNumber(output.queuePriority) ?? 0
+      queuePriority: readNumber(output.queuePriority) ?? 0,
+      signatureEnabled: readBoolean(output.signatureEnabled) ?? false,
+      signatureText: readString(output.signatureText) ?? "",
+      signatureChannelHandle: readString(output.signatureChannelHandle) ?? ""
     }))
   };
 }
@@ -183,6 +191,10 @@ function readString(value: unknown): string | undefined {
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function readStringArray(value: unknown): string[] {

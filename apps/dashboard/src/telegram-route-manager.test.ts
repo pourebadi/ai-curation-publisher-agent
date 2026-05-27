@@ -56,7 +56,7 @@ describe("telegram route manager UX helpers", () => {
   it("uses friendly route and output form labels", () => {
     expect(telegramRouteManagerCopy()).toBe("Topic names are only for humans. The system uses numeric topic IDs.");
     expect(TELEGRAM_ROUTE_FORM_FIELDS.map((field) => field.label)).toEqual(["Route ID", "Category", "Source chat ID", "Source topic ID", "Prompt profile", "Enabled"]);
-    expect(TELEGRAM_OUTPUT_FORM_FIELDS.map((field) => field.label)).toEqual(["Output ID", "Language", "Review chat ID", "Review topic ID", "Final channel/chat ID", "Final topic ID", "Enabled", "Publish enabled", "Publish mode", "Timezone", "Allowed windows", "Minimum gap", "Max per hour", "Max per day", "Queue priority"]);
+    expect(TELEGRAM_OUTPUT_FORM_FIELDS.map((field) => field.label)).toEqual(["Output ID", "Language", "Review chat ID", "Review topic ID", "Final channel/chat ID", "Final topic ID", "Enabled", "Publish enabled", "Publish mode", "Timezone", "Allowed windows", "Minimum gap", "Max per hour", "Max per day", "Queue priority", "Channel signature", "Signature channel handle"]);
     expect(TELEGRAM_ROUTE_FORM_FIELDS.some((field) => field.helper.includes("-1001234567890"))).toBe(true);
     expect(TELEGRAM_ROUTE_FORM_FIELDS.some((field) => field.helper.includes("101"))).toBe(true);
     expect(TELEGRAM_OUTPUT_FORM_FIELDS.some((field) => field.helper.includes("@crypto_fa"))).toBe(true);

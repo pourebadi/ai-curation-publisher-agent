@@ -13,13 +13,16 @@ type OutputDraft = {
   maxPostsPerHour: string;
   maxPostsPerDay: string;
   queuePriority: string;
+  signatureEnabled: boolean;
+  signatureText: string;
+  signatureChannelHandle: string;
   enabled: boolean;
 };
 
 const defaultOutputs: OutputDraft[] = [
-  { idSuffix: "fa", language: "fa", reviewThreadId: "201", finalChatId: "@crypto_fa", publishMode: "scheduled", timezone: "Asia/Tehran", allowedWindow: "09:00-23:00", minimumGapMinutes: "10", maxPostsPerHour: "4", maxPostsPerDay: "24", queuePriority: "0", enabled: true },
-  { idSuffix: "ar", language: "ar", reviewThreadId: "202", finalChatId: "@crypto_ar", publishMode: "scheduled", timezone: "Asia/Dubai", allowedWindow: "10:00-23:00", minimumGapMinutes: "10", maxPostsPerHour: "4", maxPostsPerDay: "24", queuePriority: "0", enabled: true },
-  { idSuffix: "en", language: "en", reviewThreadId: "203", finalChatId: "@crypto_en", publishMode: "scheduled", timezone: "UTC", allowedWindow: "08:00-22:00", minimumGapMinutes: "15", maxPostsPerHour: "3", maxPostsPerDay: "24", queuePriority: "0", enabled: true }
+  { idSuffix: "fa", language: "fa", reviewThreadId: "201", finalChatId: "@crypto_fa", publishMode: "scheduled", timezone: "Asia/Tehran", allowedWindow: "09:00-23:00", minimumGapMinutes: "10", maxPostsPerHour: "4", maxPostsPerDay: "24", queuePriority: "0", signatureEnabled: true, signatureText: "", signatureChannelHandle: "@crypto_fa", enabled: true },
+  { idSuffix: "ar", language: "ar", reviewThreadId: "202", finalChatId: "@crypto_ar", publishMode: "scheduled", timezone: "Asia/Dubai", allowedWindow: "10:00-23:00", minimumGapMinutes: "10", maxPostsPerHour: "4", maxPostsPerDay: "24", queuePriority: "0", signatureEnabled: false, signatureText: "", signatureChannelHandle: "", enabled: true },
+  { idSuffix: "en", language: "en", reviewThreadId: "203", finalChatId: "@crypto_en", publishMode: "scheduled", timezone: "UTC", allowedWindow: "08:00-22:00", minimumGapMinutes: "15", maxPostsPerHour: "3", maxPostsPerDay: "24", queuePriority: "0", signatureEnabled: false, signatureText: "", signatureChannelHandle: "", enabled: true }
 ];
 
 export function TelegramRouteQuickForm(props: { busy: boolean; onSave: (routes: JsonValue) => Promise<void> }): JSX.Element {
@@ -56,7 +59,11 @@ export function TelegramRouteQuickForm(props: { busy: boolean; onSave: (routes: 
         minimumGapMinutes: toInteger(output.minimumGapMinutes, 10),
         maxPostsPerHour: toInteger(output.maxPostsPerHour, 4),
         maxPostsPerDay: toInteger(output.maxPostsPerDay, 24),
-        queuePriority: toInteger(output.queuePriority, 0)
+        queuePriority: toInteger(output.queuePriority, 0),
+        signatureEnabled: output.signatureEnabled,
+        signatureText: output.signatureText.trim(),
+        signatureChannelHandle: output.signatureChannelHandle.trim(),
+        signaturePosition: "append"
       }))
     }];
   }
@@ -104,6 +111,9 @@ export function TelegramRouteQuickForm(props: { busy: boolean; onSave: (routes: 
         <label>Gap minutes<input value={output.minimumGapMinutes} onChange={(event: any) => updateOutput(index, { minimumGapMinutes: event.target.value })} /></label>
         <label>Max/hour<input value={output.maxPostsPerHour} onChange={(event: any) => updateOutput(index, { maxPostsPerHour: event.target.value })} /></label>
         <label>Max/day<input value={output.maxPostsPerDay} onChange={(event: any) => updateOutput(index, { maxPostsPerDay: event.target.value })} /></label>
+        <label className="checkRow"><input type="checkbox" checked={output.signatureEnabled} onChange={(event: any) => updateOutput(index, { signatureEnabled: event.target.checked })} /> Channel signature</label>
+        <label>Signature text<textarea value={output.signatureText} onChange={(event: any) => updateOutput(index, { signatureText: event.target.value })} placeholder="Optional footer text" /></label>
+        <label>Public channel handle<input value={output.signatureChannelHandle} onChange={(event: any) => updateOutput(index, { signatureChannelHandle: event.target.value })} placeholder="@channel" /></label>
       </article>)}
     </div>
     <div className="buttonRow"><button type="button" onClick={() => void save()} disabled={props.busy}>Save MVP route</button></div>

@@ -12,6 +12,7 @@ export * from "./repositories/telegram-routes.repository";
 export * from "./repositories/telegram-generated-outputs.repository";
 export * from "./repositories/telegram-review-messages.repository";
 export * from "./repositories/telegram-publish-queue.repository";
+export * from "./repositories/prompt-profiles.repository";
 export * from "./services/dedupe.service";
 export * from "./services/ingest-gate.service";
 export * from "./services/lifecycle.service";

@@ -2,6 +2,8 @@ import { corsPreflightResponse, withCors } from "./http/cors";
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
 import { handleInternalAdminConfig } from "./routes/internal-admin-config";
+import { handleInternalAdminOverview } from "./routes/internal-admin-overview";
+import { handleInternalAdminPrompts } from "./routes/internal-admin-prompts";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalMediaProcessed } from "./routes/internal-media-processed";
@@ -56,6 +58,14 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/internal/admin/config" || url.pathname === "/internal/admin/config/reset" || url.pathname === "/internal/admin/config/audit") {
     return handleInternalAdminConfig(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/summary" || url.pathname === "/internal/admin/validate" || url.pathname === "/internal/admin/metrics/overview" || url.pathname === "/internal/admin/config/export" || url.pathname === "/internal/admin/media/settings") {
+    return handleInternalAdminOverview(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/prompts" || url.pathname === "/internal/admin/prompts/bindings" || url.pathname === "/internal/admin/prompts/preview" || url.pathname.startsWith("/internal/admin/prompts/")) {
+    return handleInternalAdminPrompts(request, env);
   }
 
   if (url.pathname === "/internal/poll") {

@@ -14,6 +14,7 @@ import {
 } from "@curator/db";
 import { buildTelegramOutputReviewDraft, RealTelegramClient, type ParsedTelegramMedia } from "@curator/telegram";
 import type { Env } from "../types";
+import { applyRouteOutputSignature } from "./channel-signature";
 
 export type MediaProcessingDispatchResult = {
   enabled: boolean;
@@ -256,6 +257,7 @@ async function sendOneMediaReview(input: {
   media: ParsedTelegramMedia[];
 }): Promise<void> {
   const output = input.generatedOutput.output;
+  const reviewCaption = applyRouteOutputSignature(output.caption, input.routeOutput);
 
   const draft = buildTelegramOutputReviewDraft({
     generatedOutputId: input.generatedOutput.id,
@@ -264,7 +266,7 @@ async function sendOneMediaReview(input: {
     itemId: input.generatedOutput.itemId,
     sourceUrl: input.sourceUrl,
     originalExcerpt: input.originalExcerpt,
-    caption: output.caption,
+    caption: reviewCaption,
     ...(output.summary === undefined ? {} : { summary: output.summary }),
     riskFlags: output.riskFlags,
     status: "ready_for_review",
@@ -285,7 +287,7 @@ async function sendOneMediaReview(input: {
     text: draft.text,
     replyMarkup: draft.reply_markup,
     media: input.media,
-    mediaPreviewCaption: output.caption,
+    mediaPreviewCaption: reviewCaption,
     sourceUrl: input.sourceUrl
   });
 

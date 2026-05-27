@@ -42,6 +42,18 @@ export class WorkerApiClient {
   }
 
   async getAdminConfig(): Promise<ApiResult<AdminConfigResponse>> { return this.getInternalJson("/internal/admin/config") as Promise<ApiResult<AdminConfigResponse>>; }
+  async getAdminSummary(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/summary"); }
+  async getAdminValidation(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/validate"); }
+  async getAdminMetricsOverview(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/metrics/overview"); }
+  async getPromptStudio(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/prompts"); }
+  async savePromptProfile(profile: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts", profile); }
+  async updatePromptProfile(profileId: string, profile: JsonObject): Promise<ApiResult> { return this.requestJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}`, { method: "PUT", body: JSON.stringify(profile), headers: this.internalHeaders() }); }
+  async activatePromptProfile(profileId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}/activate`, {}); }
+  async savePromptBinding(binding: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts/bindings", binding); }
+  async previewPrompt(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts/preview", input); }
+  async exportAdminConfig(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/config/export"); }
+  async getAdminMediaSettings(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/media/settings"); }
+  async saveAdminMediaSettings(updates: { key: string; value: string }[]): Promise<ApiResult> { return this.requestJson("/internal/admin/media/settings", { method: "PATCH", body: JSON.stringify({ updates }), headers: this.internalHeaders() }); }
   async saveAdminConfig(updates: { key: string; value: string }[]): Promise<ApiResult<AdminConfigResponse>> { return this.putInternalJson("/internal/admin/config", { updates }) as Promise<ApiResult<AdminConfigResponse>>; }
   async resetAdminConfig(keys: string[]): Promise<ApiResult<AdminConfigResponse>> { return this.postInternalJson("/internal/admin/config/reset", { keys }) as Promise<ApiResult<AdminConfigResponse>>; }
   async getAdminConfigAudit(): Promise<ApiResult<{ ok: true; entries: AdminAuditEntry[] }>> { return this.getInternalJson("/internal/admin/config/audit") as Promise<ApiResult<{ ok: true; entries: AdminAuditEntry[] }>>; }

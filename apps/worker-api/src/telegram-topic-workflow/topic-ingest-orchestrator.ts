@@ -5,6 +5,7 @@ import type { Env } from "../types";
 import { generateLocalizedTelegramOutput } from "./output-orchestrator";
 import { resolveExternalSourceText, type SourceContentResolution } from "./source-content-resolver";
 import { maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
+import { applyRouteOutputSignature } from "./channel-signature";
 
 export type TelegramTopicIngestInput = {
   env: Env;
@@ -81,6 +82,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         sourceAttributionText
       });
       const localizedOutput = localized.output;
+      const reviewCaption = applyRouteOutputSignature(localizedOutput.caption, routeOutput);
       const generatedOutput = await generatedOutputsRepository.save({
         itemId: item.id,
         routeId: input.route.id,
@@ -106,7 +108,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
           itemId: item.id,
           sourceUrl: canonicalUrl,
           originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
-          caption: localizedOutput.caption,
+          caption: reviewCaption,
           ...(localizedOutput.summary === undefined ? {} : { summary: localizedOutput.summary }),
           riskFlags: localizedOutput.riskFlags,
           status: generatedOutput.status,
@@ -126,7 +128,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
           text: draft.text,
           replyMarkup: draft.reply_markup,
           media: input.parsed.media,
-          mediaPreviewCaption: localizedOutput.caption
+          mediaPreviewCaption: reviewCaption
         });
         await reviewMessagesRepository.create({
           generatedOutputId: generatedOutput.id,
