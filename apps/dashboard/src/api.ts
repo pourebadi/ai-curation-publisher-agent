@@ -63,6 +63,10 @@ export class WorkerApiClient {
   async saveTelegramRoute(route: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/topic-routes", route); }
   async saveTelegramRouteOutput(routeId: string, output: JsonObject): Promise<ApiResult> { return this.postInternalJson(`/internal/telegram/topic-routes/${encodeURIComponent(routeId)}/outputs`, output); }
   async getRecentTelegramOutputs(limit = 20): Promise<ApiResult> { return this.getInternalJson(`/internal/telegram/outputs/recent?limit=${encodeURIComponent(String(limit))}`); }
+  async publishTelegramNow(queueId: string): Promise<ApiResult> {
+    return this.postInternalJson("/internal/telegram/publish/now", { queueId });
+  }
+
   async getTelegramPublishQueue(limit = 25): Promise<ApiResult> { return this.getInternalJson(`/internal/telegram/publish/queue?limit=${encodeURIComponent(String(limit))}`); }
   async runTelegramPublishDue(limit = 5): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/due", { limit }); }
   async getMediaJobs(limit = 25): Promise<ApiResult> { return this.getInternalJson(`/internal/media/jobs?limit=${encodeURIComponent(String(limit))}`); }

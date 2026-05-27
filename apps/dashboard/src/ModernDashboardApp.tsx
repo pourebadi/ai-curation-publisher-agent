@@ -61,6 +61,7 @@ export default function ModernDashboardApp(): JSX.Element {
   const [adminExport, setAdminExport] = useState<JsonObject | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState<string | undefined>(undefined);
+  const [busyQueueId, setBusyQueueId] = useState<string | undefined>(undefined);
   const [promptForm, setPromptForm] = useState<PromptProfileForm>(emptyPromptForm);
   const [bindingForm, setBindingForm] = useState<PromptBindingForm>(emptyBindingForm);
   const [promptPreview, setPromptPreview] = useState<JsonObject | undefined>(undefined);
@@ -115,6 +116,15 @@ export default function ModernDashboardApp(): JSX.Element {
     if (nextPrompts.ok) setPromptStudio(nextPrompts.data);
     setNotice(summaryNotice(nextSummary, nextValidation));
     setBusy(undefined);
+  }
+
+  async function publishQueueItemNow(queueId: string): Promise<void> {
+    setBusyQueueId(queueId);
+    setNotice(`Publishing ${queueId} now...`);
+    const response = await client.publishTelegramNow(queueId);
+    setNotice(response.ok ? `Published ${queueId}.` : response.message);
+    if (response.ok) await refreshAll();
+    setBusyQueueId(undefined);
   }
 
   async function loadExport(): Promise<void> {
@@ -207,7 +217,7 @@ export default function ModernDashboardApp(): JSX.Element {
       {activeTab === "media" && <MediaPage summary={summary} mediaJobs={mediaJobs} />}
       {activeTab === "prompts" && <PromptsPage profiles={promptProfiles} bindings={promptBindings} promptForm={promptForm} setPromptForm={setPromptForm} bindingForm={bindingForm} setBindingForm={setBindingForm} promptPreview={promptPreview} onSavePrompt={savePromptProfile} onActivatePrompt={activatePrompt} onSaveBinding={savePromptBinding} onPreviewPrompt={previewPrompt} busy={busy} />}
       {activeTab === "diagnostics" && <DiagnosticsPage issues={issues} validation={validation} summary={summary} onExport={loadExport} adminExport={adminExport} />}
-      {activeTab === "activity" && <ActivityPage mediaJobs={mediaJobs} publishQueue={publishQueue} />}
+      {activeTab === "activity" && <ActivityPage mediaJobs={mediaJobs} publishQueue={publishQueue} onPublishNow={publishQueueItemNow} busyQueueId={busyQueueId} />}
       {activeTab === "technical" && <TechnicalPage statusBundle={statusBundle} summary={summary} metrics={metrics} promptStudio={promptStudio} />}
     </section>
   </main>;
@@ -250,8 +260,36 @@ function DiagnosticsPage({ issues, validation, summary, onExport, adminExport }:
   return <div className="page-grid"><Card><CardHeader eyebrow="Diagnostics" title="Actionable launch checks" description="Every blocker should explain what happened and what to do next." action={<Button variant="secondary" onClick={() => void onExport()}>Load safe export</Button>} /><DataTable rows={issues} columns={[{ key: "severity", label: "Severity", render: (row) => <Badge tone={issueTone(readString(row, "severity"))}>{readString(row, "severity") ?? "info"}</Badge> }, { key: "area", label: "Area" }, { key: "code", label: "Code" }, { key: "message", label: "Message" }, { key: "action", label: "Action" }]} /></Card><Card><CardHeader title="Configured secrets" description="Values are never shown; only configured/missing state is visible." /><div className="secret-grid">{Object.entries(secrets ?? {}).map(([key, value]) => <div key={key}><span>{key}</span><Badge tone={value === true ? "success" : "warning"}>{value === true ? "configured" : "missing"}</Badge></div>)}</div></Card>{adminExport && <Card><CardHeader title="Safe config export" description="Useful for backup, handoff, and clone planning." /><pre>{JSON.stringify(adminExport, null, 2)}</pre></Card>}<Card><CardHeader title="Raw validation" description="Technical payload for debugging." /><pre>{JSON.stringify(validation ?? {}, null, 2)}</pre></Card></div>;
 }
 
-function ActivityPage({ mediaJobs, publishQueue }: { mediaJobs: JsonObject[]; publishQueue: JsonObject[] }): JSX.Element {
-  return <div className="page-grid"><Card><CardHeader title="Publish queue" description="Scheduled and due items by final channel." /><DataTable rows={publishQueue} columns={[{ key: "id", label: "Queue" }, { key: "language", label: "Lang" }, { key: "finalChatId", label: "Final" }, { key: "status", label: "Status", render: (row) => <Badge tone={statusTone(readString(row, "status"))}>{readString(row, "status") ?? "unknown"}</Badge> }, { key: "scheduledFor", label: "Scheduled" }, { key: "lastError", label: "Error" }]} /></Card><Card><CardHeader title="Media jobs" description="Latest media processing jobs and errors." /><DataTable rows={mediaJobs} columns={[{ key: "id", label: "Job" }, { key: "itemId", label: "Item" }, { key: "status", label: "Status", render: (row) => <Badge tone={statusTone(readString(row, "status"))}>{readString(row, "status") ?? "unknown"}</Badge> }, { key: "workflowRunId", label: "Workflow" }, { key: "errorMessage", label: "Error" }]} /></Card></div>;
+function ActivityPage({
+  mediaJobs,
+  publishQueue,
+  onPublishNow,
+  busyQueueId
+}: {
+  mediaJobs: JsonObject[];
+  publishQueue: JsonObject[];
+  onPublishNow: (queueId: string) => Promise<void>;
+  busyQueueId: string | undefined;
+}): JSX.Element {
+  return <div className="page-grid"><Card><CardHeader title="Publish queue" description="Scheduled and due items by final channel." /><DataTable rows={publishQueue} columns={[
+    { key: "queueId", label: "Queue", render: (row) => shortId(readString(row, "queueId")) },
+    { key: "language", label: "Lang" },
+    { key: "finalChatId", label: "Final" },
+    { key: "status", label: "Status", render: (row) => <Badge tone={statusTone(readString(row, "status"))}>{readString(row, "status") ?? "unknown"}</Badge> },
+    { key: "scheduledFor", label: "Scheduled" },
+    { key: "lastError", label: "Error" },
+    {
+      key: "action",
+      label: "Action",
+      render: (row) => {
+        const queueId = readString(row, "queueId");
+        const status = readString(row, "status");
+        const actionable = status === "pending" || status === "scheduled" || status === "failed";
+        if (!queueId || !actionable) return <span className="muted-text">-</span>;
+        return <Button size="sm" variant="secondary" disabled={busyQueueId === queueId} onClick={() => void onPublishNow(queueId)}>{busyQueueId === queueId ? "Publishing..." : "Publish now"}</Button>;
+      }
+    }
+  ]} /></Card><Card><CardHeader title="Media jobs" description="Latest media processing jobs and errors." /><DataTable rows={mediaJobs} columns={[{ key: "id", label: "Job" }, { key: "itemId", label: "Item" }, { key: "status", label: "Status", render: (row) => <Badge tone={statusTone(readString(row, "status"))}>{readString(row, "status") ?? "unknown"}</Badge> }, { key: "workflowRunId", label: "Workflow" }, { key: "errorMessage", label: "Error" }]} /></Card></div>;
 }
 
 function TechnicalPage({ statusBundle, summary, metrics, promptStudio }: { statusBundle: StatusBundle; summary: JsonObject | undefined; metrics: JsonObject | undefined; promptStudio: JsonObject | undefined }): JSX.Element {
@@ -283,6 +321,12 @@ function readObject(value: unknown, key?: string): JsonObject | undefined {
 function readArray(value: unknown, key?: string): JsonObject[] {
   const source = key === undefined ? value : typeof value === "object" && value !== null && !Array.isArray(value) ? (value as JsonObject)[key] : undefined;
   return Array.isArray(source) ? source.filter((entry): entry is JsonObject => typeof entry === "object" && entry !== null && !Array.isArray(entry)) : [];
+}
+
+function shortId(value: string | undefined): string {
+  if (!value) return "-";
+  if (value.length <= 14) return value;
+  return `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
 
 function readString(value: unknown, key: string): string | undefined {
