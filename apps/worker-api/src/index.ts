@@ -16,6 +16,7 @@ import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-r
 import { handleInternalTelegramOutputsRecent } from "./routes/internal-telegram-outputs-recent";
 import { handleInternalTelegramPublishDue } from "./routes/internal-telegram-publish-due";
 import { handleInternalTelegramPublishRetry } from "./routes/internal-telegram-publish-retry";
+import { handleInternalTelegramPublishNow } from "./routes/internal-telegram-publish-now";
 import { handleInternalTelegramPublishQueue } from "./routes/internal-telegram-publish-queue";
 import { handleInternalMediaProcessing } from "./routes/internal-media-processing";
 import { handleInternalTelegramTopicRoutes } from "./routes/internal-telegram-topic-routes";
@@ -100,10 +101,6 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramOutputsRecent(request, env);
   }
 
-  if (isTelegramTopicRoutesPath(url.pathname)) {
-    return handleInternalTelegramTopicRoutes(request, env);
-  }
-
   if (url.pathname === "/internal/telegram/publish/due") {
     return handleInternalTelegramPublishDue(request, env);
   }
@@ -112,8 +109,16 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramPublishRetry(request, env);
   }
 
+  if (url.pathname === "/internal/telegram/publish/now") {
+    return handleInternalTelegramPublishNow(request, env);
+  }
+
   if (url.pathname === "/internal/telegram/publish/queue") {
     return handleInternalTelegramPublishQueue(request, env);
+  }
+
+  if (isTelegramTopicRoutesPath(url.pathname)) {
+    return handleInternalTelegramTopicRoutes(request, env);
   }
 
   if (
