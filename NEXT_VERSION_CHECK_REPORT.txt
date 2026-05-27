@@ -1,0 +1,38 @@
+Next shadcn-style dashboard + Prompt Studio implementation report
+
+Implemented:
+- Added a source-owned shadcn/ui-inspired dashboard component layer: shared/ui.tsx, shared/charts.tsx, modern.css.
+- Added ModernDashboardApp and switched dashboard main.tsx to use it.
+- Added data-driven Overview with readiness score, KPI cards, distribution charts, language chart, and media funnel.
+- Added Routes/Outputs tables, Internal Media Registry page, Diagnostics page, Activity page, and Technical payload page.
+- Added Prompt Studio UI: prompt profile editor, activation, bindings, and preview.
+- Kept Telegram Media Cache as the default architecture and renamed/positioned it as Internal Media Registry in the dashboard UX.
+- Added Prompt Studio migration 0035_prompt_studio.sql.
+- Added PromptProfilesRepository with profile, binding, and prompt resolution support.
+- Added protected admin prompt APIs under /internal/admin/prompts.
+- Added /internal/admin/metrics/overview.
+- Wired runtime AI prompt generation to use D1 Prompt Studio profiles/bindings first, with existing code prompts as fallback.
+- Added prompt summary and prompt-related readiness issues to admin summary/validation/export.
+
+Validation performed in this execution environment:
+- node scripts/lint.mjs: passed for 264 files.
+- TypeScript worker/backend targeted check with temporary Cloudflare stubs and test files excluded: passed.
+- TypeScript modern dashboard targeted check with temporary React stubs: passed.
+
+Not fully runnable here:
+- pnpm install / pnpm test / pnpm dashboard:build could not be executed because the environment has no npm registry access and Corepack could not download pnpm@9.15.4.
+- No node_modules directory is included in the ZIP.
+
+Recommended local verification:
+1. corepack enable
+2. corepack prepare pnpm@9.15.4 --activate
+3. pnpm install
+4. pnpm lint
+5. pnpm typecheck
+6. pnpm test
+7. pnpm dashboard:build
+8. pnpm d1:migrate:local
+9. pnpm worker:dev and pnpm dashboard:dev for manual dashboard smoke testing
+
+Important migration:
+- packages/db/migrations/0035_prompt_studio.sql must be applied before using Prompt Studio.

@@ -2,6 +2,8 @@ import { corsPreflightResponse, withCors } from "./http/cors";
 import { jsonResponse } from "./http/json";
 import { handleHealth } from "./routes/health";
 import { handleInternalAdminConfig } from "./routes/internal-admin-config";
+import { handleInternalAdminOverview } from "./routes/internal-admin-overview";
+import { handleInternalAdminPrompts } from "./routes/internal-admin-prompts";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalMediaProcessed } from "./routes/internal-media-processed";
@@ -14,6 +16,7 @@ import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-r
 import { handleInternalTelegramOutputsRecent } from "./routes/internal-telegram-outputs-recent";
 import { handleInternalTelegramPublishDue } from "./routes/internal-telegram-publish-due";
 import { handleInternalTelegramPublishRetry } from "./routes/internal-telegram-publish-retry";
+import { handleInternalTelegramPublishNow } from "./routes/internal-telegram-publish-now";
 import { handleInternalTelegramPublishQueue } from "./routes/internal-telegram-publish-queue";
 import { handleInternalMediaProcessing } from "./routes/internal-media-processing";
 import { handleInternalTelegramTopicRoutes } from "./routes/internal-telegram-topic-routes";
@@ -58,6 +61,14 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalAdminConfig(request, env);
   }
 
+  if (url.pathname === "/internal/admin/summary" || url.pathname === "/internal/admin/validate" || url.pathname === "/internal/admin/metrics/overview" || url.pathname === "/internal/admin/config/export" || url.pathname === "/internal/admin/media/settings") {
+    return handleInternalAdminOverview(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/prompts" || url.pathname === "/internal/admin/prompts/bindings" || url.pathname === "/internal/admin/prompts/preview" || url.pathname.startsWith("/internal/admin/prompts/")) {
+    return handleInternalAdminPrompts(request, env);
+  }
+
   if (url.pathname === "/internal/poll") {
     return handleInternalPoll(request, env);
   }
@@ -90,10 +101,6 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramOutputsRecent(request, env);
   }
 
-  if (isTelegramTopicRoutesPath(url.pathname)) {
-    return handleInternalTelegramTopicRoutes(request, env);
-  }
-
   if (url.pathname === "/internal/telegram/publish/due") {
     return handleInternalTelegramPublishDue(request, env);
   }
@@ -102,8 +109,16 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalTelegramPublishRetry(request, env);
   }
 
+  if (url.pathname === "/internal/telegram/publish/now") {
+    return handleInternalTelegramPublishNow(request, env);
+  }
+
   if (url.pathname === "/internal/telegram/publish/queue") {
     return handleInternalTelegramPublishQueue(request, env);
+  }
+
+  if (isTelegramTopicRoutesPath(url.pathname)) {
+    return handleInternalTelegramTopicRoutes(request, env);
   }
 
   if (

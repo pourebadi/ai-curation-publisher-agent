@@ -30,6 +30,10 @@ export type TelegramRouteOutputRecord = {
   maxPostsPerHour: number;
   maxPostsPerDay: number;
   queuePriority: number;
+  signatureEnabled: boolean;
+  signatureText?: string;
+  signatureChannelHandle?: string;
+  signaturePosition: "append";
   createdAt: string;
   updatedAt: string;
 };
@@ -65,6 +69,10 @@ export type UpsertTelegramRouteOutputInput = {
   maxPostsPerHour?: number;
   maxPostsPerDay?: number;
   queuePriority?: number;
+  signatureEnabled?: boolean;
+  signatureText?: string;
+  signatureChannelHandle?: string;
+  signaturePosition?: "append";
 };
 
 type TelegramRouteRow = {
@@ -95,6 +103,10 @@ type TelegramRouteOutputRow = {
   max_posts_per_hour?: number | null;
   max_posts_per_day?: number | null;
   queue_priority?: number | null;
+  signature_enabled?: number | null;
+  signature_text?: string | null;
+  signature_channel_handle?: string | null;
+  signature_position?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -186,10 +198,10 @@ export class TelegramRoutesRepository {
     const now = new Date().toISOString();
     const settings = normalizeRouteOutputSettings(input);
     await this.db.prepare(
-      `INSERT INTO telegram_route_outputs (id, route_id, language, review_chat_id, review_thread_id, final_chat_id, final_thread_id, enabled, publish_enabled, publish_mode, timezone, allowed_publish_windows_json, minimum_gap_minutes, max_posts_per_hour, max_posts_per_day, queue_priority, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET route_id = excluded.route_id, language = excluded.language, review_chat_id = excluded.review_chat_id, review_thread_id = excluded.review_thread_id, final_chat_id = excluded.final_chat_id, final_thread_id = excluded.final_thread_id, enabled = excluded.enabled, publish_enabled = excluded.publish_enabled, publish_mode = excluded.publish_mode, timezone = excluded.timezone, allowed_publish_windows_json = excluded.allowed_publish_windows_json, minimum_gap_minutes = excluded.minimum_gap_minutes, max_posts_per_hour = excluded.max_posts_per_hour, max_posts_per_day = excluded.max_posts_per_day, queue_priority = excluded.queue_priority, updated_at = excluded.updated_at`
-    ).bind(input.id, input.routeId, input.language, input.reviewChatId, input.reviewThreadId, input.finalChatId, input.finalThreadId ?? null, input.enabled === false ? 0 : 1, settings.publishEnabled ? 1 : 0, settings.publishMode, settings.timezone, JSON.stringify(settings.allowedPublishWindows), settings.minimumGapMinutes, settings.maxPostsPerHour, settings.maxPostsPerDay, settings.queuePriority, now, now).run();
+      `INSERT INTO telegram_route_outputs (id, route_id, language, review_chat_id, review_thread_id, final_chat_id, final_thread_id, enabled, publish_enabled, publish_mode, timezone, allowed_publish_windows_json, minimum_gap_minutes, max_posts_per_hour, max_posts_per_day, queue_priority, signature_enabled, signature_text, signature_channel_handle, signature_position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET route_id = excluded.route_id, language = excluded.language, review_chat_id = excluded.review_chat_id, review_thread_id = excluded.review_thread_id, final_chat_id = excluded.final_chat_id, final_thread_id = excluded.final_thread_id, enabled = excluded.enabled, publish_enabled = excluded.publish_enabled, publish_mode = excluded.publish_mode, timezone = excluded.timezone, allowed_publish_windows_json = excluded.allowed_publish_windows_json, minimum_gap_minutes = excluded.minimum_gap_minutes, max_posts_per_hour = excluded.max_posts_per_hour, max_posts_per_day = excluded.max_posts_per_day, queue_priority = excluded.queue_priority, signature_enabled = excluded.signature_enabled, signature_text = excluded.signature_text, signature_channel_handle = excluded.signature_channel_handle, signature_position = excluded.signature_position, updated_at = excluded.updated_at`
+    ).bind(input.id, input.routeId, input.language, input.reviewChatId, input.reviewThreadId, input.finalChatId, input.finalThreadId ?? null, input.enabled === false ? 0 : 1, settings.publishEnabled ? 1 : 0, settings.publishMode, settings.timezone, JSON.stringify(settings.allowedPublishWindows), settings.minimumGapMinutes, settings.maxPostsPerHour, settings.maxPostsPerDay, settings.queuePriority, settings.signatureEnabled ? 1 : 0, settings.signatureText ?? null, settings.signatureChannelHandle ?? null, settings.signaturePosition, now, now).run();
 
     return {
       id: input.id,
@@ -251,6 +263,10 @@ function toRouteOutputRecord(row: TelegramRouteOutputRow): TelegramRouteOutputRe
   if (row.max_posts_per_hour !== undefined && row.max_posts_per_hour !== null) settingsInput.maxPostsPerHour = row.max_posts_per_hour;
   if (row.max_posts_per_day !== undefined && row.max_posts_per_day !== null) settingsInput.maxPostsPerDay = row.max_posts_per_day;
   if (row.queue_priority !== undefined && row.queue_priority !== null) settingsInput.queuePriority = row.queue_priority;
+  if (row.signature_enabled !== undefined && row.signature_enabled !== null) settingsInput.signatureEnabled = row.signature_enabled === 1;
+  if (row.signature_text !== undefined && row.signature_text !== null) settingsInput.signatureText = row.signature_text;
+  if (row.signature_channel_handle !== undefined && row.signature_channel_handle !== null) settingsInput.signatureChannelHandle = row.signature_channel_handle;
+  if (row.signature_position === "append") settingsInput.signaturePosition = "append";
   const settings = normalizeRouteOutputSettings(settingsInput);
   return {
     id: row.id,
@@ -267,7 +283,9 @@ function toRouteOutputRecord(row: TelegramRouteOutputRow): TelegramRouteOutputRe
   };
 }
 
-function normalizeRouteOutputSettings(input: Partial<UpsertTelegramRouteOutputInput>): Required<Pick<TelegramRouteOutputRecord, "publishEnabled" | "publishMode" | "timezone" | "allowedPublishWindows" | "minimumGapMinutes" | "maxPostsPerHour" | "maxPostsPerDay" | "queuePriority">> {
+function normalizeRouteOutputSettings(input: Partial<UpsertTelegramRouteOutputInput>): Required<Pick<TelegramRouteOutputRecord, "publishEnabled" | "publishMode" | "timezone" | "allowedPublishWindows" | "minimumGapMinutes" | "maxPostsPerHour" | "maxPostsPerDay" | "queuePriority" | "signatureEnabled" | "signaturePosition">> & Pick<TelegramRouteOutputRecord, "signatureText" | "signatureChannelHandle"> {
+  const signatureText = normalizeOptionalString(input.signatureText);
+  const signatureChannelHandle = normalizeOptionalString(input.signatureChannelHandle);
   return {
     publishEnabled: input.publishEnabled !== false,
     publishMode: input.publishMode ?? "scheduled",
@@ -276,7 +294,11 @@ function normalizeRouteOutputSettings(input: Partial<UpsertTelegramRouteOutputIn
     minimumGapMinutes: normalizeNonNegativeInteger(input.minimumGapMinutes, 10),
     maxPostsPerHour: normalizeNonNegativeInteger(input.maxPostsPerHour, 4),
     maxPostsPerDay: normalizeNonNegativeInteger(input.maxPostsPerDay, 24),
-    queuePriority: normalizeInteger(input.queuePriority, 0)
+    queuePriority: normalizeInteger(input.queuePriority, 0),
+    signatureEnabled: input.signatureEnabled === true,
+    ...(signatureText === undefined ? {} : { signatureText }),
+    ...(signatureChannelHandle === undefined ? {} : { signatureChannelHandle }),
+    signaturePosition: "append"
   };
 }
 
@@ -291,6 +313,11 @@ function parseWindows(value: string | null | undefined): string[] | undefined {
     if (Array.isArray(parsed)) return parsed.filter((entry): entry is string => typeof entry === "string");
   } catch {}
   return undefined;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function normalizeInteger(value: number | undefined, fallback: number): number {

@@ -1,7 +1,8 @@
-import { AIOutputService, buildLocalizedTelegramPrompt, CustomJsonAIProvider, GeminiGenerateContentProvider, MockAIProvider, OpenAIChatCompletionsProvider, renderLocalizedTemplateValues } from "@curator/ai";
-import type { TelegramLocalizedOutput, TelegramRouteOutputRecord, TelegramRouteRecord } from "@curator/db";
+import { AIOutputService, buildLocalizedTelegramPrompt, CustomJsonAIProvider, GeminiGenerateContentProvider, MockAIProvider, OpenAIChatCompletionsProvider, renderLocalizedTemplateValues, renderTelegramPrompt, type PromptDefinition } from "@curator/ai";
+import { PromptProfilesRepository, type PromptProfileRecord, type TelegramLocalizedOutput, type TelegramRouteOutputRecord, type TelegramRouteRecord } from "@curator/db";
 import type { NormalizedPost } from "@curator/core";
 import type { Env } from "../types";
+import { buildChannelSignaturePreview } from "./channel-signature";
 
 export type BuildLocalizedTelegramOutputInput = {
   route: TelegramRouteRecord;
@@ -32,7 +33,7 @@ export async function generateLocalizedTelegramOutput(input: GenerateLocalizedTe
   }
 
   const model = input.env.AI_MODEL?.trim() || defaultModelForProvider(aiProvider);
-  const prompt = buildLocalizedTelegramPrompt({
+  const promptContext = {
     post: input.post,
     category: input.route.category,
     language: input.routeOutput.language,
@@ -42,24 +43,15 @@ export async function generateLocalizedTelegramOutput(input: GenerateLocalizedTe
     temperature: readNumber(input.env.AI_TEMPERATURE, 0.4),
     maxTokens: readInteger(input.env.AI_MAX_OUTPUT_TOKENS, 1200),
     ...(input.env.AI_CUSTOM_SYSTEM_PROMPT === undefined ? {} : { customSystemPrompt: input.env.AI_CUSTOM_SYSTEM_PROMPT })
-  });
-  const service = new AIOutputService(createProvider(input.env, aiProvider, model));
+  };
+  const promptResolution = await resolveRuntimePrompt(input, promptContext);
+  const service = new AIOutputService(createProvider(input.env, aiProvider, promptResolution.prompt.model));
   const result = await service.generateTelegramOutput({
     itemId: input.itemId,
     post: input.post,
     sourceAttributionText: input.sourceAttributionText,
-    prompt,
-    templateValues: renderLocalizedTemplateValues({
-      post: input.post,
-      category: input.route.category,
-      language: input.routeOutput.language,
-      promptProfile: input.route.promptProfile,
-      sourceAttributionText: input.sourceAttributionText,
-      model,
-      temperature: readNumber(input.env.AI_TEMPERATURE, 0.4),
-      maxTokens: readInteger(input.env.AI_MAX_OUTPUT_TOKENS, 1200),
-      ...(input.env.AI_CUSTOM_SYSTEM_PROMPT === undefined ? {} : { customSystemPrompt: input.env.AI_CUSTOM_SYSTEM_PROMPT })
-    })
+    prompt: promptResolution.prompt,
+    templateValues: promptResolution.templateValues
   });
 
   return {
@@ -91,6 +83,57 @@ export function buildMockLocalizedTelegramOutput(input: BuildLocalizedTelegramOu
     riskFlags: [],
     relevanceScore: 0.82,
     sourceAttributionText: input.sourceAttributionText
+  };
+}
+
+
+async function resolveRuntimePrompt(input: GenerateLocalizedTelegramOutputInput, promptContext: Parameters<typeof buildLocalizedTelegramPrompt>[0]): Promise<{ prompt: PromptDefinition; templateValues: Record<string, string> }> {
+  const fallbackPrompt = buildLocalizedTelegramPrompt(promptContext);
+  const fallbackTemplateValues = buildTemplateValues(input, promptContext);
+  try {
+    const repository = new PromptProfilesRepository(input.env.DB);
+    const storedPrompt = await repository.resolvePrompt({
+      routeId: input.route.id,
+      routeOutputId: input.routeOutput.id,
+      category: input.route.category,
+      language: input.routeOutput.language,
+      contentType: "social_post",
+      promptProfileKey: input.route.promptProfile
+    });
+    if (!storedPrompt) return { prompt: fallbackPrompt, templateValues: fallbackTemplateValues };
+    return { prompt: storedPromptToPromptDefinition(storedPrompt, fallbackPrompt), templateValues: fallbackTemplateValues };
+  } catch {
+    return { prompt: fallbackPrompt, templateValues: fallbackTemplateValues };
+  }
+}
+
+function storedPromptToPromptDefinition(profile: PromptProfileRecord, fallback: PromptDefinition): PromptDefinition {
+  return {
+    promptId: profile.id,
+    promptVersion: profile.version,
+    target: fallback.target,
+    systemPrompt: profile.systemPrompt,
+    userPromptTemplate: profile.userPromptTemplate,
+    model: profile.modelHint ?? fallback.model,
+    temperature: profile.temperature ?? fallback.temperature,
+    maxTokens: profile.maxTokens ?? fallback.maxTokens,
+    outputSchemaRef: profile.outputSchemaRef || fallback.outputSchemaRef
+  };
+}
+
+function buildTemplateValues(input: GenerateLocalizedTelegramOutputInput, promptContext: Parameters<typeof buildLocalizedTelegramPrompt>[0]): Record<string, string> {
+  const baseValues = renderLocalizedTemplateValues(promptContext);
+  const channelSignature = buildChannelSignaturePreview(input.routeOutput).rendered;
+  return {
+    ...baseValues,
+    sourceText: input.post.text ?? "",
+    sourceUrl: input.post.canonicalUrl,
+    contentType: "social_post",
+    tonePreset: input.env.AI_TONE_PRESET ?? "neutral",
+    channelSignature,
+    targetAudience: `${input.route.category} Telegram audience`,
+    riskPolicy: "Do not invent claims, prices, quotes, or recommendations that are not present in the source.",
+    hashtagPolicy: "Use only concise, relevant hashtags when useful."
   };
 }
 

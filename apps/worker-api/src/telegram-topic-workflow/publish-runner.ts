@@ -1,6 +1,7 @@
 import { MediaAssetsRepository, MediaProcessingJobsRepository, TelegramGeneratedOutputsRepository, TelegramPublishQueueRepository, TelegramRoutesRepository, type TelegramPublishQueueRecord } from "@curator/db";
 import { RealTelegramClient, redactTelegramApiError, validateTelegramPublishMedia, type ParsedTelegramMedia, type TelegramClient } from "@curator/telegram";
 import type { Env } from "../types";
+import { applyRouteOutputSignature } from "./channel-signature";
 
 export type TelegramQueuePublishResult = {
   ok: boolean;
@@ -87,6 +88,8 @@ export async function publishTelegramQueueItem(input: {
   }
 
   await generatedOutputsRepository.updateStatus(generatedOutput.id, "publishing");
+  const finalCaption = applyRouteOutputSignature(generatedOutput.output.caption, routeOutput);
+
   await publishQueueRepository.markPublishing(input.queueItem.id);
 
   try {
@@ -94,7 +97,7 @@ export async function publishTelegramQueueItem(input: {
     const sent = await publishClient.publishFinalMessage({
       chatId: routeOutput.finalChatId,
       ...(routeOutput.finalThreadId === undefined ? {} : { messageThreadId: routeOutput.finalThreadId }),
-      text: generatedOutput.output.caption,
+      text: finalCaption,
       ...(media.length === 0 ? {} : { media })
     });
     await publishQueueRepository.markPublished(input.queueItem.id, sent.messageId);

@@ -24,6 +24,18 @@ type OutputRow = {
   final_chat_id: string;
   final_thread_id: number | null;
   enabled: number;
+  publish_enabled?: number | null;
+  publish_mode?: string | null;
+  timezone?: string | null;
+  allowed_publish_windows_json?: string | null;
+  minimum_gap_minutes?: number | null;
+  max_posts_per_hour?: number | null;
+  max_posts_per_day?: number | null;
+  queue_priority?: number | null;
+  signature_enabled?: number | null;
+  signature_text?: string | null;
+  signature_channel_handle?: string | null;
+  signature_position?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -111,8 +123,20 @@ class FakeStatement implements D1PreparedStatementLike {
         final_chat_id: String(this.values[5]),
         final_thread_id: this.values[6] === null ? null : Number(this.values[6]),
         enabled: Number(this.values[7]),
-        created_at: String(this.values[8]),
-        updated_at: String(this.values[9])
+        publish_enabled: Number(this.values[8]),
+        publish_mode: String(this.values[9]),
+        timezone: String(this.values[10]),
+        allowed_publish_windows_json: String(this.values[11]),
+        minimum_gap_minutes: Number(this.values[12]),
+        max_posts_per_hour: Number(this.values[13]),
+        max_posts_per_day: Number(this.values[14]),
+        queue_priority: Number(this.values[15]),
+        signature_enabled: Number(this.values[16]),
+        signature_text: this.values[17] === null ? null : String(this.values[17]),
+        signature_channel_handle: this.values[18] === null ? null : String(this.values[18]),
+        signature_position: String(this.values[19]),
+        created_at: String(this.values[20]),
+        updated_at: String(this.values[21])
       };
       this.db.outputs = [row, ...this.db.outputs.filter((output) => output.id !== row.id)];
     }
@@ -184,9 +208,13 @@ describe("internal Telegram topic route APIs", () => {
     const invalid = await handleInternalTelegramTopicRoutes(internalRequest("/internal/telegram/topic-routes/crypto/outputs", { method: "POST", body: JSON.stringify({ id: "crypto_fa" }) }), makeEnv(db));
     expect(invalid.status).toBe(400);
 
-    const created = await handleInternalTelegramTopicRoutes(internalRequest("/internal/telegram/topic-routes/crypto/outputs", { method: "POST", body: JSON.stringify({ id: "crypto_fa", language: "fa", reviewChatId: "-1001", reviewThreadId: 201, finalChatId: "@crypto_fa" }) }), makeEnv(db));
+    const invalidSignature = await handleInternalTelegramTopicRoutes(internalRequest("/internal/telegram/topic-routes/crypto/outputs", { method: "POST", body: JSON.stringify({ id: "crypto_bad", language: "fa", reviewChatId: "-1001", reviewThreadId: 201, finalChatId: "@crypto_fa", signatureEnabled: true }) }), makeEnv(db));
+    expect(invalidSignature.status).toBe(400);
+
+    const created = await handleInternalTelegramTopicRoutes(internalRequest("/internal/telegram/topic-routes/crypto/outputs", { method: "POST", body: JSON.stringify({ id: "crypto_fa", language: "fa", reviewChatId: "-1001", reviewThreadId: 201, finalChatId: "@crypto_fa", signatureEnabled: true, signatureChannelHandle: "@crypto_fa" }) }), makeEnv(db));
     expect(created.status).toBe(200);
     expect(db.outputs[0]?.id).toBe("crypto_fa");
+    expect(db.outputs[0]?.signature_channel_handle).toBe("@crypto_fa");
 
     const updated = await handleInternalTelegramTopicRoutes(internalRequest("/internal/telegram/topic-route-outputs/crypto_fa", { method: "PUT", body: JSON.stringify({ id: "crypto_fa", language: "fa", reviewChatId: "-1001", reviewThreadId: 202, finalChatId: "@crypto_fa" }) }), makeEnv(db));
     expect(updated.status).toBe(200);

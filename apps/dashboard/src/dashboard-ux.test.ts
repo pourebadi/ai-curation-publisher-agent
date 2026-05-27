@@ -10,7 +10,7 @@ const connectedBundle: StatusBundle = {
 
 describe("dashboard operator UX rules", () => {
   it("uses only the six approved top-level sections", () => {
-    expect(topLevelNavigationLabels()).toEqual(["Overview", "Setup Wizard", "Settings", "Tests", "Activity", "Technical"]);
+    expect(topLevelNavigationLabels()).toEqual(["Overview", "Setup Wizard", "Settings", "Diagnostics", "Tests", "Activity", "Technical"]);
   });
 
   it("keeps setup wizard inline with visible progress states", () => {

@@ -26,6 +26,9 @@ export type TelegramTopicWorkflowRouteSummary = {
     maxPostsPerHour: number;
     maxPostsPerDay: number;
     queuePriority: number;
+    signatureEnabled: boolean;
+    signatureText?: string;
+    signatureChannelHandle?: string;
   }>;
 };
 
@@ -163,6 +166,9 @@ function buildRouteSummaries(routes: TelegramRouteRecord[], outputs: TelegramRou
         maxPostsPerHour: output.maxPostsPerHour,
         maxPostsPerDay: output.maxPostsPerDay,
         queuePriority: output.queuePriority,
+        signatureEnabled: output.signatureEnabled,
+        ...(output.signatureText === undefined ? {} : { signatureText: output.signatureText }),
+        ...(output.signatureChannelHandle === undefined ? {} : { signatureChannelHandle: output.signatureChannelHandle }),
         warnings: outputWarnings(output)
       }))
     };
@@ -174,5 +180,7 @@ function outputWarnings(output: TelegramRouteOutputRecord): string[] {
   if (!output.reviewChatId.trim()) warnings.push("Review chat ID is missing.");
   if (!output.finalChatId.trim()) warnings.push("Final channel/chat ID is missing.");
   if (output.enabled && !output.publishEnabled) warnings.push("Publishing is disabled for this output.");
+  if (output.signatureEnabled && !output.signatureText && !output.signatureChannelHandle) warnings.push("Channel signature is enabled but empty.");
+  if (output.signatureChannelHandle !== undefined && !/^@[A-Za-z0-9_]{5,32}$/.test(output.signatureChannelHandle)) warnings.push("Channel signature handle must start with @.");
   return warnings;
 }
