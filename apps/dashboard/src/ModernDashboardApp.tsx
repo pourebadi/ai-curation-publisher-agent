@@ -168,22 +168,56 @@ export default function ModernDashboardApp(): JSX.Element {
     setBusy(undefined);
   }
 
+  async function refreshConfigSideEffects(): Promise<void> {
+    const [nextStatus, nextSummary, nextValidation] = await Promise.all([
+      client.getStatusBundle(),
+      client.getAdminSummary(),
+      client.getAdminValidation()
+    ]);
+
+    setStatusBundle(nextStatus);
+    if (nextSummary.ok) setSummary(nextSummary.data);
+    if (nextValidation.ok) setValidation(nextValidation.data);
+  }
+
   async function saveSetting(item: AdminConfigItem): Promise<void> {
     const value = settingValue(item, settingDrafts);
-    if (item.isSecret && value.trim().length === 0) { setNotice(`Enter a new value before saving ${item.key}. Existing secret values are never displayed.`); return; }
+    if (item.isSecret === true && value.trim().length === 0) {
+      setNotice(`Enter a new value before saving ${item.key}. Existing secret values are never displayed.`);
+      return;
+    }
+
     setBusy(`save-${item.key}`);
-    const response = await client.saveAdminConfig([{ key: item.key, value }]);
-    setNotice(response.ok ? `Saved ${item.key}.` : response.message);
-    if (response.ok) { setAdminConfig(response.data); setSettingDrafts((drafts) => removeDraft(drafts, item.key)); await refreshAll(); }
-    setBusy(undefined);
+    try {
+      const response = await client.saveAdminConfig([{ key: item.key, value }]);
+      setNotice(response.ok ? `Saved ${item.key}.` : response.message);
+      if (response.ok) {
+        setAdminConfig(response.data);
+        setSettingDrafts((drafts) => removeDraft(drafts, item.key));
+        await refreshConfigSideEffects();
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `Failed to save ${item.key}.`);
+    } finally {
+      setBusy(undefined);
+    }
   }
 
   async function resetSetting(item: AdminConfigItem): Promise<void> {
     setBusy(`reset-${item.key}`);
-    const response = await client.resetAdminConfig([item.key]);
-    setNotice(response.ok ? `Reset ${item.key} to environment/default.` : response.message);
-    if (response.ok) { setAdminConfig(response.data); setSettingDrafts((drafts) => removeDraft(drafts, item.key)); await refreshAll(); }
-    setBusy(undefined);
+    try {
+      const response = await client.resetAdminConfig([item.key]);
+      setNotice(response.ok ? `Reset ${item.key} to environment/default.` : response.message);
+      if (response.ok) {
+        setAdminConfig(response.data);
+        setSettingDrafts((drafts) => removeDraft(drafts, item.key));
+        await refreshConfigSideEffects();
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `Failed to reset ${item.key}.`);
+    } finally {
+      setBusy(undefined);
+    }
   }
 
   async function publishQueueItemNow(queueId: string): Promise<void> {
@@ -328,7 +362,7 @@ export default function ModernDashboardApp(): JSX.Element {
       const key = readString(entry, "key");
       const value = readString(entry, "value");
       const item = key ? editableByKey.get(key) : undefined;
-      if (!key || value === undefined || item === undefined || item.isSecret) return [];
+      if (!key || value === undefined || item === undefined || item.isSecret === true) return [];
       return [{ key, value }];
     });
     if (safeUpdates.length === 0) { setNotice("No non-secret editable settings were found in the import payload."); return; }

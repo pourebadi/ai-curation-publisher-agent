@@ -12,6 +12,18 @@ type SettingsEditorProps = {
   busy: string | undefined;
 };
 
+function isSecretSetting(item: AdminConfigItem): boolean {
+  return item.isSecret === true;
+}
+
+function isConfiguredSetting(item: AdminConfigItem): boolean {
+  return item.configured === true;
+}
+
+function isRequiredForProduction(item: AdminConfigItem): boolean {
+  return item.requiredForProduction === true;
+}
+
 export function SettingsEditor(props: SettingsEditorProps): JSX.Element {
   if (props.items.length === 0) return <Card><CardHeader title="No settings" description="No matching settings are available for this section." /></Card>;
   const groups = groupedSettings(props.items);
@@ -20,13 +32,13 @@ export function SettingsEditor(props: SettingsEditorProps): JSX.Element {
 
 function SettingRow({ item, value, onChange, onSave, onReset, busy }: { item: AdminConfigItem; value: string; onChange: (value: string) => void; onSave: () => void; onReset: () => void; busy: string | undefined }): JSX.Element {
   const saving = busy === `save-${item.key}` || busy === `reset-${item.key}`;
-  return <div className="setting-row"><div className="setting-copy"><div className="setting-title"><strong>{item.label}</strong><code>{item.key}</code></div><p>{item.description}</p><small>{item.whereUsed}</small><div className="setting-badges"><Badge tone={sourceTone(item.source)}>{item.source}</Badge><Badge tone={item.safetyLevel === "risky" ? "danger" : item.safetyLevel === "warning" ? "warning" : "success"}>{item.safetyLevel}</Badge>{item.requiredForProduction && <Badge tone="warning">required for production</Badge>}{item.isSecret && <Badge tone={item.configured ? "success" : "warning"}>{item.configured ? "secret configured" : "secret missing"}</Badge>}</div></div><div className="setting-control">{renderSettingControl(item, value, onChange)}<div className="button-row"><Button size="sm" onClick={onSave} disabled={saving || !item.editable}>Save</Button><Button size="sm" variant="secondary" onClick={onReset} disabled={saving || !item.editable}>Reset</Button></div></div></div>;
+  return <div className="setting-row"><div className="setting-copy"><div className="setting-title"><strong>{item.label}</strong><code>{item.key}</code></div><p>{item.description}</p><small>{item.whereUsed}</small><div className="setting-badges"><Badge tone={sourceTone(item.source)}>{item.source}</Badge><Badge tone={item.safetyLevel === "risky" ? "danger" : item.safetyLevel === "warning" ? "warning" : "success"}>{item.safetyLevel}</Badge>{isRequiredForProduction(item) && <Badge tone="warning">required for production</Badge>}{isSecretSetting(item) && <Badge tone={isConfiguredSetting(item) ? "success" : "warning"}>{isConfiguredSetting(item) ? "secret configured" : "secret missing"}</Badge>}</div></div><div className="setting-control">{renderSettingControl(item, value, onChange)}<div className="button-row"><Button size="sm" onClick={onSave} disabled={saving || !item.editable}>Save</Button><Button size="sm" variant="secondary" onClick={onReset} disabled={saving || !item.editable}>Reset</Button></div></div></div>;
 }
 
 function renderSettingControl(item: AdminConfigItem, value: string, onChange: (value: string) => void): JSX.Element {
   if (item.type === "boolean") return <Switch label="Enabled" checked={value === "true"} onChange={(checked) => onChange(checked ? "true" : "false")} />;
   if (item.validation.enumValues && item.validation.enumValues.length > 0) return <Select label="Value" value={value} onChange={onChange} options={item.validation.enumValues.map((entry) => ({ value: entry, label: entry }))} />;
-  if (item.isSecret) return <Input label="New secret value" type="password" value={value} onChange={onChange} placeholder={item.configured ? "Configured. Paste new value to replace." : "Paste secret value"} />;
+  if (isSecretSetting(item)) return <Input label="New secret value" type="password" value={value} onChange={onChange} placeholder={isConfiguredSetting(item) ? "Configured. Paste new value to replace." : "Paste secret value"} />;
   if (item.type === "integer" || item.type === "number") return <Input label="Value" type="number" value={value} onChange={onChange} />;
   if (item.type === "model_chain" || item.key.includes("PROMPT")) return <Textarea label="Value" value={value} onChange={onChange} rows={4} />;
   return <Input label="Value" value={value} onChange={onChange} />;
@@ -34,7 +46,7 @@ function renderSettingControl(item: AdminConfigItem, value: string, onChange: (v
 
 export function settingValue(item: AdminConfigItem, drafts: Record<string, string>): string {
   if (drafts[item.key] !== undefined) return drafts[item.key] ?? "";
-  if (item.isSecret) return "";
+  if (isSecretSetting(item)) return "";
   return item.value ?? "";
 }
 
@@ -50,7 +62,7 @@ export function findSetting(adminConfig: AdminConfigResponse | undefined, key: s
 
 export function filterSettings(items: AdminConfigItem[], filter: SettingFilter): AdminConfigItem[] {
   return items.filter((item) => {
-    if (filter.excludeSecrets && item.isSecret) return false;
+    if (filter.excludeSecrets && isSecretSetting(item)) return false;
     if (filter.groups && !filter.groups.includes(item.group)) return false;
     if (filter.keys && filter.keys.includes(item.key)) return true;
     if (filter.keyIncludes && filter.keyIncludes.some((fragment) => item.key.includes(fragment))) return true;
