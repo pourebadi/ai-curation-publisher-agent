@@ -223,7 +223,11 @@ async function sendMediaReadyReview(env: Env, job: MediaProcessingJobRecord): Pr
   const media = assetsToParsedTelegramMedia(assets);
   if (media.length === 0) return;
 
-  const generatedOutputs = await generatedOutputsRepository.listByItemId(job.itemId);
+  const generatedOutputs = (await generatedOutputsRepository.listByItemId(job.itemId))
+    .filter((output) => output.status === "ready_for_review" && output.output.caption.trim().length > 0);
+
+  if (generatedOutputs.length === 0) return;
+
   const telegramClient = new RealTelegramClient({
     ...(env.TELEGRAM_BOT_TOKEN === undefined ? {} : { botToken: env.TELEGRAM_BOT_TOKEN })
   });

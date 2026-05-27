@@ -1,6 +1,6 @@
 import type { D1DatabaseLike } from "../client";
 
-export const TELEGRAM_PUBLISH_QUEUE_STATUSES = ["pending", "scheduled", "publishing", "published", "failed"] as const;
+export const TELEGRAM_PUBLISH_QUEUE_STATUSES = ["pending", "scheduled", "publishing", "published", "failed", "cancelled"] as const;
 export type TelegramPublishQueueStatus = typeof TELEGRAM_PUBLISH_QUEUE_STATUSES[number];
 
 export type TelegramPublishQueueRecord = {
@@ -179,6 +179,18 @@ export class TelegramPublishQueueRepository {
   async markFailed(id: string, errorMessage: string): Promise<void> {
     await this.db.prepare("UPDATE telegram_publish_queue SET status = 'failed', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .bind(errorMessage, id)
+      .run();
+  }
+
+  async markCancelled(id: string, reason = "Cancelled from dashboard."): Promise<void> {
+    await this.db.prepare("UPDATE telegram_publish_queue SET status = 'cancelled', last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(reason, id)
+      .run();
+  }
+
+  async reschedule(id: string, scheduledFor: string): Promise<void> {
+    await this.db.prepare("UPDATE telegram_publish_queue SET status = 'scheduled', scheduled_for = ?, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(scheduledFor, id)
       .run();
   }
 }

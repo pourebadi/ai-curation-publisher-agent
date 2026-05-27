@@ -45,14 +45,20 @@ export class WorkerApiClient {
   async getAdminSummary(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/summary"); }
   async getAdminValidation(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/validate"); }
   async getAdminMetricsOverview(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/metrics/overview"); }
+  async getAdminMetricsTimeseries(rangeDays = 30): Promise<ApiResult> { return this.getInternalJson(`/internal/admin/metrics/timeseries?rangeDays=${encodeURIComponent(String(rangeDays))}`); }
   async getPromptStudio(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/prompts"); }
   async savePromptProfile(profile: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts", profile); }
   async updatePromptProfile(profileId: string, profile: JsonObject): Promise<ApiResult> { return this.requestJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}`, { method: "PUT", body: JSON.stringify(profile), headers: this.internalHeaders() }); }
   async activatePromptProfile(profileId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}/activate`, {}); }
+  async archivePromptProfile(profileId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}/archive`, {}); }
   async savePromptBinding(binding: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts/bindings", binding); }
   async previewPrompt(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts/preview", input); }
   async exportAdminConfig(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/config/export"); }
   async getAdminMediaSettings(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/media/settings"); }
+
+  async testAI(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/ai/test", input); }
+  async testProvider(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/providers/test", input); }
+  async testTelegram(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/telegram/test", input); }
   async saveAdminMediaSettings(updates: { key: string; value: string }[]): Promise<ApiResult> { return this.requestJson("/internal/admin/media/settings", { method: "PATCH", body: JSON.stringify({ updates }), headers: this.internalHeaders() }); }
   async saveAdminConfig(updates: { key: string; value: string }[]): Promise<ApiResult<AdminConfigResponse>> { return this.putInternalJson("/internal/admin/config", { updates }) as Promise<ApiResult<AdminConfigResponse>>; }
   async resetAdminConfig(keys: string[]): Promise<ApiResult<AdminConfigResponse>> { return this.postInternalJson("/internal/admin/config/reset", { keys }) as Promise<ApiResult<AdminConfigResponse>>; }
@@ -62,6 +68,11 @@ export class WorkerApiClient {
   async seedTelegramTopicRoutes(routes: JsonValue): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/topic-routes/seed", { routes }); }
   async saveTelegramRoute(route: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/topic-routes", route); }
   async saveTelegramRouteOutput(routeId: string, output: JsonObject): Promise<ApiResult> { return this.postInternalJson(`/internal/telegram/topic-routes/${encodeURIComponent(routeId)}/outputs`, output); }
+
+  async updateTelegramRoute(routeId: string, route: JsonObject): Promise<ApiResult> { return this.requestJson(`/internal/telegram/topic-routes/${encodeURIComponent(routeId)}`, { method: "PUT", body: JSON.stringify(route), headers: this.internalHeaders() }); }
+  async disableTelegramRoute(routeId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/telegram/topic-routes/${encodeURIComponent(routeId)}/disable`, {}); }
+  async updateTelegramRouteOutput(outputId: string, output: JsonObject): Promise<ApiResult> { return this.requestJson(`/internal/telegram/topic-route-outputs/${encodeURIComponent(outputId)}`, { method: "PUT", body: JSON.stringify(output), headers: this.internalHeaders() }); }
+  async disableTelegramRouteOutput(outputId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/telegram/topic-route-outputs/${encodeURIComponent(outputId)}/disable`, {}); }
   async getRecentTelegramOutputs(limit = 20): Promise<ApiResult> { return this.getInternalJson(`/internal/telegram/outputs/recent?limit=${encodeURIComponent(String(limit))}`); }
   async publishTelegramNow(queueId: string): Promise<ApiResult> {
     return this.postInternalJson("/internal/telegram/publish/now", { queueId });
@@ -69,6 +80,10 @@ export class WorkerApiClient {
 
   async getTelegramPublishQueue(limit = 25): Promise<ApiResult> { return this.getInternalJson(`/internal/telegram/publish/queue?limit=${encodeURIComponent(String(limit))}`); }
   async runTelegramPublishDue(limit = 5): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/due", { limit }); }
+
+  async cancelTelegramPublishQueueItem(queueId: string): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/queue", { action: "cancel", queueId }); }
+  async rescheduleTelegramPublishQueueItem(queueId: string, scheduledFor: string): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/queue", { action: "reschedule", queueId, scheduledFor }); }
+  async bulkPublishTelegramNow(queueIds: string[]): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/queue", { action: "bulk_publish_now", queueIds }); }
   async getMediaJobs(limit = 25): Promise<ApiResult> { return this.getInternalJson(`/internal/media/jobs?limit=${encodeURIComponent(String(limit))}`); }
 
   async runInternalAuthProbe(): Promise<ApiResult> {

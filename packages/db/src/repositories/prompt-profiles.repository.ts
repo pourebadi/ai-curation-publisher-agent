@@ -60,6 +60,37 @@ export type PromptBindingRecord = {
   updatedBy?: string;
 };
 
+export type PromptRunRecord = {
+  id: string;
+  itemId?: string;
+  generatedOutputId?: string;
+  promptProfileId: string;
+  promptVersion: string;
+  model?: string;
+  provider?: string;
+  renderedPromptHash?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  status: string;
+  errorMessage?: string;
+  createdAt: string;
+};
+
+export type UpsertPromptRunInput = {
+  id?: string;
+  itemId?: string;
+  generatedOutputId?: string;
+  promptProfileId: string;
+  promptVersion: string;
+  model?: string;
+  provider?: string;
+  renderedPromptHash?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  status?: string;
+  errorMessage?: string;
+};
+
 export type UpsertPromptBindingInput = {
   id?: string;
   routeId?: string;
@@ -119,6 +150,22 @@ type PromptBindingRow = {
   updated_by: string | null;
 };
 
+type PromptRunRow = {
+  id: string;
+  item_id: string | null;
+  generated_output_id: string | null;
+  prompt_profile_id: string;
+  prompt_version: string;
+  model: string | null;
+  provider: string | null;
+  rendered_prompt_hash: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+};
+
 export class PromptProfilesRepository {
   constructor(private readonly db: D1DatabaseLike) {}
 
@@ -175,6 +222,52 @@ export class PromptProfilesRepository {
   async listBindings(): Promise<PromptBindingRecord[]> {
     const result = await this.db.prepare("SELECT * FROM prompt_bindings ORDER BY enabled DESC, route_output_id ASC, route_id ASC, category ASC, language ASC").all<PromptBindingRow>();
     return (result.results ?? []).map(toPromptBindingRecord);
+  }
+
+  async listRuns(limit = 25, promptProfileId?: string): Promise<PromptRunRecord[]> {
+    const cappedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+    const result = promptProfileId === undefined
+      ? await this.db.prepare("SELECT * FROM prompt_runs ORDER BY created_at DESC LIMIT ?").bind(cappedLimit).all<PromptRunRow>()
+      : await this.db.prepare("SELECT * FROM prompt_runs WHERE prompt_profile_id = ? ORDER BY created_at DESC LIMIT ?").bind(promptProfileId, cappedLimit).all<PromptRunRow>();
+    return (result.results ?? []).map(toPromptRunRecord);
+  }
+
+  async createRun(input: UpsertPromptRunInput): Promise<PromptRunRecord> {
+    const createdAt = new Date().toISOString();
+    const id = normalizeId(input.id ?? `prun_${stableHash(`${input.promptProfileId}:${input.promptVersion}:${createdAt}:${input.status ?? "created"}`)}`);
+    await this.db.prepare(
+      `INSERT INTO prompt_runs (id, item_id, generated_output_id, prompt_profile_id, prompt_version, model, provider, rendered_prompt_hash, input_tokens, output_tokens, status, error_message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      id,
+      input.itemId ?? null,
+      input.generatedOutputId ?? null,
+      input.promptProfileId,
+      input.promptVersion,
+      input.model ?? null,
+      input.provider ?? null,
+      input.renderedPromptHash ?? null,
+      input.inputTokens ?? null,
+      input.outputTokens ?? null,
+      input.status ?? "created",
+      input.errorMessage ?? null,
+      createdAt
+    ).run();
+    return {
+      id,
+      ...(input.itemId === undefined ? {} : { itemId: input.itemId }),
+      ...(input.generatedOutputId === undefined ? {} : { generatedOutputId: input.generatedOutputId }),
+      promptProfileId: input.promptProfileId,
+      promptVersion: input.promptVersion,
+      ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.provider === undefined ? {} : { provider: input.provider }),
+      ...(input.renderedPromptHash === undefined ? {} : { renderedPromptHash: input.renderedPromptHash }),
+      ...(input.inputTokens === undefined ? {} : { inputTokens: input.inputTokens }),
+      ...(input.outputTokens === undefined ? {} : { outputTokens: input.outputTokens }),
+      status: input.status ?? "created",
+      ...(input.errorMessage === undefined ? {} : { errorMessage: input.errorMessage }),
+      createdAt
+    };
   }
 
   async upsertBinding(input: UpsertPromptBindingInput): Promise<PromptBindingRecord> {
@@ -340,6 +433,24 @@ function toPromptProfileRecord(row: PromptProfileRow): PromptProfileRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.updated_by === null ? {} : { updatedBy: row.updated_by })
+  };
+}
+
+function toPromptRunRecord(row: PromptRunRow): PromptRunRecord {
+  return {
+    id: row.id,
+    ...(row.item_id === null ? {} : { itemId: row.item_id }),
+    ...(row.generated_output_id === null ? {} : { generatedOutputId: row.generated_output_id }),
+    promptProfileId: row.prompt_profile_id,
+    promptVersion: row.prompt_version,
+    ...(row.model === null ? {} : { model: row.model }),
+    ...(row.provider === null ? {} : { provider: row.provider }),
+    ...(row.rendered_prompt_hash === null ? {} : { renderedPromptHash: row.rendered_prompt_hash }),
+    ...(row.input_tokens === null ? {} : { inputTokens: row.input_tokens }),
+    ...(row.output_tokens === null ? {} : { outputTokens: row.output_tokens }),
+    status: row.status,
+    ...(row.error_message === null ? {} : { errorMessage: row.error_message }),
+    createdAt: row.created_at
   };
 }
 
