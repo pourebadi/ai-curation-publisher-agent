@@ -4,6 +4,7 @@ import { handleHealth } from "./routes/health";
 import { handleInternalAdminConfig } from "./routes/internal-admin-config";
 import { handleInternalAdminOverview } from "./routes/internal-admin-overview";
 import { handleInternalAdminPrompts } from "./routes/internal-admin-prompts";
+import { handleInternalAdminTests } from "./routes/internal-admin-tests";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalMediaProcessed } from "./routes/internal-media-processed";
@@ -67,6 +68,10 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/internal/admin/prompts" || url.pathname === "/internal/admin/prompts/bindings" || url.pathname === "/internal/admin/prompts/preview" || url.pathname.startsWith("/internal/admin/prompts/")) {
     return handleInternalAdminPrompts(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/ai/test" || url.pathname === "/internal/admin/providers/test" || url.pathname === "/internal/admin/telegram/test") {
+    return handleInternalAdminTests(request, env);
   }
 
   if (url.pathname === "/internal/poll") {

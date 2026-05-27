@@ -46,6 +46,11 @@ export async function handleInternalAdminOverview(request: Request, env: Env): P
     return jsonResponse(await buildMetricsOverview(env));
   }
 
+  if (path === "/internal/admin/metrics/timeseries" && request.method === "GET") {
+    const range = Number(url.searchParams.get("rangeDays") ?? 30);
+    return jsonResponse(await buildMetricsTimeseries(env, Number.isFinite(range) ? range : 30));
+  }
+
   if (path === "/internal/admin/config/export" && request.method === "GET") {
     return jsonResponse(await buildConfigExport(env));
   }
@@ -152,8 +157,30 @@ async function buildMetricsOverview(env: Env): Promise<Record<string, unknown>> 
       mediaJobsByStatus: mediaJobCounts,
       outputsByLanguage: languageCounts
     },
+    timeSeries: {
+      generatedLast7Days: await countByDateBucket(effectiveEnv.DB, "telegram_generated_outputs", "created_at", 7),
+      generatedLast30Days: await countByDateBucket(effectiveEnv.DB, "telegram_generated_outputs", "created_at", 30),
+      publishQueueLast7Days: await countByDateBucket(effectiveEnv.DB, "telegram_publish_queue", "created_at", 7),
+      publishedLast30Days: await countByDateBucket(effectiveEnv.DB, "telegram_publish_queue", "updated_at", 30, "status = 'published'"),
+      mediaJobsLast30Days: await countByDateBucket(effectiveEnv.DB, "media_processing_jobs", "created_at", 30)
+    },
     routes: routeBreakdown,
     prompts: await safePromptSummary(effectiveEnv)
+  };
+}
+
+async function buildMetricsTimeseries(env: Env, rangeDays: number): Promise<Record<string, unknown>> {
+  const effectiveEnv = await getEffectiveEnv(env);
+  const days = Math.max(7, Math.min(Math.floor(rangeDays), 90));
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    rangeDays: days,
+    series: {
+      outputs: await countByDateBucket(effectiveEnv.DB, "telegram_generated_outputs", "created_at", days),
+      published: await countByDateBucket(effectiveEnv.DB, "telegram_publish_queue", "updated_at", days, "status = 'published'"),
+      mediaJobs: await countByDateBucket(effectiveEnv.DB, "media_processing_jobs", "created_at", days)
+    }
   };
 }
 
@@ -289,6 +316,23 @@ async function safeRecentMediaJobs(env: Env, limit: number): Promise<unknown[]> 
 
 async function safeRecentPublishQueue(env: Env, limit: number): Promise<unknown[]> {
   try { return await new TelegramPublishQueueRepository(env.DB).listRecent(limit); } catch { return []; }
+}
+
+async function countByDateBucket(db: D1Database, tableName: "telegram_generated_outputs" | "telegram_publish_queue" | "media_processing_jobs", dateColumn: "created_at" | "updated_at", days: number, extraWhere?: string): Promise<Array<{ day: string; count: number }>> {
+  const safeDays = Math.max(1, Math.min(Math.floor(days), 90));
+  const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
+  return countByDay(db, tableName, dateColumn, since, extraWhere);
+}
+
+async function countByDay(db: D1Database, tableName: "telegram_generated_outputs" | "telegram_publish_queue" | "media_processing_jobs", dateColumn: string, sinceIso: string, extraWhere?: string): Promise<Array<{ day: string; count: number }>> {
+  try {
+    const safeDateColumn = dateColumn === "created_at" || dateColumn === "updated_at" ? dateColumn : "created_at";
+    const where = `${safeDateColumn} >= ?${extraWhere ? ` AND ${extraWhere}` : ""}`;
+    const result = await db.prepare(`SELECT substr(${safeDateColumn}, 1, 10) AS day, COUNT(*) AS count FROM ${tableName} WHERE ${where} GROUP BY day ORDER BY day ASC`).bind(sinceIso).all<{ day: string; count: number }>();
+    return result.results ?? [];
+  } catch {
+    return [];
+  }
 }
 
 async function countByColumn(db: D1Database, tableName: string, columnName: string): Promise<Record<string, number>> {

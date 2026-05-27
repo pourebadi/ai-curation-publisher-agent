@@ -44,6 +44,11 @@ export function Select({ label, value, onChange, options }: { label: string; val
   return <label className="ui-field"><span>{label}</span><select value={value} onChange={(event: { currentTarget: { value: string } }) => onChange(event.currentTarget.value)}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
 }
 
+
+export function Switch({ label, checked, onChange, disabled, description }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; description?: string }): JSX.Element {
+  return <label className="ui-switch-field"><span><strong>{label}</strong>{description && <small>{description}</small>}</span><button type="button" className={cx("ui-switch", checked ? "ui-switch-on" : undefined)} aria-pressed={checked} disabled={disabled} onClick={() => onChange(!checked)}><i /></button></label>;
+}
+
 export function Progress({ value, label }: { value: number; label?: string }): JSX.Element {
   const safeValue = Math.max(0, Math.min(100, Math.round(value)));
   return <div className="ui-progress" aria-label={label ?? "Progress"}><div className="ui-progress-header"><span>{label ?? "Progress"}</span><strong>{safeValue}%</strong></div><div className="ui-progress-track"><span style={{ width: `${safeValue}%` }} /></div></div>;

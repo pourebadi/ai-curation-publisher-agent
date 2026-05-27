@@ -119,3 +119,47 @@ pre { background: #020617; border-radius: 1rem; color: #dbeafe; font-size: 0.82r
   .ui-card-header { display: grid; }
   .chart-donut-layout, .chart-bar-row, .chart-funnel-step { grid-template-columns: 1fr; }
 }
+
+.settings-section-tabs, .setting-badges, .prompt-variable-grid { align-items: center; display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.settings-grid { display: grid; gap: 1rem; }
+.settings-hint-grid { display: grid; gap: 1rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.setting-list { display: grid; gap: 0.85rem; }
+.setting-row { align-items: start; background: #f8fafc; border: 1px solid var(--border); border-radius: 1rem; display: grid; gap: 1rem; grid-template-columns: minmax(0, 1.3fr) minmax(15rem, 0.7fr); padding: 0.9rem; }
+.setting-copy { display: grid; gap: 0.45rem; }
+.setting-copy p, .setting-copy small { color: var(--muted-foreground); margin: 0; }
+.setting-title { align-items: center; display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.setting-title code { background: #e2e8f0; border-radius: 0.55rem; color: #334155; font-size: 0.75rem; padding: 0.18rem 0.42rem; }
+.setting-control { display: grid; gap: 0.65rem; }
+.preset-card, .wizard-step { background: #f8fafc; border: 1px solid var(--border); border-radius: 1rem; display: grid; gap: 0.55rem; padding: 0.9rem; }
+.preset-card div { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.wizard-grid { display: grid; gap: 0.8rem; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.wizard-step p { color: var(--muted-foreground); margin: 0; }
+.muted-text { color: var(--muted-foreground); }
+.ui-switch-field { align-items: center; display: flex; gap: 0.8rem; justify-content: space-between; }
+.ui-switch-field span { display: grid; gap: 0.15rem; }
+.ui-switch-field small { color: var(--muted-foreground); font-weight: 600; }
+.ui-switch { align-items: center; background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 999px; display: inline-flex; height: 1.75rem; padding: 0.15rem; width: 3.15rem; }
+.ui-switch i { background: white; border-radius: 999px; box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18); display: block; height: 1.35rem; transform: translateX(0); transition: transform 0.18s ease; width: 1.35rem; }
+.ui-switch-on { background: #2563eb; border-color: #1d4ed8; }
+.ui-switch-on i { transform: translateX(1.35rem); }
+@media (max-width: 1180px) { .settings-hint-grid, .wizard-grid, .setting-row { grid-template-columns: 1fr; } }
+.inline-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.table-action-stack { display: grid; gap: 0.75rem; }
+.table-action-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+.prompt-diff-block { margin-top: 1rem; display: grid; gap: 0.5rem; }
+.prompt-diff-grid { border: 1px solid var(--border); border-radius: 0.85rem; overflow: hidden; background: rgba(15, 23, 42, 0.35); }
+.prompt-diff-line { display: grid; grid-template-columns: 2rem 1fr; gap: 0.5rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid rgba(148, 163, 184, 0.12); font-size: 0.82rem; }
+.prompt-diff-line:last-child { border-bottom: 0; }
+.prompt-diff-line code { white-space: pre-wrap; word-break: break-word; }
+.prompt-diff-same { color: var(--muted); }
+.prompt-diff-added { background: rgba(34, 197, 94, 0.10); color: #bbf7d0; }
+.prompt-diff-removed { background: rgba(248, 113, 113, 0.10); color: #fecaca; }
+.queue-table-stack { display: grid; gap: 0.75rem; }
+.queue-bulk-toolbar { align-items: center; background: #f8fafc; border: 1px solid var(--border); border-radius: 1rem; display: flex; flex-wrap: wrap; gap: 0.65rem; padding: 0.75rem; }
+.prompt-diff { background: #0f172a; border: 1px solid #334155; border-radius: 1rem; display: grid; max-height: 32rem; overflow: auto; padding: 0.4rem; }
+.prompt-diff-line { align-items: start; display: grid; gap: 0.55rem; grid-template-columns: 5.5rem minmax(0, 1fr); padding: 0.45rem 0.55rem; }
+.prompt-diff-line code { color: #e2e8f0; white-space: pre-wrap; word-break: break-word; }
+.prompt-diff-added { background: rgba(34, 197, 94, 0.14); }
+.prompt-diff-removed { background: rgba(239, 68, 68, 0.14); }
+.prompt-diff-same { opacity: 0.78; }

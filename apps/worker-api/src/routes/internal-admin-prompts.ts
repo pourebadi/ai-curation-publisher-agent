@@ -7,7 +7,7 @@ import type { Env } from "../types";
 
 type PromptProfileBody = Partial<UpsertPromptProfileInput> & Record<string, unknown>;
 type PromptBindingBody = Partial<UpsertPromptBindingInput> & Record<string, unknown>;
-type PromptPreviewBody = { systemPrompt?: unknown; userPromptTemplate?: unknown; values?: unknown };
+type PromptPreviewBody = { systemPrompt?: unknown; userPromptTemplate?: unknown; values?: unknown; promptProfileId?: unknown; promptVersion?: unknown; model?: unknown; provider?: unknown };
 
 export async function handleInternalAdminPrompts(request: Request, env: Env): Promise<Response> {
   const auth = verifyInternalRequest(request, env);
@@ -22,9 +22,10 @@ export async function handleInternalAdminPrompts(request: Request, env: Env): Pr
     try {
       const profiles = await repository.listProfiles(status);
       const bindings = await repository.listBindings();
-      return jsonResponse({ ok: true, promptStore: { available: true }, profiles, bindings, templateVariables: TEMPLATE_VARIABLES, defaultPrompt: DEFAULT_TELEGRAM_PROMPT });
+      const recentRuns = await repository.listRuns(readLimit(url.searchParams.get("runsLimit"), 25), url.searchParams.get("promptProfileId") ?? undefined);
+      return jsonResponse({ ok: true, promptStore: { available: true }, profiles, bindings, recentRuns, templateVariables: TEMPLATE_VARIABLES, defaultPrompt: DEFAULT_TELEGRAM_PROMPT });
     } catch {
-      return jsonResponse({ ok: true, promptStore: { available: false, warning: "Prompt Studio tables are missing or inaccessible. Apply D1 migrations before editing prompts." }, profiles: [], bindings: [], templateVariables: TEMPLATE_VARIABLES, defaultPrompt: DEFAULT_TELEGRAM_PROMPT });
+      return jsonResponse({ ok: true, promptStore: { available: false, warning: "Prompt Studio tables are missing or inaccessible. Apply D1 migrations before editing prompts." }, profiles: [], bindings: [], recentRuns: [], templateVariables: TEMPLATE_VARIABLES, defaultPrompt: DEFAULT_TELEGRAM_PROMPT });
     }
   }
 
@@ -45,6 +46,16 @@ export async function handleInternalAdminPrompts(request: Request, env: Env): Pr
     }
   }
 
+  if (path === "/internal/admin/prompts/runs" && request.method === "GET") {
+    try {
+      const profileId = url.searchParams.get("promptProfileId") ?? undefined;
+      const runs = await repository.listRuns(readLimit(url.searchParams.get("limit"), 50), profileId);
+      return jsonResponse({ ok: true, promptStore: { available: true }, runs });
+    } catch {
+      return jsonResponse({ ok: true, promptStore: { available: false, warning: "Prompt run history table is missing or inaccessible." }, runs: [] });
+    }
+  }
+
   if (path === "/internal/admin/prompts/bindings" && request.method === "POST") {
     const parsed = await parseJsonBody<PromptBindingBody>(request);
     if (!parsed.ok) return parsed.response;
@@ -59,6 +70,16 @@ export async function handleInternalAdminPrompts(request: Request, env: Env): Pr
     if (!parsed.ok) return parsed.response;
     const normalized = normalizePreviewBody(parsed.value);
     if (!normalized.ok) return badRequest(normalized.error, normalized.message, request);
+    try {
+      await repository.createRun({
+        promptProfileId: readString(parsed.value.promptProfileId) ?? "preview",
+        promptVersion: readString(parsed.value.promptVersion) ?? "preview",
+        model: readString(parsed.value.model) ?? "preview",
+        provider: readString(parsed.value.provider) ?? "dashboard",
+        renderedPromptHash: stableHash(`${normalized.preview.systemMessage}\n${normalized.preview.userMessage}`),
+        status: "previewed"
+      });
+    } catch {}
     return jsonResponse({ ok: true, preview: normalized.preview });
   }
 
@@ -109,6 +130,12 @@ const TEMPLATE_VARIABLES = [
   "hashtagPolicy",
   "sourceAttributionText"
 ];
+
+function readLimit(value: string | null, fallback: number): number {
+  if (value === null || value.trim().length === 0) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 100)) : fallback;
+}
 
 function normalizePromptProfileBody(body: PromptProfileBody, request: Request): { ok: true; profile: UpsertPromptProfileInput } | { ok: false; error: string; message: string } {
   const id = readString(body.id);
@@ -210,4 +237,12 @@ function readInteger(value: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stableHash(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
