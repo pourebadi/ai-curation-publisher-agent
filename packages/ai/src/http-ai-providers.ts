@@ -67,6 +67,47 @@ export class OpenAIChatCompletionsProvider implements AIProvider {
   }
 }
 
+
+const GEMINI_TELEGRAM_OUTPUT_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    headline: { type: "STRING" },
+    rewrittenPersianCaption: { type: "STRING" },
+    shortSummary: { type: "STRING" },
+    language: { type: "STRING" },
+    riskFlags: {
+      type: "ARRAY",
+      items: { type: "STRING" }
+    },
+    relevanceScore: { type: "NUMBER" },
+    suggestedHashtags: {
+      type: "ARRAY",
+      items: { type: "STRING" }
+    },
+    sourceAttributionText: { type: "STRING" }
+  },
+  required: [
+    "headline",
+    "rewrittenPersianCaption",
+    "shortSummary",
+    "language",
+    "riskFlags",
+    "relevanceScore",
+    "suggestedHashtags",
+    "sourceAttributionText"
+  ],
+  propertyOrdering: [
+    "headline",
+    "rewrittenPersianCaption",
+    "shortSummary",
+    "language",
+    "riskFlags",
+    "relevanceScore",
+    "suggestedHashtags",
+    "sourceAttributionText"
+  ]
+} as const;
+
 export class GeminiGenerateContentProvider implements AIProvider {
   readonly id = "gemini";
   private readonly apiKey: string | undefined;
@@ -101,7 +142,8 @@ export class GeminiGenerateContentProvider implements AIProvider {
           generationConfig: {
             temperature: request.temperature,
             maxOutputTokens: request.maxTokens,
-            responseMimeType: "application/json"
+            responseMimeType: "application/json",
+          responseSchema: GEMINI_TELEGRAM_OUTPUT_RESPONSE_SCHEMA
           }
         })
       });
