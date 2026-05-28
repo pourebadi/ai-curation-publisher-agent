@@ -38,7 +38,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
 
   const sourcePostId = createTopicSourcePostId(input.parsed);
   const canonicalUrl = input.parsed.urls[0] ?? `telegram://topic/${input.parsed.chatId}/${input.parsed.threadId ?? "none"}/${input.parsed.messageId}`;
-  const sourceAttributionText = `Source: ${canonicalUrl}`;
+  const sourceAttributionText = "";
   const externalResolution = await resolveExternalSourceText(input.env, input.parsed.urls);
   const post = createTopicNormalizedPost(input.parsed, sourcePostId, canonicalUrl, input.route, externalResolution);
 
@@ -248,10 +248,10 @@ function buildFallbackCaptionForFailedGeneration(input: {
       ? sourceText
       : "متن پست از لینک social قابل استخراج نبود.",
     "",
-    "این خروجی fallback است چون پاسخ AI با ساختار مورد انتظار سازگار نبود.",
-    `خطا: ${reason}`,
     "",
-    `منبع: ${input.canonicalUrl}`
+    "",
+    "",
+    ""
   ];
 
   return parts.join("\n").trim();

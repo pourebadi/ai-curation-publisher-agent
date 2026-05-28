@@ -34,7 +34,13 @@ export class AIOutputService {
       ...(input.templateValues === undefined ? {} : { templateValues: input.templateValues })
     }, input.prompt);
 
-    const providerResponse = await this.provider.generate({
+    let providerResponse: any;
+
+
+    try {
+
+
+      providerResponse = await generateWithRetry(() => this.provider.generate({
       promptId: renderedPrompt.promptId,
       promptVersion: renderedPrompt.promptVersion,
       target: renderedPrompt.target,
@@ -46,7 +52,61 @@ export class AIOutputService {
       temperature: renderedPrompt.temperature,
       maxTokens: renderedPrompt.maxTokens,
       outputSchemaRef: renderedPrompt.outputSchemaRef
-    });
+    }));
+
+
+    } catch (error) {
+
+
+      const message = error instanceof Error ? error.message : String(error);
+
+
+      const output = buildSafeTelegramOutputFallback(input, "", [message]);
+
+
+      return {
+
+
+        itemId: input.itemId,
+
+
+        target: "telegram",
+
+
+        promptId: renderedPrompt.promptId,
+
+
+        promptVersion: renderedPrompt.promptVersion,
+
+
+        model: "provider_unavailable",
+
+
+        output,
+
+
+        providerResponse: {
+
+
+          model: "provider_unavailable",
+
+
+          rawText: "",
+
+
+          finishReason: "error",
+
+
+          errorMessage: message
+
+
+        } as any
+
+
+      };
+
+
+    }
 
     const validation = providerResponse.output === undefined
       ? parseTelegramStructuredOutput(providerResponse.rawText)
@@ -72,9 +132,7 @@ export class AIOutputService {
 
 function buildSafeTelegramOutputFallback(input: GenerateTelegramOutputInput, rawText: string, errors: string[]): TelegramStructuredOutput {
   const language = normalizeTargetLanguage(input.templateValues?.language);
-  const providerUnavailable = errors.some((error) => isProviderUnavailableText(error))
-    || isProviderUnavailableText(rawText);
-
+  const providerUnavailable = errors.some((error) => isProviderUnavailableText(error)) || isProviderUnavailableText(rawText);
   const copy = buildLanguageAwareFallbackCopy(language, providerUnavailable);
 
   return {
@@ -95,12 +153,10 @@ function normalizeTargetLanguage(language: unknown): string {
 }
 
 function isProviderUnavailableText(value: string): boolean {
-  return /503|UNAVAILABLE|high demand|temporarily|overloaded|rate limit|rate-limited|timeout/i.test(value);
+  return /503|UNAVAILABLE|high demand|temporarily|temporary|overloaded|rate limit|rate-limited|timeout/i.test(value);
 }
 
 function buildLanguageAwareFallbackCopy(language: string, providerUnavailable: boolean): { headline: string; caption: string; summary: string } {
-  const retryReason = providerUnavailable ? "provider_unavailable" : "invalid_ai_output";
-
   const dictionary: Record<string, { headline: string; unavailable: string; invalid: string; summary: string }> = {
     fa: {
       headline: "نیازمند پردازش دوباره",
@@ -131,22 +187,32 @@ function buildLanguageAwareFallbackCopy(language: string, providerUnavailable: b
   const copy = dictionary[language] ?? dictionary.en!;
   return {
     headline: copy.headline,
-    caption: retryReason === "provider_unavailable" ? copy.unavailable : copy.invalid,
+    caption: providerUnavailable ? copy.unavailable : copy.invalid,
     summary: copy.summary
   };
 }
 
+async function generateWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+  const delaysMs = [0, 1000, 3000];
 
-function cleanFallbackCaption(value: string): string {
-  return value
-    .replace(/```[a-z]*|```/gi, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 1800) || "متن منبع قابل استخراج نبود.";
+  let lastError: unknown;
+  for (const delayMs of delaysMs) {
+    if (delayMs > 0) await sleep(delayMs);
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!isProviderUnavailableText(message)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function summarizeHeadline(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= 90) return trimmed;
-  return `${trimmed.slice(0, 89).trimEnd()}…`;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
