@@ -29,7 +29,7 @@ export function validateTelegramStructuredOutput(value: unknown): TelegramOutput
   requireString(output, "rewrittenPersianCaption", errors);
   requireString(output, "shortSummary", errors);
   requireString(output, "language", errors);
-  requireString(output, "sourceAttributionText", errors);
+  requireOptionalString(output, "sourceAttributionText", errors);
   requireStringArray(output, "riskFlags", errors);
   requireStringArray(output, "suggestedHashtags", errors);
 
@@ -142,6 +142,12 @@ function firstString(...values: unknown[]): string {
 function requireString(output: Record<string, unknown>, field: string, errors: string[]): void {
   if (typeof output[field] !== "string" || output[field].trim().length === 0) {
     errors.push(`${field} must be a non-empty string.`);
+  }
+}
+
+function requireOptionalString(output: Record<string, unknown>, field: string, errors: string[]): void {
+  if (typeof output[field] !== "string") {
+    errors.push(`${field} must be a string.`);
   }
 }
 
