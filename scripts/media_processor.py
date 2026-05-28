@@ -751,14 +751,22 @@ def transcode_video(path: Path, limit: int, reason: str) -> Path:
     policy = video_output_profile()
     base_crf = int(policy["crf"])
     max_side = int(policy["maxSide"])
+    max_fps = int(policy.get("maxFps", 30))
     attempts = [(base_crf, max_side), (base_crf + 2, min(max_side, 1600)), (base_crf + 4, min(max_side, 1280)), (base_crf + 6, min(max_side, 1080)), (base_crf + 8, min(max_side, 960)), (base_crf + 10, min(max_side, 854))]
     best = path
     for crf, max_side in attempts:
         target = WORK_DIR / f"prepared_{reason}_crf{crf}_{max_side}_{path.stem}.mp4"
-        vf = (
-            "scale='if(gt(iw,ih),min({max_side},iw),-2)':"
-            "'if(gt(iw,ih),-2,min({max_side},ih))',setsar=1,format=yuv420p"
-        ).format(max_side=max_side)
+        vf_parts = [
+            (
+                "scale='if(gt(iw,ih),min({max_side},iw),-2)':"
+                "'if(gt(iw,ih),-2,min({max_side},ih))'"
+            ).format(max_side=max_side),
+            "setsar=1"
+        ]
+        if reason == "telegram_safe":
+            vf_parts.append(f"fps={max_fps}")
+        vf_parts.append("format=yuv420p")
+        vf = ",".join(vf_parts)
         run([
             "ffmpeg", "-y", "-i", str(path),
             "-map", "0:v:0", "-map", "0:a?",
