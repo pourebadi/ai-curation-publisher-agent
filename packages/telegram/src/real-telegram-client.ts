@@ -73,7 +73,7 @@ export class RealTelegramClient implements TelegramClient {
 
   async sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage> {
     const media = input.media ?? [];
-    const mediaPreviewCaption = truncateTelegramCaption(input.mediaPreviewCaption?.trim() || input.text);
+    const mediaPreviewCaption = truncateTelegramCaption(sanitizeReviewCaptionForTelegram(input.mediaPreviewCaption?.trim() || input.text));
     let mediaPreviewSent = false;
     let mediaPreviewError: string | undefined;
 
@@ -265,6 +265,20 @@ export class RealTelegramClient implements TelegramClient {
 
     return payload.result as T;
   }
+}
+
+function sanitizeReviewCaptionForTelegram(value: string): string {
+  return value
+    .replace(/این خروجی fallback است چون پاسخ AI با ساختار مورد انتظار سازگار نبود\.?/g, "")
+    .replace(/خطا:\s*Gemini API request failed[^\n]*/gi, "")
+    .replace(/Gemini API request failed[^\n]*/gi, "")
+    .replace(/HTTP 503[^\n]*/gi, "")
+    .replace(/Invalid Telegram AI output:[^\n]*/gi, "")
+    .replace(/Output must be valid JSON\.?/gi, "")
+    .replace(/Source:\s*https?:\/\/\S+/gi, "")
+    .replace(/منبع:\s*https?:\/\/\S+/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function truncateTelegramCaption(value: string): string {
