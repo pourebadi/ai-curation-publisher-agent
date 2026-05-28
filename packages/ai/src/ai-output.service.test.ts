@@ -123,12 +123,15 @@ Thanks.`);
     expect(result.outputTokens).toBeGreaterThan(0);
   });
 
-  it("rejects invalid AI output", async () => {
+  it("repairs invalid AI output into a safe review fallback", async () => {
     const service = new AIOutputService(new InvalidOutputProvider());
 
-    await expect(service.generateTelegramOutput({
+    const result = await service.generateTelegramOutput({
       itemId: "item-local",
-      post: makePost()
-    })).rejects.toThrow("Invalid Telegram AI output");
+      post: makePost({ text: "Fallback source text" })
+    });
+
+    expect(result.output.rewrittenPersianCaption).toBe("Fallback source text");
+    expect(result.output.riskFlags).toContain("ai_json_repair");
   });
 });

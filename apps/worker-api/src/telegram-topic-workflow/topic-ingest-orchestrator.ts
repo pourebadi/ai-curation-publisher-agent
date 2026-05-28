@@ -157,9 +157,9 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         output: {
           language: routeOutput.language,
           caption: fallbackCaption,
-          summary: "AI output failed validation; fallback review caption was generated.",
+          summary: "Fallback caption was generated from source text for review.",
           hashtags: [],
-          riskFlags: ["generation_failed", "fallback_caption"],
+          riskFlags: ["ai_fallback", "needs_review"],
           sourceAttributionText
         },
         errorMessage: describeTopicOutputError(error)
@@ -178,8 +178,8 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
           sourceUrl: canonicalUrl,
           originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
           caption: signedFallbackCaption,
-          summary: "AI output failed validation; fallback review caption was generated.",
-          riskFlags: ["generation_failed", "fallback_caption"],
+          summary: "Fallback caption was generated from source text for review.",
+          riskFlags: ["ai_fallback", "needs_review"],
           status: generatedOutput.status,
           callbackToken: generatedOutput.id,
           scheduleSummary: createScheduleSummary(routeOutput),

@@ -283,14 +283,41 @@ export async function completeMediaProcessingJob(env: Env, body: CompleteMediaPr
     aspectSummary: summarizeAspectDrift(body.assets ?? [])
   });
 
-  const readiness = await maybeSendMediaReviewWhenTerminal(env, job.itemId, job.sourceUrl);
+  const reviewEvaluation = await safeMaybeSendMediaReviewWhenTerminal(env, jobsRepository, job.id, job.itemId, job.sourceUrl);
 
-  return { ok: true, jobId: job.id, status: "ready", storedAssetCount: assets.length, message: readiness?.pendingJobs === 0 ? "Media processing result stored and terminal item review evaluated." : "Media processing result stored. Waiting for other media jobs before review.", ...(readiness === undefined ? {} : { readiness: publicReadiness(readiness) }) };
+  return {
+    ok: true,
+    jobId: job.id,
+    status: "ready",
+    storedAssetCount: assets.length,
+    message: reviewEvaluation.warning === undefined
+      ? reviewEvaluation.readiness?.pendingJobs === 0
+        ? "Media processing result stored and terminal item review evaluated."
+        : "Media processing result stored. Waiting for other media jobs before review."
+      : "Media processing result stored, but review delivery needs attention.",
+    ...(reviewEvaluation.readiness === undefined ? {} : { readiness: publicReadiness(reviewEvaluation.readiness) }),
+    ...(reviewEvaluation.warning === undefined ? {} : { warning: reviewEvaluation.warning })
+  };
 }
 
 export async function evaluateMediaReadinessAndMaybeSendReview(env: Env, itemId: string, sourceUrl: string): Promise<Omit<ItemMediaReadiness, "jobs"> | undefined> {
   const readiness = await maybeSendMediaReviewWhenTerminal(env, itemId, sourceUrl);
   return readiness === undefined ? undefined : publicReadiness(readiness);
+}
+
+async function safeMaybeSendMediaReviewWhenTerminal(env: Env, jobsRepository: MediaProcessingJobsRepository, jobId: string, itemId: string, sourceUrl: string): Promise<{ readiness?: ItemMediaReadiness; warning?: string }> {
+  try {
+    const readiness = await maybeSendMediaReviewWhenTerminal(env, itemId, sourceUrl);
+    return readiness === undefined ? {} : { readiness };
+  } catch (error) {
+    const warning = `Media is ready, but review delivery failed: ${safeError(error instanceof Error ? error.message : "unknown review delivery error")}`;
+    const current = await jobsRepository.findById(jobId);
+    const warnings = Array.isArray(current?.output.warnings)
+      ? [...current.output.warnings.filter((entry): entry is string => typeof entry === "string"), warning]
+      : [warning];
+    await jobsRepository.markReady(jobId, { warnings, reviewDeliveryWarning: warning, reviewDeliveryWarningAt: new Date().toISOString() });
+    return { warning };
+  }
 }
 
 async function maybeSendMediaReviewWhenTerminal(env: Env, itemId: string, sourceUrl: string): Promise<ItemMediaReadiness | undefined> {

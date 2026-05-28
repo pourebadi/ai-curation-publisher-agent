@@ -52,9 +52,9 @@ export class AIOutputService {
       ? parseTelegramStructuredOutput(providerResponse.rawText)
       : validateTelegramStructuredOutput(providerResponse.output);
 
-    if (!validation.valid || validation.output === undefined) {
-      throw new Error(`Invalid Telegram AI output: ${validation.errors.join("; ")}`);
-    }
+    const output = validation.valid && validation.output !== undefined
+      ? validation.output
+      : buildSafeTelegramOutputFallback(input, providerResponse.rawText, validation.errors);
 
     return {
       itemId: input.itemId,
@@ -62,10 +62,39 @@ export class AIOutputService {
       promptId: renderedPrompt.promptId,
       promptVersion: renderedPrompt.promptVersion,
       model: providerResponse.model,
-      output: validation.output,
+      output,
       providerResponse,
       ...(providerResponse.inputTokens === undefined ? {} : { inputTokens: providerResponse.inputTokens }),
       ...(providerResponse.outputTokens === undefined ? {} : { outputTokens: providerResponse.outputTokens })
     };
   }
+}
+
+function buildSafeTelegramOutputFallback(input: GenerateTelegramOutputInput, rawText: string, errors: string[]): TelegramStructuredOutput {
+  const sourceText = input.post.text?.trim() || rawText.trim() || "متن منبع قابل استخراج نبود.";
+  const caption = cleanFallbackCaption(sourceText);
+  return {
+    headline: summarizeHeadline(caption),
+    rewrittenPersianCaption: caption,
+    shortSummary: summarizeHeadline(caption),
+    language: input.templateValues?.language ?? "fa",
+    riskFlags: ["ai_json_repair", ...(errors.length > 0 ? ["needs_review"] : [])],
+    relevanceScore: 0.3,
+    suggestedHashtags: [],
+    sourceAttributionText: ""
+  };
+}
+
+function cleanFallbackCaption(value: string): string {
+  return value
+    .replace(/```[a-z]*|```/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 1800) || "متن منبع قابل استخراج نبود.";
+}
+
+function summarizeHeadline(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= 90) return trimmed;
+  return `${trimmed.slice(0, 89).trimEnd()}…`;
 }
