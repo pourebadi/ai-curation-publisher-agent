@@ -100,7 +100,7 @@ def main() -> int:
                 )
                 if still_photo_path is not None:
                     prepared_path = still_photo_path
-                    prepared_type = "image"
+                    prepared_type = "photo"
                 else:
                     prepared_path = prepare_media_for_telegram(media_path, media_type)
                     prepared_type = classify_media(prepared_path)
