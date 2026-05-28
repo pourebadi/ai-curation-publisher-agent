@@ -4,7 +4,7 @@ import { buildTelegramOutputReviewDraft, MockTelegramClient, RealTelegramClient,
 import type { Env } from "../types";
 import { generateLocalizedTelegramOutput } from "./output-orchestrator";
 import { resolveExternalSourceText, type SourceContentResolution } from "./source-content-resolver";
-import { maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
+import { evaluateMediaReadinessAndMaybeSendReview, maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
 import { applyRouteOutputSignature } from "./channel-signature";
 
 export type TelegramTopicIngestInput = {
@@ -217,6 +217,10 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
     }
   }
 
+  if (input.parsed.media.length === 0 && mediaDispatch.createdJobs.length > 0) {
+    await evaluateMediaReadinessAndMaybeSendReview(input.env, item.id, canonicalUrl);
+  }
+
   await itemsRepository.updateStatus(item.id, "sent_to_review");
 
   return {
@@ -395,7 +399,7 @@ async function storeTelegramMediaMetadata(repository: MediaAssetsRepository, ite
     id: `telegram_media_${stableHash(`${itemId}:${entry.fileId}:${index}`)}`,
     itemId,
     kind: mediaKind(entry.kind),
-    status: "pending",
+    status: "ready",
     sourceUrl: `telegram://file/${entry.fileId}`,
     ...(entry.mimeType === undefined ? {} : { mimeType: entry.mimeType }),
     ...(entry.fileSize === undefined ? {} : { sizeBytes: entry.fileSize }),

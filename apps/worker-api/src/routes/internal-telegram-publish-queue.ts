@@ -3,6 +3,7 @@ import { getEffectiveEnv } from "../admin-config/service";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
 import { publishTelegramQueueItem } from "../telegram-topic-workflow/publish-runner";
+import { enrichQueueItemForDashboard } from "../telegram-topic-workflow/publish-inspector";
 import { badRequest, methodNotAllowed, parseJsonBody, serverError, unauthorized } from "./response";
 import type { Env } from "../types";
 
@@ -26,10 +27,12 @@ async function handleQueueList(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const limit = clampLimit(Number(url.searchParams.get("limit") ?? 25));
   const status = readQueueStatus(url.searchParams.get("status"));
-  const repository = new TelegramPublishQueueRepository(env.DB);
+  const effectiveEnv = await getEffectiveEnv(env);
+  const repository = new TelegramPublishQueueRepository(effectiveEnv.DB);
   const queue = await repository.listRecent(limit, status);
+  const enriched = await Promise.all(queue.map((item) => enrichQueueItemForDashboard(effectiveEnv, item)));
 
-  return jsonResponse({ ok: true, queue: queue.map(toSafeQueueItem) });
+  return jsonResponse({ ok: true, queue: enriched.map((item) => ({ ...item, lastError: redactError(String(item.lastError ?? "")) })) });
 }
 
 async function handleQueueAction(request: Request, env: Env): Promise<Response> {

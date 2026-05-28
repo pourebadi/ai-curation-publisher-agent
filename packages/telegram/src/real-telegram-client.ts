@@ -91,6 +91,7 @@ export class RealTelegramClient implements TelegramClient {
           media: media.map((entry, index) => ({
             type: telegramInputMediaType(entry),
             media: entry.fileId,
+            ...telegramInputMediaMetadata(entry),
             ...(index === 0 ? { caption: mediaPreviewCaption } : {})
           }))
         });
@@ -103,6 +104,7 @@ export class RealTelegramClient implements TelegramClient {
           chat_id: input.chatId,
           ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
           [mediaField]: firstMedia.fileId,
+          ...telegramSendMediaMetadata(firstMedia),
           caption: mediaPreviewCaption
         });
       }
@@ -158,6 +160,7 @@ export class RealTelegramClient implements TelegramClient {
         media: media.map((entry, index) => ({
           type: telegramInputMediaType(entry),
           media: entry.fileId,
+          ...telegramInputMediaMetadata(entry),
           ...(index === 0 ? { caption: input.text } : {})
         }))
       });
@@ -175,6 +178,7 @@ export class RealTelegramClient implements TelegramClient {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
       [mediaField]: firstMedia.fileId,
+      ...telegramSendMediaMetadata(firstMedia),
       caption: input.text
     });
 
@@ -278,6 +282,27 @@ function extractReviewPublishingField(reviewText: string, field: string): string
   const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = reviewText.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
   return match?.[1]?.trim();
+}
+
+
+function telegramInputMediaMetadata(media: ParsedTelegramMedia): Record<string, unknown> {
+  if (media.kind !== "video" && media.kind !== "animation") return {};
+  return {
+    supports_streaming: true,
+    ...(media.width === undefined ? {} : { width: media.width }),
+    ...(media.height === undefined ? {} : { height: media.height }),
+    ...(media.durationSeconds === undefined ? {} : { duration: Math.max(1, Math.round(media.durationSeconds)) })
+  };
+}
+
+function telegramSendMediaMetadata(media: ParsedTelegramMedia): Record<string, unknown> {
+  if (media.kind !== "video" && media.kind !== "animation") return {};
+  return {
+    supports_streaming: true,
+    ...(media.width === undefined ? {} : { width: media.width }),
+    ...(media.height === undefined ? {} : { height: media.height }),
+    ...(media.durationSeconds === undefined ? {} : { duration: Math.max(1, Math.round(media.durationSeconds)) })
+  };
 }
 
 function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "sendVideo" | "sendDocument" {

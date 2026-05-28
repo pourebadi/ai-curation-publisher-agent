@@ -26,10 +26,9 @@ export type GenerateLocalizedTelegramOutputResult = {
 export async function generateLocalizedTelegramOutput(input: GenerateLocalizedTelegramOutputInput): Promise<GenerateLocalizedTelegramOutputResult> {
   const aiProvider = normalizeAiProvider(input.env.AI_PROVIDER);
   if (aiProvider === "mock") {
-    return {
-      output: buildMockLocalizedTelegramOutput(input),
-      model: "mock"
-    };
+    const output = buildMockLocalizedTelegramOutput(input);
+    await recordPromptRun(input, { promptId: input.route.promptProfile || "mock", promptVersion: "mock", model: "mock" }, "mock", "mocked");
+    return { output, model: "mock" };
   }
 
   const model = input.env.AI_MODEL?.trim() || defaultModelForProvider(aiProvider);
@@ -46,29 +45,66 @@ export async function generateLocalizedTelegramOutput(input: GenerateLocalizedTe
   };
   const promptResolution = await resolveRuntimePrompt(input, promptContext);
   const service = new AIOutputService(createProvider(input.env, aiProvider, promptResolution.prompt.model));
-  const result = await service.generateTelegramOutput({
-    itemId: input.itemId,
-    post: input.post,
-    sourceAttributionText: input.sourceAttributionText,
-    prompt: promptResolution.prompt,
-    templateValues: promptResolution.templateValues
-  });
+  try {
+    const result = await service.generateTelegramOutput({
+      itemId: input.itemId,
+      post: input.post,
+      sourceAttributionText: input.sourceAttributionText,
+      prompt: promptResolution.prompt,
+      templateValues: promptResolution.templateValues
+    });
 
-  return {
-    output: {
-      language: input.routeOutput.language,
-      headline: result.output.headline,
-      caption: result.output.rewrittenPersianCaption,
-      summary: result.output.shortSummary,
-      hashtags: result.output.suggestedHashtags,
-      riskFlags: result.output.riskFlags,
-      relevanceScore: result.output.relevanceScore,
-      sourceAttributionText: result.output.sourceAttributionText || input.sourceAttributionText
-    },
-    model: result.model,
-    ...(result.inputTokens === undefined ? {} : { inputTokens: result.inputTokens }),
-    ...(result.outputTokens === undefined ? {} : { outputTokens: result.outputTokens })
-  };
+    await recordPromptRun(input, promptResolution.prompt, aiProvider, "succeeded", { ...(result.inputTokens === undefined ? {} : { inputTokens: result.inputTokens }), ...(result.outputTokens === undefined ? {} : { outputTokens: result.outputTokens }), model: result.model });
+
+    return {
+      output: {
+        language: input.routeOutput.language,
+        headline: result.output.headline,
+        caption: result.output.rewrittenPersianCaption,
+        summary: result.output.shortSummary,
+        hashtags: result.output.suggestedHashtags,
+        riskFlags: result.output.riskFlags,
+        relevanceScore: result.output.relevanceScore,
+        sourceAttributionText: result.output.sourceAttributionText || input.sourceAttributionText
+      },
+      model: result.model,
+      ...(result.inputTokens === undefined ? {} : { inputTokens: result.inputTokens }),
+      ...(result.outputTokens === undefined ? {} : { outputTokens: result.outputTokens })
+    };
+  } catch (error) {
+    await recordPromptRun(input, promptResolution.prompt, aiProvider, "failed", { errorMessage: describePromptRunError(error), model: promptResolution.prompt.model });
+    throw error;
+  }
+}
+
+async function recordPromptRun(input: GenerateLocalizedTelegramOutputInput, prompt: Pick<PromptDefinition, "promptId" | "promptVersion" | "model">, provider: string, status: string, details: { inputTokens?: number; outputTokens?: number; errorMessage?: string; model?: string } = {}): Promise<void> {
+  try {
+    const repository = new PromptProfilesRepository(input.env.DB);
+    await repository.createRun({
+      itemId: input.itemId,
+      promptProfileId: prompt.promptId,
+      promptVersion: prompt.promptVersion,
+      provider,
+      model: details.model ?? prompt.model,
+      renderedPromptHash: stableHash(`${input.route.id}:${input.routeOutput.id}:${input.post.canonicalUrl}:${prompt.promptId}:${prompt.promptVersion}`),
+      ...(details.inputTokens === undefined ? {} : { inputTokens: details.inputTokens }),
+      ...(details.outputTokens === undefined ? {} : { outputTokens: details.outputTokens }),
+      status,
+      ...(details.errorMessage === undefined ? {} : { errorMessage: details.errorMessage })
+    });
+  } catch {
+    // Prompt run logging must never block ingestion or review.
+  }
+}
+
+function describePromptRunError(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : "Prompt execution failed.";
+}
+
+function stableHash(value: string): string {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 export function buildMockLocalizedTelegramOutput(input: BuildLocalizedTelegramOutputInput): TelegramLocalizedOutput {
@@ -117,7 +153,8 @@ function storedPromptToPromptDefinition(profile: PromptProfileRecord, fallback: 
     model: profile.modelHint ?? fallback.model,
     temperature: profile.temperature ?? fallback.temperature,
     maxTokens: profile.maxTokens ?? fallback.maxTokens,
-    outputSchemaRef: profile.outputSchemaRef || fallback.outputSchemaRef
+    outputSchemaRef: profile.outputSchemaRef || fallback.outputSchemaRef,
+    ...(profile.negativePrompt === undefined ? {} : { negativePrompt: profile.negativePrompt })
   };
 }
 

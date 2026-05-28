@@ -11,6 +11,7 @@ export type PromptDefinition = {
   temperature: number;
   maxTokens: number;
   outputSchemaRef: string;
+  negativePrompt?: string;
 };
 
 export type RenderPromptInput = {
@@ -61,7 +62,10 @@ export function renderTelegramPrompt(input: RenderPromptInput, prompt: PromptDef
 
   return {
     ...prompt,
-    systemMessage: prompt.systemPrompt,
+    systemMessage: prompt.negativePrompt && prompt.negativePrompt.trim().length > 0 ? `${prompt.systemPrompt}
+
+Negative instructions:
+${prompt.negativePrompt}` : prompt.systemPrompt,
     userMessage: renderTemplate(prompt.userPromptTemplate, values)
   };
 }

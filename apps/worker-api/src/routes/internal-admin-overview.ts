@@ -10,7 +10,7 @@ type AdminIssueSeverity = "error" | "warning" | "info";
 type AdminIssue = { severity: AdminIssueSeverity; area: string; code: string; message: string; action: string; routeId?: string; outputId?: string };
 type RouteWithOutputs = TelegramRouteRecord & { outputs: TelegramRouteOutputRecord[] };
 type MediaSettingsPatch = { updates?: SetAdminConfigInput[] } & Record<string, unknown>;
-type AdminMediaSettings = { mode: string; enabled: boolean; cacheChatId: string; cacheThreadId: string; stagingChatId: string; stagingThreadId: string; maxPhotoMb: number; maxFileMb: number; github: { enabled: boolean; repository: string; workflowId: string; ref: string; callbackUrl: string } };
+type AdminMediaSettings = { mode: string; enabled: boolean; cacheChatId: string; cacheThreadId: string; stagingChatId: string; stagingThreadId: string; maxPhotoMb: number; maxFileMb: number; maxAssets: number; reviewWaitMode: string; reviewAllowPartial: boolean; finalRequireReady: boolean; finalAllowTextFallback: boolean; aspectDriftThreshold: number; fallbackProviderConfigured: boolean; fallbackProviders: { enabled: boolean; xOrder: string; instagramOrder: string; galleryDlEnabled: boolean; instaloaderEnabled: boolean }; videoOutput: { profile: string; transcodePolicy: string; maxSide: number; crf: number; audioBitrate: string }; github: { enabled: boolean; repository: string; workflowId: string; ref: string; callbackUrl: string } };
 
 const MEDIA_SETTING_KEYS = new Set([
   "MEDIA_PROCESSING_MODE",
@@ -24,7 +24,28 @@ const MEDIA_SETTING_KEYS = new Set([
   "TELEGRAM_MEDIA_CACHE_CHAT_ID",
   "TELEGRAM_MEDIA_CACHE_THREAD_ID",
   "TELEGRAM_MEDIA_MAX_PHOTO_MB",
-  "TELEGRAM_MEDIA_MAX_FILE_MB"
+  "TELEGRAM_MEDIA_MAX_FILE_MB",
+  "MEDIA_MAX_ASSETS",
+  "YTDLP_CONCURRENT_FRAGMENTS",
+  "MEDIA_FASTSTART_COPY",
+  "MEDIA_REVIEW_WAIT_MODE",
+  "MEDIA_REVIEW_ALLOW_PARTIAL",
+  "MEDIA_FINAL_REQUIRE_READY",
+  "MEDIA_FINAL_ALLOW_TEXT_FALLBACK",
+  "MEDIA_ASPECT_DRIFT_THRESHOLD",
+  "MEDIA_FALLBACK_PROVIDER_ENDPOINT",
+  "MEDIA_FALLBACK_ENABLED",
+  "MEDIA_FALLBACK_PROVIDER_ORDER_X",
+  "MEDIA_FALLBACK_PROVIDER_ORDER_INSTAGRAM",
+  "MEDIA_GALLERY_DL_ENABLED",
+  "MEDIA_GALLERY_DL_TIMEOUT_SECONDS",
+  "MEDIA_INSTALOADER_ENABLED",
+  "MEDIA_INSTALOADER_TIMEOUT_SECONDS",
+  "MEDIA_VIDEO_OUTPUT_PROFILE",
+  "MEDIA_VIDEO_TRANSCODE_POLICY",
+  "MEDIA_MAX_VIDEO_SIDE",
+  "MEDIA_VIDEO_CRF",
+  "MEDIA_VIDEO_AUDIO_BITRATE"
 ]);
 
 export async function handleInternalAdminOverview(request: Request, env: Env): Promise<Response> {
@@ -91,6 +112,7 @@ async function buildAdminSummary(env: Env): Promise<Record<string, unknown>> {
     generatedAt: new Date().toISOString(),
     service: config.serviceName,
     environment: config.environment,
+    environmentDetails: readEnvironmentDetails(effectiveEnv, config.serviceName),
     operatingMode: config.operatingMode,
     mockMode: config.mockMode,
     readiness: buildReadiness(validation.issues),
@@ -107,6 +129,9 @@ async function buildAdminSummary(env: Env): Promise<Record<string, unknown>> {
       finalPublishingEnabled: effectiveEnv.TELEGRAM_FINAL_PUBLISH_ENABLED === "true",
       publishSchedulerEnabled: effectiveEnv.TELEGRAM_PUBLISH_SCHEDULER_ENABLED === "true",
       dueLimit: readInteger(effectiveEnv.TELEGRAM_PUBLISH_DUE_LIMIT, 5),
+      dryRun: effectiveEnv.SCHEDULER_DRY_RUN === "true",
+      maxPublishItemsPerRun: readInteger(effectiveEnv.MAX_PUBLISH_ITEMS_PER_RUN, 0),
+      workerCron: "*/30 * * * *",
       queueCounts: publishQueueCounts,
       recentQueue: publishQueue
     },
@@ -118,6 +143,7 @@ async function buildAdminSummary(env: Env): Promise<Record<string, unknown>> {
       statusCounts: generatedOutputCounts
     },
     secrets: readConfiguredSecrets(effectiveEnv),
+    secretSources: readSecretSources(env, effectiveEnv),
     prompts: promptSummary,
     issues: validation.issues.slice(0, 20)
   };
@@ -218,6 +244,7 @@ async function buildConfigExport(env: Env): Promise<Record<string, unknown>> {
       dueLimit: effectiveEnv.TELEGRAM_PUBLISH_DUE_LIMIT ?? "5"
     },
     secrets: readConfiguredSecrets(effectiveEnv),
+    secretSources: readSecretSources(env, effectiveEnv),
     prompts: promptSummary,
     validation
   };
@@ -291,6 +318,27 @@ function readMediaSettings(env: Env): AdminMediaSettings {
     stagingThreadId: env.TELEGRAM_MEDIA_STAGING_THREAD_ID ?? "",
     maxPhotoMb: readInteger(env.TELEGRAM_MEDIA_MAX_PHOTO_MB, 9),
     maxFileMb: readInteger(env.TELEGRAM_MEDIA_MAX_FILE_MB, 49),
+    maxAssets: readInteger(env.TELEGRAM_MEDIA_MAX_ASSETS ?? env.MEDIA_MAX_ASSETS, 10),
+    reviewWaitMode: env.MEDIA_REVIEW_WAIT_MODE ?? "all_terminal",
+    reviewAllowPartial: env.MEDIA_REVIEW_ALLOW_PARTIAL === "true",
+    finalRequireReady: env.MEDIA_FINAL_REQUIRE_READY !== "false",
+    finalAllowTextFallback: env.MEDIA_FINAL_ALLOW_TEXT_FALLBACK === "true",
+    aspectDriftThreshold: readNumber(env.MEDIA_ASPECT_DRIFT_THRESHOLD, 0.02),
+    fallbackProviderConfigured: Boolean(env.MEDIA_FALLBACK_PROVIDER_ENDPOINT?.trim()),
+    fallbackProviders: {
+      enabled: env.MEDIA_FALLBACK_ENABLED !== "false",
+      xOrder: env.MEDIA_FALLBACK_PROVIDER_ORDER_X ?? "direct,gallery_dl,yt_dlp,external",
+      instagramOrder: env.MEDIA_FALLBACK_PROVIDER_ORDER_INSTAGRAM ?? "direct,gallery_dl,instaloader,yt_dlp,external",
+      galleryDlEnabled: env.MEDIA_GALLERY_DL_ENABLED !== "false",
+      instaloaderEnabled: env.MEDIA_INSTALOADER_ENABLED !== "false"
+    },
+    videoOutput: {
+      profile: env.MEDIA_VIDEO_OUTPUT_PROFILE ?? "telegram_review_optimized",
+      transcodePolicy: env.MEDIA_VIDEO_TRANSCODE_POLICY ?? "copy_if_possible",
+      maxSide: readInteger(env.MEDIA_MAX_VIDEO_SIDE, 1920),
+      crf: readInteger(env.MEDIA_VIDEO_CRF, 23),
+      audioBitrate: env.MEDIA_VIDEO_AUDIO_BITRATE ?? "128k"
+    },
     github: {
       enabled: env.GITHUB_MEDIA_PROCESSOR_ENABLED === "true" || env.GITHUB_MEDIA_WORKFLOW_ENABLED === "true",
       repository: env.GITHUB_MEDIA_PROCESSOR_REPOSITORY ?? env.GITHUB_MEDIA_REPO ?? "",
@@ -357,6 +405,55 @@ async function safePromptSummary(env: Env): Promise<{ profiles: number; activePr
   }
 }
 
+function readEnvironmentDetails(env: Env, serviceName: string): Record<string, unknown> {
+  const environment = env.ENVIRONMENT ?? "unknown";
+  const inferredDatabaseName = env.D1_DATABASE_NAME
+    ?? (environment === "staging" ? "curator_mvp_staging" : environment === "production" ? "curator_mvp" : "curator_mvp");
+  const databaseId = env.D1_DATABASE_ID;
+  return {
+    environment,
+    workerName: env.WORKER_NAME ?? serviceName,
+    publicBaseUrl: env.WORKER_PUBLIC_BASE_URL ?? "",
+    d1: {
+      binding: "DB",
+      databaseName: inferredDatabaseName,
+      databaseIdShort: databaseId === undefined ? "unknown" : `${databaseId.slice(0, 4)}...${databaseId.slice(-4)}`
+    },
+    safety: {
+      staging: environment === "staging",
+      production: environment === "production",
+      destructiveToolsEnabled: environment === "staging"
+    }
+  };
+}
+
+function readSecretSources(rawEnv: Env, effectiveEnv: Env): Record<string, string> {
+  const definitions: Array<{ label: string; keys: string[] }> = [
+    { label: "internalApiSecret", keys: ["INTERNAL_API_SECRET"] },
+    { label: "configEncryptionKey", keys: ["CONFIG_ENCRYPTION_KEY"] },
+    { label: "telegramBotToken", keys: ["TELEGRAM_BOT_TOKEN"] },
+    { label: "telegramWebhookSecret", keys: ["TELEGRAM_WEBHOOK_SECRET"] },
+    { label: "aiApiKey", keys: ["AI_API_KEY"] },
+    { label: "openaiApiKey", keys: ["OPENAI_API_KEY"] },
+    { label: "geminiApiKey", keys: ["GEMINI_API_KEY"] },
+    { label: "customAiApiKey", keys: ["CUSTOM_AI_API_KEY"] },
+    { label: "mediaProcessorToken", keys: ["MEDIA_PROCESSOR_GH_TOKEN", "GITHUB_MEDIA_PROCESSOR_TOKEN", "GITHUB_TOKEN"] },
+    { label: "wordpressApplicationPassword", keys: ["WORDPRESS_APPLICATION_PASSWORD"] },
+    { label: "firecrawlApiKey", keys: ["FIRECRAWL_API_KEY"] },
+    { label: "apifyToken", keys: ["APIFY_TOKEN"] },
+    { label: "getxapiKey", keys: ["GETXAPI_KEY"] }
+  ];
+  return Object.fromEntries(definitions.map((definition) => [definition.label, sourceForSecret(rawEnv, effectiveEnv, definition.keys)]));
+}
+
+function sourceForSecret(rawEnv: Env, effectiveEnv: Env, keys: string[]): string {
+  const rawHasValue = keys.some((key) => hasValue((rawEnv as unknown as Record<string, string | undefined>)[key]));
+  const effectiveHasValue = keys.some((key) => hasValue((effectiveEnv as unknown as Record<string, string | undefined>)[key]));
+  if (rawHasValue && effectiveHasValue) return "env_or_worker_secret";
+  if (effectiveHasValue) return "encrypted_d1_override";
+  return "missing";
+}
+
 function readConfiguredSecrets(env: Env): Record<string, boolean> {
   return {
     internalApiSecret: hasValue(env.INTERNAL_API_SECRET),
@@ -392,6 +489,11 @@ function hasConfiguredAiCredential(env: Env, provider: string): boolean {
   if (provider === "gemini") return hasValue(env.GEMINI_API_KEY);
   if (provider === "custom") return hasValue(env.CUSTOM_AI_API_KEY);
   return true;
+}
+
+function readNumber(value: string | undefined, fallback: number): number {
+  const parsed = value === undefined ? NaN : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function readInteger(value: string | undefined, fallback: number): number {

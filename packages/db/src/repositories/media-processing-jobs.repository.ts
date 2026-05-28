@@ -125,25 +125,27 @@ export class MediaProcessingJobsRepository {
       .run();
   }
 
-  async markProcessing(id: string): Promise<void> {
-    await this.updateStatus(id, "processing");
+  async markProcessing(id: string, output: Record<string, unknown> = {}): Promise<void> {
+    await this.db.prepare("UPDATE media_processing_jobs SET status = 'processing', output_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(JSON.stringify(await this.mergeOutput(id, output)), id)
+      .run();
   }
 
   async markReady(id: string, output: Record<string, unknown> = {}): Promise<void> {
     await this.db.prepare("UPDATE media_processing_jobs SET status = 'ready', output_json = ?, error_message = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .bind(JSON.stringify(output), id)
+      .bind(JSON.stringify(await this.mergeOutput(id, output)), id)
       .run();
   }
 
   async markFailed(id: string, errorMessage: string, output: Record<string, unknown> = {}): Promise<void> {
     await this.db.prepare("UPDATE media_processing_jobs SET status = 'failed', output_json = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .bind(JSON.stringify(output), errorMessage, id)
+      .bind(JSON.stringify(await this.mergeOutput(id, output)), errorMessage, id)
       .run();
   }
 
   async markSkipped(id: string, message: string, output: Record<string, unknown> = {}): Promise<void> {
     await this.db.prepare("UPDATE media_processing_jobs SET status = 'skipped', output_json = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-      .bind(JSON.stringify(output), message, id)
+      .bind(JSON.stringify(await this.mergeOutput(id, output)), message, id)
       .run();
   }
 
@@ -151,6 +153,11 @@ export class MediaProcessingJobsRepository {
     await this.db.prepare("UPDATE media_processing_jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .bind(status, id)
       .run();
+  }
+
+  private async mergeOutput(id: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const current = await this.findById(id);
+    return { ...(current?.output ?? {}), ...patch };
   }
 }
 

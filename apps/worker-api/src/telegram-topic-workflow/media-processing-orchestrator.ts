@@ -8,6 +8,7 @@ import {
   type CreateMediaAssetInput,
   type MediaAssetRecord,
   type MediaProcessingJobRecord,
+  type MediaProcessingJobStatus,
   type TelegramGeneratedOutputRecord,
   type TelegramRouteOutputRecord,
   type TelegramRouteRecord
@@ -46,8 +47,29 @@ type EnvWithMediaProcessing = Env & {
   TELEGRAM_MEDIA_STAGING_THREAD_ID?: string;
   TELEGRAM_MEDIA_MAX_PHOTO_MB?: string;
   TELEGRAM_MEDIA_MAX_FILE_MB?: string;
+  TELEGRAM_MEDIA_MAX_ASSETS?: string;
+  MEDIA_MAX_ASSETS?: string;
   MEDIA_PROCESSING_STRICT?: string;
   GITHUB_MEDIA_PROCESSOR_STRICT?: string;
+  MEDIA_REVIEW_WAIT_MODE?: string;
+  MEDIA_REVIEW_ALLOW_PARTIAL?: string;
+  MEDIA_FINAL_REQUIRE_READY?: string;
+  MEDIA_FINAL_ALLOW_TEXT_FALLBACK?: string;
+};
+
+export type CallbackTimingPayload = {
+  dispatchDelayMs?: number;
+  downloadMs?: number;
+  prepareMs?: number;
+  telegramUploadMs?: number;
+  callbackMs?: number;
+  totalMs?: number;
+  workflowStartedAt?: string;
+  downloadStartedAt?: string;
+  downloadFinishedAt?: string;
+  prepareFinishedAt?: string;
+  telegramUploadFinishedAt?: string;
+  callbackSentAt?: string;
 };
 
 export type CompleteMediaProcessingJobInput = {
@@ -56,6 +78,7 @@ export type CompleteMediaProcessingJobInput = {
   errorMessage?: string;
   assets?: Array<{
     id?: string;
+    index?: number;
     kind?: string;
     telegramFileId?: string;
     telegramFileUniqueId?: string;
@@ -70,8 +93,36 @@ export type CompleteMediaProcessingJobInput = {
     height?: number;
     durationSeconds?: number;
     thumbnailTelegramFileId?: string;
+    originalWidth?: number;
+    originalHeight?: number;
+    preparedWidth?: number;
+    preparedHeight?: number;
+    telegramWidth?: number;
+    telegramHeight?: number;
+    originalAspectRatio?: number;
+    preparedAspectRatio?: number;
+    telegramAspectRatio?: number;
+    aspectDrift?: number;
+    transcoded?: boolean;
+    remuxed?: boolean;
+    rotationApplied?: boolean;
+    warnings?: string[];
   }>;
+  timings?: CallbackTimingPayload;
   raw?: Record<string, unknown>;
+};
+
+type ItemMediaReadiness = {
+  itemId: string;
+  expectedJobs: number;
+  readyJobs: number;
+  failedJobs: number;
+  skippedJobs: number;
+  pendingJobs: number;
+  readyAssets: number;
+  status: "no_jobs" | "waiting" | "ready" | "ready_with_warnings" | "failed";
+  warnings: string[];
+  jobs: MediaProcessingJobRecord[];
 };
 
 export async function maybeDispatchExternalMediaProcessing(input: {
@@ -90,7 +141,7 @@ export async function maybeDispatchExternalMediaProcessing(input: {
     return { enabled: false, createdJobs, dispatchedJobs, warnings };
   }
 
-  const urls = mediaCandidateUrls(input.sourceUrls).slice(0, 3);
+  const urls = mediaCandidateUrls(input.sourceUrls).slice(0, mediaProcessingSourceLimit(env));
   if (urls.length === 0) {
     return { enabled: true, createdJobs, dispatchedJobs, warnings };
   }
@@ -163,12 +214,32 @@ export async function dispatchExistingMediaProcessingJob(env: Env, jobId: string
   }
 }
 
+export async function cancelExistingMediaProcessingJob(env: Env, jobId: string): Promise<{
+  ok: boolean;
+  jobId: string;
+  status: string;
+  message: string;
+}> {
+  const jobsRepository = new MediaProcessingJobsRepository(env.DB);
+  const job = await jobsRepository.findById(jobId);
+  if (!job) {
+    return { ok: false, jobId, status: "missing", message: "Media processing job was not found." };
+  }
+  if (job.status === "ready") {
+    return { ok: false, jobId, status: job.status, message: "Ready media jobs cannot be cancelled." };
+  }
+  await jobsRepository.markSkipped(job.id, "Cancelled by operator from dashboard.", { cancelledBy: "dashboard", cancelledAt: new Date().toISOString() });
+  await maybeSendMediaReviewWhenTerminal(env, job.itemId, job.sourceUrl);
+  return { ok: true, jobId: job.id, status: "skipped", message: "Media processing job cancelled locally. A remote GitHub run may still finish, but late callbacks will not create duplicate reviews." };
+}
+
 export async function completeMediaProcessingJob(env: Env, body: CompleteMediaProcessingJobInput): Promise<{
   ok: boolean;
   jobId: string;
   status: string;
   storedAssetCount: number;
   message: string;
+  readiness?: Omit<ItemMediaReadiness, "jobs">;
 }> {
   const jobsRepository = new MediaProcessingJobsRepository(env.DB);
   const mediaAssetsRepository = new MediaAssetsRepository(env.DB);
@@ -177,53 +248,109 @@ export async function completeMediaProcessingJob(env: Env, body: CompleteMediaPr
     return { ok: false, jobId: body.jobId, status: "missing", storedAssetCount: 0, message: "Media processing job was not found." };
   }
 
+  if (job.status === "skipped" && job.output.cancelledBy === "dashboard") {
+    return { ok: true, jobId: job.id, status: "skipped", storedAssetCount: 0, message: "Ignored late media callback for a dashboard-cancelled job." };
+  }
+
   if (body.status === "processing") {
-    await jobsRepository.markProcessing(job.id);
+    await jobsRepository.markProcessing(job.id, callbackOutputPatch(body));
     return { ok: true, jobId: job.id, status: "processing", storedAssetCount: 0, message: "Media processing is in progress." };
   }
 
   if (body.status !== "ready") {
     const message = safeError(body.errorMessage ?? `Media processing ${body.status}.`);
     if (body.status === "skipped") {
-      await jobsRepository.markSkipped(job.id, message, body.raw ?? {});
+      await jobsRepository.markSkipped(job.id, message, callbackOutputPatch(body));
     } else {
-      await jobsRepository.markFailed(job.id, message, body.raw ?? {});
+      await jobsRepository.markFailed(job.id, message, callbackOutputPatch(body));
     }
-    return { ok: body.status === "skipped", jobId: job.id, status: body.status, storedAssetCount: 0, message };
+    const readiness = await maybeSendMediaReviewWhenTerminal(env, job.itemId, job.sourceUrl);
+    return { ok: body.status === "skipped", jobId: job.id, status: body.status, storedAssetCount: 0, message, ...(readiness === undefined ? {} : { readiness: publicReadiness(readiness) }) };
   }
 
   const assets = normalizeCallbackAssets(job, body.assets ?? []);
   if (assets.length === 0) {
     const message = "Media processor returned no Telegram file IDs.";
-    await jobsRepository.markFailed(job.id, message, body.raw ?? {});
-    return { ok: false, jobId: job.id, status: "failed", storedAssetCount: 0, message };
+    await jobsRepository.markFailed(job.id, message, callbackOutputPatch(body));
+    const readiness = await maybeSendMediaReviewWhenTerminal(env, job.itemId, job.sourceUrl);
+    return { ok: false, jobId: job.id, status: "failed", storedAssetCount: 0, message, ...(readiness === undefined ? {} : { readiness: publicReadiness(readiness) }) };
   }
 
   await mediaAssetsRepository.createMany(assets);
-  await jobsRepository.markReady(job.id, { storedAssetCount: assets.length, ...(body.raw ?? {}) });
+  await jobsRepository.markReady(job.id, {
+    ...callbackOutputPatch(body),
+    storedAssetCount: assets.length,
+    aspectSummary: summarizeAspectDrift(body.assets ?? [])
+  });
 
-  await sendMediaReadyReview(env, job);
+  const readiness = await maybeSendMediaReviewWhenTerminal(env, job.itemId, job.sourceUrl);
 
-  return { ok: true, jobId: job.id, status: "ready", storedAssetCount: assets.length, message: "Media processing result stored and review sent." };
+  return { ok: true, jobId: job.id, status: "ready", storedAssetCount: assets.length, message: readiness?.pendingJobs === 0 ? "Media processing result stored and terminal item review evaluated." : "Media processing result stored. Waiting for other media jobs before review.", ...(readiness === undefined ? {} : { readiness: publicReadiness(readiness) }) };
 }
 
-async function sendMediaReadyReview(env: Env, job: MediaProcessingJobRecord): Promise<void> {
+export async function evaluateMediaReadinessAndMaybeSendReview(env: Env, itemId: string, sourceUrl: string): Promise<Omit<ItemMediaReadiness, "jobs"> | undefined> {
+  const readiness = await maybeSendMediaReviewWhenTerminal(env, itemId, sourceUrl);
+  return readiness === undefined ? undefined : publicReadiness(readiness);
+}
+
+async function maybeSendMediaReviewWhenTerminal(env: Env, itemId: string, sourceUrl: string): Promise<ItemMediaReadiness | undefined> {
+  const jobsRepository = new MediaProcessingJobsRepository(env.DB);
+  const jobs = await jobsRepository.listByItemId(itemId);
+  if (jobs.length === 0) return undefined;
+
+  const readiness = await buildItemMediaReadiness(env, itemId, jobs);
+  if (readiness.pendingJobs > 0 && mediaReviewWaitsForAllTerminal(env as EnvWithMediaProcessing)) {
+    return readiness;
+  }
+
+  await sendMediaReadyReview(env, itemId, sourceUrl, readiness);
+  return readiness;
+}
+
+async function buildItemMediaReadiness(env: Env, itemId: string, jobs: MediaProcessingJobRecord[]): Promise<ItemMediaReadiness> {
+  const mediaAssetsRepository = new MediaAssetsRepository(env.DB);
+  const assets = await mediaAssetsRepository.findByItemId(itemId);
+  const readyAssets = assets.filter((asset) => asset.status === "ready" && asset.telegramFileId !== undefined).length;
+  const readyJobs = jobs.filter((job) => job.status === "ready").length;
+  const failedJobs = jobs.filter((job) => job.status === "failed").length;
+  const skippedJobs = jobs.filter((job) => job.status === "skipped").length;
+  const pendingJobs = jobs.filter((job) => !isTerminalMediaJobStatus(job.status)).length;
+  const warnings = jobs.flatMap((job) => mediaJobWarnings(job));
+  const status = jobs.length === 0
+    ? "no_jobs"
+    : pendingJobs > 0
+      ? "waiting"
+      : readyAssets > 0 && failedJobs === 0
+        ? "ready"
+        : readyAssets > 0
+          ? "ready_with_warnings"
+          : "failed";
+  return { itemId, expectedJobs: jobs.length, readyJobs, failedJobs, skippedJobs, pendingJobs, readyAssets, status, warnings, jobs };
+}
+
+function isTerminalMediaJobStatus(status: MediaProcessingJobStatus): boolean {
+  return status === "ready" || status === "failed" || status === "skipped";
+}
+
+function mediaReviewWaitsForAllTerminal(env: EnvWithMediaProcessing): boolean {
+  return env.MEDIA_REVIEW_WAIT_MODE !== "partial_ready";
+}
+
+async function sendMediaReadyReview(env: Env, itemId: string, sourceUrl: string, readiness: ItemMediaReadiness): Promise<void> {
   const itemsRepository = new ItemsRepository(env.DB);
   const mediaAssetsRepository = new MediaAssetsRepository(env.DB);
   const generatedOutputsRepository = new TelegramGeneratedOutputsRepository(env.DB);
   const routesRepository = new TelegramRoutesRepository(env.DB);
   const reviewMessagesRepository = new TelegramReviewMessagesRepository(env.DB);
 
-  const item = await itemsRepository.findById(job.itemId);
+  const item = await itemsRepository.findById(itemId);
   if (!item) return;
 
-  const assets = (await mediaAssetsRepository.findByItemId(job.itemId))
+  const assets = (await mediaAssetsRepository.findByItemId(itemId))
     .filter((asset) => asset.status === "ready" && asset.telegramFileId !== undefined);
 
   const media = assetsToParsedTelegramMedia(assets);
-  if (media.length === 0) return;
-
-  const generatedOutputs = (await generatedOutputsRepository.listByItemId(job.itemId))
+  const generatedOutputs = (await generatedOutputsRepository.listByItemId(itemId))
     .filter((output) => output.status === "ready_for_review" && output.output.caption.trim().length > 0);
 
   if (generatedOutputs.length === 0) return;
@@ -233,6 +360,9 @@ async function sendMediaReadyReview(env: Env, job: MediaProcessingJobRecord): Pr
   });
 
   for (const generatedOutput of generatedOutputs) {
+    const existingReview = await reviewMessagesRepository.findByGeneratedOutputId(generatedOutput.id);
+    if (existingReview?.status === "sent") continue;
+
     const route = await routesRepository.findRouteById(generatedOutput.routeId);
     const routeOutput = await routesRepository.findOutputById(generatedOutput.routeOutputId);
     if (!route || !routeOutput || !routeOutput.enabled) continue;
@@ -243,9 +373,10 @@ async function sendMediaReadyReview(env: Env, job: MediaProcessingJobRecord): Pr
       generatedOutput,
       route,
       routeOutput,
-      sourceUrl: job.sourceUrl,
+      sourceUrl: item.canonicalUrl || sourceUrl,
       originalExcerpt: item.text ?? "",
-      media
+      media,
+      readiness
     });
   }
 }
@@ -259,9 +390,13 @@ async function sendOneMediaReview(input: {
   sourceUrl: string;
   originalExcerpt: string;
   media: ParsedTelegramMedia[];
+  readiness: ItemMediaReadiness;
 }): Promise<void> {
   const output = input.generatedOutput.output;
   const reviewCaption = applyRouteOutputSignature(output.caption, input.routeOutput);
+  const riskFlags = [...output.riskFlags];
+  if (input.readiness.status === "failed") riskFlags.push("media_failed", "text_fallback");
+  if (input.readiness.status === "ready_with_warnings") riskFlags.push("media_ready_with_warnings");
 
   const draft = buildTelegramOutputReviewDraft({
     generatedOutputId: input.generatedOutput.id,
@@ -272,12 +407,12 @@ async function sendOneMediaReview(input: {
     originalExcerpt: input.originalExcerpt,
     caption: reviewCaption,
     ...(output.summary === undefined ? {} : { summary: output.summary }),
-    riskFlags: output.riskFlags,
+    riskFlags,
     status: "ready_for_review",
     callbackToken: input.generatedOutput.id,
     scheduleSummary: createMediaReadyScheduleSummary(input.routeOutput),
-    mediaSummary: `${input.media.length} external media asset${input.media.length === 1 ? "" : "s"}`,
-    hasPreviewMedia: true,
+    mediaSummary: createMediaReadinessSummary(input.readiness, input.media),
+    hasPreviewMedia: input.media.length > 0,
     publishMode: input.routeOutput.publishMode,
     timezone: input.routeOutput.timezone,
     allowedPublishWindows: input.routeOutput.allowedPublishWindows,
@@ -290,7 +425,7 @@ async function sendOneMediaReview(input: {
     messageThreadId: input.routeOutput.reviewThreadId,
     text: draft.text,
     replyMarkup: draft.reply_markup,
-    media: input.media,
+    ...(input.media.length === 0 ? {} : { media: input.media }),
     mediaPreviewCaption: reviewCaption,
     sourceUrl: input.sourceUrl
   });
@@ -338,6 +473,17 @@ function createMediaReadyScheduleSummary(routeOutput: TelegramRouteOutputRecord)
   return `${routeOutput.publishMode}; ${routeOutput.timezone}; window ${routeOutput.allowedPublishWindows.length > 0 ? routeOutput.allowedPublishWindows.join(", ") : "anytime"}; gap ${routeOutput.minimumGapMinutes}m; max ${routeOutput.maxPostsPerHour}/hour, ${routeOutput.maxPostsPerDay}/day`;
 }
 
+function createMediaReadinessSummary(readiness: ItemMediaReadiness, media: ParsedTelegramMedia[]): string {
+  const parts = [
+    `status ${readiness.status}`,
+    `${media.length} ready asset${media.length === 1 ? "" : "s"}`,
+    `jobs ${readiness.readyJobs}/${readiness.expectedJobs} ready, ${readiness.failedJobs} failed, ${readiness.skippedJobs} skipped`
+  ];
+  if (readiness.warnings.length > 0) parts.push(`warnings: ${readiness.warnings.slice(0, 3).join("; ")}`);
+  if (readiness.status === "failed") parts.push("text-only fallback review sent because media processing reached a terminal failure state");
+  return parts.join(" | ");
+}
+
 const safeFetch: typeof fetch = (request, init) => fetch(request, init);
 
 function describeDispatchError(error: unknown): string {
@@ -359,7 +505,7 @@ async function dispatchGithubMediaWorkflow(input: { env: EnvWithMediaProcessing;
   const stagingThreadId = input.env.TELEGRAM_MEDIA_STAGING_THREAD_ID?.trim() || input.env.TELEGRAM_MEDIA_CACHE_THREAD_ID?.trim();
   const callbackBaseUrl = input.env.WORKER_PUBLIC_BASE_URL?.trim();
   const legacyCallback = input.env.GITHUB_MEDIA_PROCESSOR_CALLBACK_URL?.trim();
-  const normalizedLegacyCallback = legacyCallback?.replace(/\/internal\/media\/processed$/, "/internal/media/processing/callback");
+  const normalizedLegacyCallback = legacyCallback?.replace(/\/internal\/media\/processed$/, "/internal/media/processing/callback").replace(/\/internal\/media\/jobs\/complete$/, "/internal/media/processing/callback");
   const callbackUrl = normalizedLegacyCallback && normalizedLegacyCallback.includes("/internal/media/processing/callback")
     ? normalizedLegacyCallback
     : `${(callbackBaseUrl ?? normalizedLegacyCallback ?? "").replace(/\/$/, "")}/internal/media/processing/callback`;
@@ -387,6 +533,7 @@ async function dispatchGithubMediaWorkflow(input: { env: EnvWithMediaProcessing;
         ...(stagingThreadId === undefined ? {} : { telegram_staging_thread_id: stagingThreadId }),
         max_photo_mb: input.env.TELEGRAM_MEDIA_MAX_PHOTO_MB ?? "9",
         max_file_mb: input.env.TELEGRAM_MEDIA_MAX_FILE_MB ?? "49",
+        max_assets: input.env.TELEGRAM_MEDIA_MAX_ASSETS ?? input.env.MEDIA_MAX_ASSETS ?? "10",
         strict_missing_media: input.env.GITHUB_MEDIA_PROCESSOR_STRICT ?? input.env.MEDIA_PROCESSING_STRICT ?? "false"
       }
     })
@@ -418,6 +565,8 @@ function normalizeCallbackAssets(job: MediaProcessingJobRecord, assets: NonNulla
     if (!telegramFileId) return;
     const telegramFileType = normalizeTelegramFileType(asset.telegramFileType ?? asset.kind);
     const kind = telegramFileType === "photo" ? "image" : telegramFileType === "video" || telegramFileType === "animation" ? "video" : "link_preview";
+    const width = asset.telegramWidth ?? asset.preparedWidth ?? asset.width;
+    const height = asset.telegramHeight ?? asset.preparedHeight ?? asset.height;
     normalized.push({
       id: asset.id ?? (index === 0 && job.mediaAssetId ? job.mediaAssetId : `media_job_${stableHash(`${job.id}:${index}:${telegramFileId}`)}`),
       itemId: job.itemId,
@@ -427,12 +576,12 @@ function normalizeCallbackAssets(job: MediaProcessingJobRecord, assets: NonNulla
       canonicalUrl: job.sourceUrl,
       ...(asset.mimeType === undefined ? {} : { mimeType: asset.mimeType }),
       ...(asset.sizeBytes === undefined ? {} : { sizeBytes: asset.sizeBytes }),
-      ...(asset.width === undefined ? {} : { width: asset.width }),
-      ...(asset.height === undefined ? {} : { height: asset.height }),
+      ...(width === undefined ? {} : { width }),
+      ...(height === undefined ? {} : { height }),
       ...(asset.durationSeconds === undefined ? {} : { durationSeconds: asset.durationSeconds }),
       telegramFileId,
       ...(asset.telegramFileUniqueId === undefined ? {} : { telegramFileUniqueId: asset.telegramFileUniqueId }),
-      ...(asset.telegramMediaGroupId === undefined ? {} : { telegramMediaGroupId: asset.telegramMediaGroupId }),
+      ...(asset.telegramMediaGroupId === undefined && assets.length <= 1 ? {} : { telegramMediaGroupId: asset.telegramMediaGroupId ?? `media_group_${stableHash(`${job.id}:${job.itemId}`)}` }),
       telegramFileType,
       ...(asset.telegramMimeType === undefined ? {} : { telegramMimeType: asset.telegramMimeType }),
       ...(asset.telegramFileSize === undefined ? {} : { telegramFileSize: asset.telegramFileSize })
@@ -448,8 +597,94 @@ function normalizeTelegramFileType(value: string | undefined): "photo" | "video"
   return "document";
 }
 
+function callbackOutputPatch(body: CompleteMediaProcessingJobInput): Record<string, unknown> {
+  return {
+    ...(body.raw === undefined ? {} : body.raw),
+    ...(body.timings === undefined ? {} : { timings: body.timings }),
+    ...(body.assets === undefined ? {} : { assets: body.assets, assetCount: body.assets.length }),
+    ...(body.errorMessage === undefined ? {} : { errorMessage: safeError(body.errorMessage) })
+  };
+}
+
+function summarizeAspectDrift(assets: NonNullable<CompleteMediaProcessingJobInput["assets"]>): Record<string, unknown> {
+  const drifts = assets.map((asset) => asset.aspectDrift).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const maxDrift = drifts.length === 0 ? 0 : Math.max(...drifts.map((value) => Math.abs(value)));
+  return {
+    checked: drifts.length,
+    maxDrift,
+    status: maxDrift > 0.02 ? "warning" : "ok"
+  };
+}
+
+function mediaJobWarnings(job: MediaProcessingJobRecord): string[] {
+  const warnings: string[] = [];
+  const aspectSummary = asRecord(job.output.aspectSummary);
+  const aspectStatus = readString(aspectSummary.status);
+  if (aspectStatus === "warning") warnings.push(`aspect drift ${String(aspectSummary.maxDrift ?? "unknown")}`);
+  const rawWarnings = job.output.warnings;
+  if (Array.isArray(rawWarnings)) warnings.push(...rawWarnings.filter((entry): entry is string => typeof entry === "string"));
+  if (job.errorMessage) warnings.push(job.errorMessage);
+  return warnings;
+}
+
+function publicReadiness(readiness: ItemMediaReadiness): Omit<ItemMediaReadiness, "jobs"> {
+  const { jobs: _jobs, ...publicValue } = readiness;
+  return publicValue;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function mediaProcessingSourceLimit(env: EnvWithMediaProcessing): number {
+  const raw = env.TELEGRAM_MEDIA_MAX_ASSETS ?? env.MEDIA_MAX_ASSETS ?? "10";
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 10)) : 10;
+}
+
 function mediaCandidateUrls(urls: string[]): string[] {
   return uniqueHttpUrls(urls).filter((url) => isLikelyExternalMediaSource(url));
+}
+
+export function inspectMediaDebugUrl(sourceUrl: string): Record<string, unknown> {
+  const candidates = uniqueHttpUrls([sourceUrl, ...fallbackSocialUrlCandidates(sourceUrl)]);
+  const platform = detectMediaPlatform(sourceUrl);
+  const providerOrder = platform === "instagram"
+    ? ["direct", "gallery_dl", "instaloader", "yt_dlp", "external"]
+    : platform === "x"
+      ? ["direct", "gallery_dl", "yt_dlp", "external"]
+      : ["direct", "yt_dlp", "external"];
+  return {
+    sourceUrl,
+    supported: isLikelyExternalMediaSource(sourceUrl),
+    platform,
+    candidates,
+    directMedia: isDirectMediaUrl(sourceUrl),
+    providerOrder,
+    providerAttemptsPreview: providerOrder.map((provider) => ({ provider, status: provider === "direct" && !isDirectMediaUrl(sourceUrl) ? "no_direct_extension" : "not_run" })),
+    strategy: ["direct", "gallery_dl", "instaloader", "yt_dlp_progressive_mp4", "yt_dlp_split_merge", "optional_external_endpoint"],
+    qualityPolicy: { profile: "telegram_review_optimized", preserveAspectRatio: true, noCrop: true, noSquareConversion: true, maxSide: 1920 },
+    mediaGroupLimit: 10
+  };
+}
+
+function detectMediaPlatform(url: string): "x" | "instagram" | "tiktok" | "youtube" | "direct" | "other" {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (isDirectMediaUrl(url)) return "direct";
+    if (host === "x.com" || host === "twitter.com" || host.endsWith(".x.com") || host.endsWith(".twitter.com")) return "x";
+    if (host === "instagram.com" || host.endsWith(".instagram.com")) return "instagram";
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
+    if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return "youtube";
+    return "other";
+  } catch {
+    return "other";
+  }
 }
 
 function isLikelyExternalMediaSource(url: string): boolean {
@@ -471,6 +706,29 @@ function isLikelyExternalMediaSource(url: string): boolean {
       || host === "youtu.be";
   } catch {
     return false;
+  }
+}
+
+function isDirectMediaUrl(url: string): boolean {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    return /\.(jpg|jpeg|png|webp|gif|mp4|m4v|mov|webm)$/.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function fallbackSocialUrlCandidates(url: string): string[] {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "x.com" || host === "twitter.com") {
+      const path = `${parsed.pathname}${parsed.search}`;
+      return [`https://vxtwitter.com${path}`, `https://fxtwitter.com${path}`];
+    }
+    return [];
+  } catch {
+    return [];
   }
 }
 

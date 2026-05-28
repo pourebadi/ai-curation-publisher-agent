@@ -1,6 +1,6 @@
 import { MediaProcessingJobsRepository } from "@curator/db";
 import { jsonResponse } from "../http/json";
-import { completeMediaProcessingJob, dispatchExistingMediaProcessingJob, type CompleteMediaProcessingJobInput } from "../operations/media-processing";
+import { cancelExistingMediaProcessingJob, completeMediaProcessingJob, dispatchExistingMediaProcessingJob, inspectMediaDebugUrl, type CompleteMediaProcessingJobInput } from "../operations/media-processing";
 import { verifyInternalRequest } from "../security/internal-auth";
 import { badRequest, methodNotAllowed, parseJsonBody, serverError, unauthorized } from "./response";
 import type { Env } from "../types";
@@ -8,8 +8,10 @@ import type { Env } from "../types";
 export async function handleInternalMediaProcessing(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/internal/media/processing/callback") return handleCallback(request, env);
+  if (url.pathname === "/internal/media/processing/debug") return handleDebug(request, env);
   if (url.pathname === "/internal/media/processing/jobs") return handleJobs(request, env);
   if (url.pathname.startsWith("/internal/media/processing/jobs/") && url.pathname.endsWith("/dispatch")) return handleDispatchJob(request, env);
+  if (url.pathname.startsWith("/internal/media/processing/jobs/") && url.pathname.endsWith("/cancel")) return handleCancelJob(request, env);
   return methodNotAllowed(["GET", "POST"], request);
 }
 
@@ -50,6 +52,39 @@ async function handleDispatchJob(request: Request, env: Env): Promise<Response> 
   } catch (error) {
     return serverError("media_processing_dispatch_failed", error instanceof Error ? error.message : "Media processing dispatch failed.", request);
   }
+}
+
+async function handleCancelJob(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"], request);
+
+  const auth = verifyInternalRequest(request, env);
+  if (!auth.ok) return unauthorized(auth.error, "Internal API authorization failed.", request);
+
+  const url = new URL(request.url);
+  const match = url.pathname.match(/^\/internal\/media\/processing\/jobs\/([^/]+)\/cancel$/);
+  const jobId = match?.[1];
+
+  if (!jobId) {
+    return badRequest("missing_media_job_id", "Media processing job ID is required.", request);
+  }
+
+  try {
+    const result = await cancelExistingMediaProcessingJob(env, jobId);
+    return jsonResponse(result, { status: result.ok ? 200 : 400 });
+  } catch (error) {
+    return serverError("media_processing_cancel_failed", error instanceof Error ? error.message : "Media processing cancel failed.", request);
+  }
+}
+
+async function handleDebug(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return methodNotAllowed(["POST"], request);
+  const auth = verifyInternalRequest(request, env);
+  if (!auth.ok) return unauthorized(auth.error, "Internal API authorization failed.", request);
+  const parsed = await parseJsonBody<{ sourceUrl?: unknown }>(request);
+  if (!parsed.ok) return parsed.response;
+  const sourceUrl = typeof parsed.value.sourceUrl === "string" ? parsed.value.sourceUrl.trim() : "";
+  if (!/^https?:\/\//i.test(sourceUrl)) return badRequest("invalid_media_debug_url", "sourceUrl must be an http(s) URL.", request);
+  return jsonResponse({ ok: true, debug: inspectMediaDebugUrl(sourceUrl) });
 }
 
 async function handleJobs(request: Request, env: Env): Promise<Response> {

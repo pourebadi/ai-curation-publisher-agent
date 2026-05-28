@@ -162,6 +162,7 @@ function normalizePromptProfileBody(body: PromptProfileBody, request: Request): 
       ...(readInteger(body.maxTokens) === undefined ? {} : { maxTokens: readInteger(body.maxTokens)! }),
       ...(readString(body.riskPolicy) === undefined ? {} : { riskPolicy: readString(body.riskPolicy)! }),
       ...(readString(body.styleGuide) === undefined ? {} : { styleGuide: readString(body.styleGuide)! }),
+      ...(readString(body.negativePrompt) === undefined ? {} : { negativePrompt: readString(body.negativePrompt)! }),
       updatedBy: readAdminUser(request)
     }
   };
