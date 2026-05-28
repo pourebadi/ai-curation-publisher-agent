@@ -131,7 +131,9 @@ Thanks.`);
       post: makePost({ text: "Fallback source text" })
     });
 
-    expect(result.output.rewrittenPersianCaption).toBe("Fallback source text");
+    expect(result.output.rewrittenPersianCaption).toBe("تولید کپشن این پست کامل نشد. لطفاً این مورد را دوباره پردازش کنید یا خروجی AI را در داشبورد بررسی کنید.");
     expect(result.output.riskFlags).toContain("ai_json_repair");
+    expect(result.output.riskFlags).toContain("needs_retry");
+    expect(result.output.riskFlags).toContain("needs_review");
   });
 });
