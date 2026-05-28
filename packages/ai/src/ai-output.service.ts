@@ -114,7 +114,17 @@ export class AIOutputService {
 
     const output = validation.valid && validation.output !== undefined
       ? validation.output
-      : buildSafeTelegramOutputFallback(input, providerResponse.rawText, validation.errors);
+      : {
+          ...buildSafeTelegramOutputFallback(input, providerResponse.rawText, validation.errors),
+          riskFlags: ["ai_debug_raw_response", ...buildSafeTelegramOutputFallback(input, providerResponse.rawText, validation.errors).riskFlags],
+          sourceAttributionText: JSON.stringify({
+            debug: true,
+            validationErrors: validation.errors,
+            rawText: providerResponse.rawText.slice(0, 3000),
+            provider: providerResponse.provider,
+            model: providerResponse.model
+          })
+        };
 
     return {
       itemId: input.itemId,
