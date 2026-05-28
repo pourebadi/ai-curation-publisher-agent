@@ -20,6 +20,7 @@ export type PromptProfileRecord = {
   maxTokens?: number;
   riskPolicy?: string;
   styleGuide?: string;
+  negativePrompt?: string;
   createdAt: string;
   updatedAt: string;
   updatedBy?: string;
@@ -42,6 +43,7 @@ export type UpsertPromptProfileInput = {
   maxTokens?: number;
   riskPolicy?: string;
   styleGuide?: string;
+  negativePrompt?: string;
   updatedBy?: string;
 };
 
@@ -130,6 +132,7 @@ type PromptProfileRow = {
   max_tokens: number | null;
   risk_policy: string | null;
   style_guide: string | null;
+  negative_prompt: string | null;
   created_at: string;
   updated_at: string;
   updated_by: string | null;
@@ -185,9 +188,9 @@ export class PromptProfilesRepository {
     const now = new Date().toISOString();
     const normalized = normalizePromptProfileInput(input);
     await this.db.prepare(
-      `INSERT INTO prompt_profiles (id, name, category, language, content_type, output_target, version, status, system_prompt, user_prompt_template, output_schema_ref, model_hint, temperature, max_tokens, risk_policy, style_guide, created_at, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, category = excluded.category, language = excluded.language, content_type = excluded.content_type, output_target = excluded.output_target, version = excluded.version, status = excluded.status, system_prompt = excluded.system_prompt, user_prompt_template = excluded.user_prompt_template, output_schema_ref = excluded.output_schema_ref, model_hint = excluded.model_hint, temperature = excluded.temperature, max_tokens = excluded.max_tokens, risk_policy = excluded.risk_policy, style_guide = excluded.style_guide, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
+      `INSERT INTO prompt_profiles (id, name, category, language, content_type, output_target, version, status, system_prompt, user_prompt_template, output_schema_ref, model_hint, temperature, max_tokens, risk_policy, style_guide, negative_prompt, created_at, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, category = excluded.category, language = excluded.language, content_type = excluded.content_type, output_target = excluded.output_target, version = excluded.version, status = excluded.status, system_prompt = excluded.system_prompt, user_prompt_template = excluded.user_prompt_template, output_schema_ref = excluded.output_schema_ref, model_hint = excluded.model_hint, temperature = excluded.temperature, max_tokens = excluded.max_tokens, risk_policy = excluded.risk_policy, style_guide = excluded.style_guide, negative_prompt = excluded.negative_prompt, updated_at = excluded.updated_at, updated_by = excluded.updated_by`
     ).bind(
       normalized.id,
       normalized.name,
@@ -205,6 +208,7 @@ export class PromptProfilesRepository {
       normalized.maxTokens ?? null,
       normalized.riskPolicy ?? null,
       normalized.styleGuide ?? null,
+      normalized.negativePrompt ?? null,
       now,
       now,
       normalized.updatedBy ?? null
@@ -294,6 +298,60 @@ export class PromptProfilesRepository {
     return { ...normalized, createdAt: now, updatedAt: now };
   }
 
+  async enforceSinglePromptForOutput(input: {
+    routeId: string;
+    routeOutputId: string;
+    category: string;
+    language: string;
+    contentType?: string;
+    promptProfileId: string;
+    updatedBy?: string;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const contentType = input.contentType ?? "social_post";
+
+    await this.db.prepare(
+      `UPDATE prompt_bindings
+       SET enabled = 0, updated_at = ?, updated_by = ?
+       WHERE enabled = 1
+         AND content_type = ?
+         AND prompt_profile_id != ?
+         AND (
+           route_output_id = ?
+           OR (route_id = ? AND language = ?)
+           OR (category = ? AND language = ?)
+         )`
+    ).bind(
+      now,
+      input.updatedBy ?? null,
+      contentType,
+      input.promptProfileId,
+      input.routeOutputId,
+      input.routeId,
+      input.language,
+      input.category,
+      input.language
+    ).run();
+
+    await this.db.prepare(
+      `UPDATE prompt_profiles
+       SET status = 'archived', updated_at = ?, updated_by = ?
+       WHERE status != 'archived'
+         AND output_target = 'telegram'
+         AND content_type = ?
+         AND category = ?
+         AND language = ?
+         AND id != ?`
+    ).bind(
+      now,
+      input.updatedBy ?? null,
+      contentType,
+      input.category,
+      input.language,
+      input.promptProfileId
+    ).run();
+  }
+
   async resolvePrompt(input: PromptResolutionInput): Promise<PromptProfileRecord | null> {
     const contentType = input.contentType ?? "social_post";
     const rows = await this.db.prepare(
@@ -376,6 +434,7 @@ function normalizePromptProfileInput(input: UpsertPromptProfileInput): Omit<Prom
     ...(typeof input.maxTokens === "number" && Number.isFinite(input.maxTokens) ? { maxTokens: Math.floor(input.maxTokens) } : {}),
     ...(normalizeOptional(input.riskPolicy) === undefined ? {} : { riskPolicy: normalizeOptional(input.riskPolicy)! }),
     ...(normalizeOptional(input.styleGuide) === undefined ? {} : { styleGuide: normalizeOptional(input.styleGuide)! }),
+    ...(normalizeOptional(input.negativePrompt) === undefined ? {} : { negativePrompt: normalizeOptional(input.negativePrompt)! }),
     ...(normalizeOptional(input.updatedBy) === undefined ? {} : { updatedBy: normalizeOptional(input.updatedBy)! })
   };
 }
@@ -430,6 +489,7 @@ function toPromptProfileRecord(row: PromptProfileRow): PromptProfileRecord {
     ...(row.max_tokens === null ? {} : { maxTokens: row.max_tokens }),
     ...(row.risk_policy === null ? {} : { riskPolicy: row.risk_policy }),
     ...(row.style_guide === null ? {} : { styleGuide: row.style_guide }),
+    ...(row.negative_prompt === null ? {} : { negativePrompt: row.negative_prompt }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.updated_by === null ? {} : { updatedBy: row.updated_by })

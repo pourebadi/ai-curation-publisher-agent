@@ -49,7 +49,7 @@ def fail(message):
 def download(source_url, out_dir):
     output_template = str(out_dir / "source.%(ext)s")
     try:
-        result = run(["yt-dlp", "--no-playlist", "--max-filesize", "200M", "-o", output_template, source_url], check=False)
+        result = run(["yt-dlp", "--max-filesize", "200M", "--concurrent-fragments", env("YTDLP_CONCURRENT_FRAGMENTS", "8"), "--merge-output-format", "mp4", "-f", "best[ext=mp4][vcodec!=none]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best", "-o", output_template, source_url], check=False)
         if result.returncode == 0:
             files = [p for p in out_dir.iterdir() if p.is_file() and p.name.startswith("source.")]
             if files:
@@ -107,7 +107,7 @@ def compress_if_needed(path, kind, max_photo_mb, max_file_mb, out_dir):
         run(["ffmpeg", "-y", "-i", str(path), "-vf", "scale='min(1920,iw)':-2", "-q:v", "4", str(target)])
     elif kind == "video":
         target = out_dir / "prepared.mp4"
-        run(["ffmpeg", "-y", "-i", str(path), "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-b:v", "1300k", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(target)])
+        run(["ffmpeg", "-y", "-i", str(path), "-vf", "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))',setsar=1,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-b:v", "1300k", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(target)])
     else:
         return path
     if target.stat().st_size > limit:
@@ -117,7 +117,7 @@ def compress_if_needed(path, kind, max_photo_mb, max_file_mb, out_dir):
 
 def make_thumbnail(path, out_dir):
     target = out_dir / "thumbnail.jpg"
-    result = run(["ffmpeg", "-y", "-ss", "00:00:01", "-i", str(path), "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "5", str(target)], check=False)
+    result = run(["ffmpeg", "-y", "-ss", "00:00:01", "-i", str(path), "-frames:v", "1", "-vf", "scale='if(gt(iw,ih),min(640,iw),-2)':'if(gt(iw,ih),-2,min(640,ih))',setsar=1", "-q:v", "5", str(target)], check=False)
     return target if result.returncode == 0 and target.exists() and target.stat().st_size > 0 else None
 
 
@@ -136,6 +136,8 @@ def upload_to_telegram(path, kind, thumb=None):
     cmd = ["curl", "-sS", "-X", "POST", f"https://api.telegram.org/bot{token}/{method}", "-F", f"chat_id={chat_id}", "-F", f"{field}=@{path}"]
     if thread_id:
         cmd.extend(["-F", f"message_thread_id={thread_id}"])
+    if kind == "video":
+        cmd.extend(["-F", "supports_streaming=true"])
     if thumb and kind == "video":
         cmd.extend(["-F", f"thumbnail=@{thumb}"])
     cmd.extend(["-F", "caption=media cache upload for curator workflow"])

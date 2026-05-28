@@ -3,6 +3,7 @@ import { jsonResponse } from "../http/json";
 import { getEffectiveEnv } from "../admin-config/service";
 import { verifyInternalRequest } from "../security/internal-auth";
 import { publishTelegramQueueItem } from "../telegram-topic-workflow/publish-runner";
+import { buildPublishPreviewForQueueItem } from "../telegram-topic-workflow/publish-inspector";
 import { badRequest, methodNotAllowed, parseJsonBody, serverError, unauthorized } from "./response";
 import type { Env } from "../types";
 
@@ -56,6 +57,8 @@ export async function handleInternalTelegramPublishNow(request: Request, env: En
     );
   }
 
+  const preview = await buildPublishPreviewForQueueItem(effectiveEnv, queueItem);
+
   if ((effectiveEnv as EnvWithFinalPublish).TELEGRAM_FINAL_PUBLISH_ENABLED !== "true") {
     return jsonResponse({
       ok: true,
@@ -63,8 +66,13 @@ export async function handleInternalTelegramPublishNow(request: Request, env: En
       reason: "final_publishing_disabled",
       queueId: queueItem.id,
       generatedOutputId: queueItem.generatedOutputId,
-      status: queueItem.status
+      status: queueItem.status,
+      preview
     });
+  }
+
+  if (!preview.canPublishNow) {
+    return jsonResponse({ ok: false, outcome: "blocked", reason: "publish_preview_blocked", queueId: queueItem.id, generatedOutputId: queueItem.generatedOutputId, status: queueItem.status, preview }, { status: 409 });
   }
 
   try {
@@ -74,7 +82,8 @@ export async function handleInternalTelegramPublishNow(request: Request, env: En
         ...result,
         ok: result.ok,
         outcome: result.status,
-        manual: true
+        manual: true,
+        preview
       },
       { status: result.ok ? 200 : 500 }
     );

@@ -4,7 +4,7 @@ import { buildTelegramOutputReviewDraft, MockTelegramClient, RealTelegramClient,
 import type { Env } from "../types";
 import { generateLocalizedTelegramOutput } from "./output-orchestrator";
 import { resolveExternalSourceText, type SourceContentResolution } from "./source-content-resolver";
-import { maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
+import { evaluateMediaReadinessAndMaybeSendReview, maybeDispatchExternalMediaProcessing, type MediaProcessingDispatchResult } from "./media-processing-orchestrator";
 import { applyRouteOutputSignature } from "./channel-signature";
 
 export type TelegramTopicIngestInput = {
@@ -38,7 +38,7 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
 
   const sourcePostId = createTopicSourcePostId(input.parsed);
   const canonicalUrl = input.parsed.urls[0] ?? `telegram://topic/${input.parsed.chatId}/${input.parsed.threadId ?? "none"}/${input.parsed.messageId}`;
-  const sourceAttributionText = `Source: ${canonicalUrl}`;
+  const sourceAttributionText = "";
   const externalResolution = await resolveExternalSourceText(input.env, input.parsed.urls);
   const post = createTopicNormalizedPost(input.parsed, sourcePostId, canonicalUrl, input.route, externalResolution);
 
@@ -157,9 +157,9 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
         output: {
           language: routeOutput.language,
           caption: fallbackCaption,
-          summary: "AI output failed validation; fallback review caption was generated.",
+          summary: "Fallback caption was generated from source text for review.",
           hashtags: [],
-          riskFlags: ["generation_failed", "fallback_caption"],
+          riskFlags: ["ai_fallback", "needs_review"],
           sourceAttributionText
         },
         errorMessage: describeTopicOutputError(error)
@@ -178,8 +178,8 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
           sourceUrl: canonicalUrl,
           originalExcerpt: createOriginalExcerpt(input.parsed.text) ?? "",
           caption: signedFallbackCaption,
-          summary: "AI output failed validation; fallback review caption was generated.",
-          riskFlags: ["generation_failed", "fallback_caption"],
+          summary: "Fallback caption was generated from source text for review.",
+          riskFlags: ["ai_fallback", "needs_review"],
           status: generatedOutput.status,
           callbackToken: generatedOutput.id,
           scheduleSummary: createScheduleSummary(routeOutput),
@@ -217,6 +217,10 @@ export async function handleTelegramTopicIngest(input: TelegramTopicIngestInput)
     }
   }
 
+  if (input.parsed.media.length === 0 && mediaDispatch.createdJobs.length > 0) {
+    await evaluateMediaReadinessAndMaybeSendReview(input.env, item.id, canonicalUrl);
+  }
+
   await itemsRepository.updateStatus(item.id, "sent_to_review");
 
   return {
@@ -244,10 +248,10 @@ function buildFallbackCaptionForFailedGeneration(input: {
       ? sourceText
       : "متن پست از لینک social قابل استخراج نبود.",
     "",
-    "این خروجی fallback است چون پاسخ AI با ساختار مورد انتظار سازگار نبود.",
-    `خطا: ${reason}`,
     "",
-    `منبع: ${input.canonicalUrl}`
+    "",
+    "",
+    ""
   ];
 
   return parts.join("\n").trim();
@@ -395,7 +399,7 @@ async function storeTelegramMediaMetadata(repository: MediaAssetsRepository, ite
     id: `telegram_media_${stableHash(`${itemId}:${entry.fileId}:${index}`)}`,
     itemId,
     kind: mediaKind(entry.kind),
-    status: "pending",
+    status: "ready",
     sourceUrl: `telegram://file/${entry.fileId}`,
     ...(entry.mimeType === undefined ? {} : { mimeType: entry.mimeType }),
     ...(entry.fileSize === undefined ? {} : { sizeBytes: entry.fileSize }),

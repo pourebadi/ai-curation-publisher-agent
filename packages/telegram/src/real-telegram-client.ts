@@ -73,45 +73,58 @@ export class RealTelegramClient implements TelegramClient {
 
   async sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage> {
     const media = input.media ?? [];
-    const mediaPreviewCaption = input.mediaPreviewCaption?.trim() || input.text;
+    const mediaPreviewCaption = truncateTelegramCaption(sanitizeReviewCaptionForTelegram(input.mediaPreviewCaption?.trim() || input.text));
+    let mediaPreviewSent = false;
+    let mediaPreviewError: string | undefined;
 
     if (media.length > 0) {
-      const mediaValidation = validateTelegramPublishMedia(media);
-      if (!mediaValidation.ok) {
-        throw new TelegramClientError({
-          category: "invalid_media",
-          message: mediaValidation.errorMessage
-        });
-      }
+      try {
+        const mediaValidation = validateTelegramPublishMedia(media);
+        if (!mediaValidation.ok) {
+          throw new TelegramClientError({
+            category: "invalid_media",
+            message: mediaValidation.errorMessage
+          });
+        }
 
-      if (media.length > 1) {
-        await this.callTelegramApi<TelegramApiMessage[]>("sendMediaGroup", {
-          chat_id: input.chatId,
-          ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-          media: media.map((entry, index) => ({
-            type: telegramInputMediaType(entry),
-            media: entry.fileId,
-            ...(index === 0 ? { caption: mediaPreviewCaption } : {})
-          }))
-        });
-      } else {
-        const firstMedia = media[0]!;
-        const method = telegramMethodForMedia(firstMedia);
-        const mediaField = telegramMediaFieldForMedia(firstMedia);
+        if (media.length > 1) {
+          await this.callTelegramApi<TelegramApiMessage[]>("sendMediaGroup", {
+            chat_id: input.chatId,
+            ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+            media: media.map((entry, index) => ({
+              type: telegramInputMediaType(entry),
+              media: entry.fileId,
+              ...telegramInputMediaMetadata(entry),
+              ...(index === 0 ? { caption: mediaPreviewCaption } : {})
+            }))
+          });
+        } else {
+          const firstMedia = media[0]!;
+          const method = telegramMethodForMedia(firstMedia);
+          const mediaField = telegramMediaFieldForMedia(firstMedia);
 
-        await this.callTelegramApi<TelegramApiMessage>(method, {
-          chat_id: input.chatId,
-          ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-          [mediaField]: firstMedia.fileId,
-          caption: mediaPreviewCaption
-        });
+          await this.callTelegramApi<TelegramApiMessage>(method, {
+            chat_id: input.chatId,
+            ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
+            [mediaField]: firstMedia.fileId,
+            ...telegramSendMediaMetadata(firstMedia),
+            caption: mediaPreviewCaption
+          });
+        }
+
+        mediaPreviewSent = true;
+      } catch (error) {
+        mediaPreviewError = describeTelegramNetworkError(error);
       }
     }
 
     const result = await this.callTelegramApi<TelegramApiMessage>("sendMessage", {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
-      text: media.length > 0 ? buildReviewControlText(input.text, input.sourceUrl) : input.text,
+      text: media.length > 0 ? buildReviewControlText(input.text, input.sourceUrl, {
+        mediaPreviewSent,
+        ...(mediaPreviewError === undefined ? {} : { mediaPreviewError })
+      }) : input.text,
       reply_markup: input.replyMarkup,
       disable_web_page_preview: true
     });
@@ -158,6 +171,7 @@ export class RealTelegramClient implements TelegramClient {
         media: media.map((entry, index) => ({
           type: telegramInputMediaType(entry),
           media: entry.fileId,
+          ...telegramInputMediaMetadata(entry),
           ...(index === 0 ? { caption: input.text } : {})
         }))
       });
@@ -175,6 +189,7 @@ export class RealTelegramClient implements TelegramClient {
       chat_id: input.chatId,
       ...(input.messageThreadId === undefined ? {} : { message_thread_id: input.messageThreadId }),
       [mediaField]: firstMedia.fileId,
+      ...telegramSendMediaMetadata(firstMedia),
       caption: input.text
     });
 
@@ -252,13 +267,38 @@ export class RealTelegramClient implements TelegramClient {
   }
 }
 
-function buildReviewControlText(reviewText: string, _sourceUrl?: string): string {
+function sanitizeReviewCaptionForTelegram(value: string): string {
+  return value
+    .replace(/این خروجی fallback است چون پاسخ AI با ساختار مورد انتظار سازگار نبود\.?/g, "")
+    .replace(/خطا:\s*Gemini API request failed[^\n]*/gi, "")
+    .replace(/Gemini API request failed[^\n]*/gi, "")
+    .replace(/HTTP 503[^\n]*/gi, "")
+    .replace(/Invalid Telegram AI output:[^\n]*/gi, "")
+    .replace(/Output must be valid JSON\.?/gi, "")
+    .replace(/Source:\s*https?:\/\/\S+/gi, "")
+    .replace(/منبع:\s*https?:\/\/\S+/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function truncateTelegramCaption(value: string): string {
+  const maxLength = 1000;
+  const trimmed = value.trim();
+  return trimmed.length <= maxLength ? trimmed : `${trimmed.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function buildReviewControlText(reviewText: string, _sourceUrl?: string, mediaPreview?: { mediaPreviewSent: boolean; mediaPreviewError?: string }): string {
   const category = extractReviewField(reviewText, "Category") ?? "unknown";
   const language = extractReviewField(reviewText, "Language") ?? "unknown";
   const timezone = extractReviewPublishingField(reviewText, "Timezone") ?? "unknown";
   const minimumGap = extractReviewPublishingField(reviewText, "Minimum gap") ?? "unknown";
 
+  const mediaStatus = mediaPreview && !mediaPreview.mediaPreviewSent
+    ? [`⚠️ Media preview failed. Controls are still available.`, mediaPreview.mediaPreviewError ? `Reason: ${mediaPreview.mediaPreviewError}` : undefined, ""]
+    : [];
+
   return [
+    ...mediaStatus.filter((entry): entry is string => typeof entry === "string"),
     "🔴 Review controls",
     "",
     `Category: ${category}`,
@@ -278,6 +318,27 @@ function extractReviewPublishingField(reviewText: string, field: string): string
   const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = reviewText.match(new RegExp(`^${escaped}:\\s*(.+)$`, "m"));
   return match?.[1]?.trim();
+}
+
+
+function telegramInputMediaMetadata(media: ParsedTelegramMedia): Record<string, unknown> {
+  if (media.kind !== "video" && media.kind !== "animation") return {};
+  return {
+    supports_streaming: true,
+    ...(media.width === undefined ? {} : { width: media.width }),
+    ...(media.height === undefined ? {} : { height: media.height }),
+    ...(media.durationSeconds === undefined ? {} : { duration: Math.max(1, Math.round(media.durationSeconds)) })
+  };
+}
+
+function telegramSendMediaMetadata(media: ParsedTelegramMedia): Record<string, unknown> {
+  if (media.kind !== "video" && media.kind !== "animation") return {};
+  return {
+    supports_streaming: true,
+    ...(media.width === undefined ? {} : { width: media.width }),
+    ...(media.height === undefined ? {} : { height: media.height }),
+    ...(media.durationSeconds === undefined ? {} : { duration: Math.max(1, Math.round(media.durationSeconds)) })
+  };
 }
 
 function telegramMethodForMedia(media: ParsedTelegramMedia): "sendPhoto" | "sendVideo" | "sendDocument" {

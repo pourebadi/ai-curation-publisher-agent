@@ -8,7 +8,9 @@ export type TelegramPublishDueResult = {
   reason?: string;
   finalPublishingEnabled: boolean;
   dueCount: number;
+  checkedCount: number;
   publishedCount: number;
+  skippedCount: number;
   failedCount: number;
   results: TelegramQueuePublishResult[];
   startedAt: string;
@@ -30,7 +32,9 @@ export async function runTelegramPublishDueOperation(env: Env, options: { limit?
       reason: "final_publishing_disabled",
       finalPublishingEnabled,
       dueCount: 0,
+      checkedCount: 0,
       publishedCount: 0,
+      skippedCount: 0,
       failedCount: 0,
       results: [],
       startedAt,
@@ -65,7 +69,9 @@ export async function runTelegramPublishDueOperation(env: Env, options: { limit?
     skipped: false,
     finalPublishingEnabled,
     dueCount: due.length,
+    checkedCount: results.length,
     publishedCount: results.filter((result) => result.status === "published").length,
+    skippedCount: results.filter((result) => result.status === "skipped").length,
     failedCount: results.filter((result) => result.status === "failed").length,
     results,
     startedAt,

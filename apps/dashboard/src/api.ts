@@ -46,7 +46,14 @@ export class WorkerApiClient {
   async getAdminValidation(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/validate"); }
   async getAdminMetricsOverview(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/metrics/overview"); }
   async getAdminMetricsTimeseries(rangeDays = 30): Promise<ApiResult> { return this.getInternalJson(`/internal/admin/metrics/timeseries?rangeDays=${encodeURIComponent(String(rangeDays))}`); }
+  async getAdminAnalyticsOverview(rangeDays = 30, category = "all"): Promise<ApiResult> { return this.getInternalJson(`/internal/admin/analytics/overview?rangeDays=${encodeURIComponent(String(rangeDays))}&category=${encodeURIComponent(category)}`); }
   async getPromptStudio(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/prompts"); }
+  async getCategories(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/categories"); }
+  async previewCategory(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/categories/preview", input); }
+  async createCategory(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/categories/create", input); }
+  async addCategoryLanguage(category: string, input: JsonObject): Promise<ApiResult> { return this.postInternalJson(`/internal/admin/categories/${encodeURIComponent(category)}/add-language`, input); }
+  async getPromptMap(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/prompt-map"); }
+  async upsertPromptMap(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompt-map/upsert", input); }
   async savePromptProfile(profile: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts", profile); }
   async updatePromptProfile(profileId: string, profile: JsonObject): Promise<ApiResult> { return this.requestJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}`, { method: "PUT", body: JSON.stringify(profile), headers: this.internalHeaders() }); }
   async activatePromptProfile(profileId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/admin/prompts/${encodeURIComponent(profileId)}/activate`, {}); }
@@ -55,6 +62,10 @@ export class WorkerApiClient {
   async previewPrompt(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/prompts/preview", input); }
   async exportAdminConfig(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/config/export"); }
   async getAdminMediaSettings(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/media/settings"); }
+  async getTestDataCounts(): Promise<ApiResult> { return this.getInternalJson("/internal/admin/test-data/counts"); }
+  async resetTestData(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/test-data/reset", input); }
+  async searchDedupeHistory(sourceUrl: string): Promise<ApiResult> { return this.postInternalJson("/internal/admin/test-data/dedupe-search", { sourceUrl }); }
+  async getItemTimeline(input: { itemId?: string; generatedOutputId?: string; queueId?: string; sourceUrl?: string }): Promise<ApiResult> { const params = new URLSearchParams(); if (input.itemId) params.set("itemId", input.itemId); if (input.generatedOutputId) params.set("generatedOutputId", input.generatedOutputId); if (input.queueId) params.set("queueId", input.queueId); if (input.sourceUrl) params.set("sourceUrl", input.sourceUrl); return this.getInternalJson(`/internal/admin/timeline?${params.toString()}`); }
 
   async testAI(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/ai/test", input); }
   async testProvider(input: JsonObject): Promise<ApiResult> { return this.postInternalJson("/internal/admin/providers/test", input); }
@@ -77,6 +88,7 @@ export class WorkerApiClient {
   async publishTelegramNow(queueId: string): Promise<ApiResult> {
     return this.postInternalJson("/internal/telegram/publish/now", { queueId });
   }
+  async previewTelegramPublish(queueId: string): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/preview", { queueId }); }
 
   async getTelegramPublishQueue(limit = 25): Promise<ApiResult> { return this.getInternalJson(`/internal/telegram/publish/queue?limit=${encodeURIComponent(String(limit))}`); }
   async runTelegramPublishDue(limit = 5): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/due", { limit }); }
@@ -85,6 +97,9 @@ export class WorkerApiClient {
   async rescheduleTelegramPublishQueueItem(queueId: string, scheduledFor: string): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/queue", { action: "reschedule", queueId, scheduledFor }); }
   async bulkPublishTelegramNow(queueIds: string[]): Promise<ApiResult> { return this.postInternalJson("/internal/telegram/publish/queue", { action: "bulk_publish_now", queueIds }); }
   async getMediaJobs(limit = 25): Promise<ApiResult> { return this.getInternalJson(`/internal/media/jobs?limit=${encodeURIComponent(String(limit))}`); }
+  async debugMediaUrl(sourceUrl: string): Promise<ApiResult> { return this.postInternalJson("/internal/media/processing/debug", { sourceUrl }); }
+  async retryMediaJob(jobId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/media/processing/jobs/${encodeURIComponent(jobId)}/dispatch`, {}); }
+  async cancelMediaJob(jobId: string): Promise<ApiResult> { return this.postInternalJson(`/internal/media/processing/jobs/${encodeURIComponent(jobId)}/cancel`, {}); }
 
   async runInternalAuthProbe(): Promise<ApiResult> {
     const withoutSecret = await this.postJson("/internal/e2e/mock-pipeline", {}, false);

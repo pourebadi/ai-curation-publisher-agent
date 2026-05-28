@@ -1,4 +1,5 @@
 import { MediaAssetsRepository, MediaProcessingJobsRepository, type MediaAssetStatus, type UpdateTelegramMediaInput } from "@curator/db";
+import { completeMediaProcessingJob, type CompleteMediaProcessingJobInput } from "../operations/media-processing";
 import { jsonResponse } from "../http/json";
 import { verifyInternalRequest } from "../security/internal-auth";
 import { badRequest, methodNotAllowed, parseJsonBody, serverError, unauthorized } from "./response";
@@ -52,6 +53,8 @@ async function handleList(request: Request, env: Env): Promise<Response> {
     status: job.status,
     workflowRunId: job.workflowRunId,
     errorMessage: job.errorMessage,
+    output: job.output,
+    createdAt: job.createdAt,
     updatedAt: job.updatedAt
   })) });
 }
@@ -65,6 +68,23 @@ async function handleComplete(request: Request, env: Env): Promise<Response> {
   try {
     const body = parsed.value;
     const jobId = readString(body.jobId);
+    const callbackStatus = readString(body.status);
+    if (jobId && (Array.isArray(body.assets) || callbackStatus === "ready" || callbackStatus === "failed" || callbackStatus === "skipped" || callbackStatus === "processing")) {
+      const normalizedCallbackStatus: CompleteMediaProcessingJobInput["status"] = callbackStatus === "processing" || callbackStatus === "ready" || callbackStatus === "failed" || callbackStatus === "skipped"
+        ? callbackStatus
+        : normalizeStatus(body.status, body.telegramFileId, body.assets) === "ready" ? "ready" : "failed";
+      const callbackInput: CompleteMediaProcessingJobInput = {
+        jobId,
+        status: normalizedCallbackStatus,
+        raw: asRecord(body.result)
+      };
+      const callbackErrorMessage = readString(body.errorMessage);
+      if (callbackErrorMessage !== undefined) callbackInput.errorMessage = callbackErrorMessage;
+      if (Array.isArray(body.assets)) callbackInput.assets = body.assets as NonNullable<CompleteMediaProcessingJobInput["assets"]>;
+      const result = await completeMediaProcessingJob(env, callbackInput);
+      return jsonResponse(result, { status: result.ok ? 200 : 400 });
+    }
+
     const mediaAssetsRepository = new MediaAssetsRepository(env.DB);
     const jobsRepository = new MediaProcessingJobsRepository(env.DB);
     const job = jobId ? await jobsRepository.findById(jobId) : null;

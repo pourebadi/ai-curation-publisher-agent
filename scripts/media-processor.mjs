@@ -65,14 +65,14 @@ try {
 function downloadMedia(url) {
   const outTemplate = join(workDir, "media.%(id)s.%(ext)s");
   const args = [
-    "--no-playlist",
     "--no-warnings",
+    "--concurrent-fragments", process.env.YTDLP_CONCURRENT_FRAGMENTS || "8",
     "--newline",
     "--max-filesize", `${Math.floor(maxFileBytes / (1024 * 1024))}M`,
     "--write-thumbnail",
     "--convert-thumbnails", "jpg",
     "--merge-output-format", "mp4",
-    "-f", `bv*[ext=mp4][filesize<=${maxFileBytes}]+ba[ext=m4a]/b[ext=mp4][filesize<=${maxFileBytes}]/best[filesize<=${maxFileBytes}]/best`,
+    "-f", `best[ext=mp4][vcodec!=none][filesize<=${maxFileBytes}]/best[ext=mp4][vcodec!=none][filesize_approx<=${maxFileBytes}]/b[ext=mp4][filesize<=${maxFileBytes}]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best`,
     "-o", outTemplate,
     url
   ];
@@ -103,7 +103,7 @@ function ensureThumbnail(videoPath) {
   const thumbPath = videoPath.replace(/\.[^.]+$/, "-telegram-thumb.jpg");
   const qualities = [6, 10, 14, 18, 24, 30];
   for (const quality of qualities) {
-    const result = spawnSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-ss", "00:00:01", "-i", videoPath, "-frames:v", "1", "-vf", "scale=320:320:force_original_aspect_ratio=decrease", "-q:v", String(quality), thumbPath], { stdio: "inherit" });
+    const result = spawnSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-ss", "00:00:01", "-i", videoPath, "-frames:v", "1", "-vf", "scale='if(gt(iw,ih),min(640,iw),-2)':'if(gt(iw,ih),-2,min(640,ih))',setsar=1", "-q:v", String(quality), thumbPath], { stdio: "inherit" });
     if (result.status === 0 && existsSync(thumbPath) && statSync(thumbPath).size > 0 && statSync(thumbPath).size <= 200 * 1024) return thumbPath;
   }
   return undefined;
@@ -117,6 +117,7 @@ async function uploadToTelegram({ filePath, kind, thumbnailPath }) {
   if (stagingThreadId) form.append("message_thread_id", stagingThreadId);
   form.append("caption", `media staging upload for ${itemId}`);
   form.append(field, new Blob([readFileSync(filePath)], { type: mimeFor(filePath, kind) }), basename(filePath));
+  if (kind === "video") form.append("supports_streaming", "true");
   if (thumbnailPath && existsSync(thumbnailPath)) {
     form.append("thumbnail", new Blob([readFileSync(thumbnailPath)], { type: "image/jpeg" }), basename(thumbnailPath));
   }

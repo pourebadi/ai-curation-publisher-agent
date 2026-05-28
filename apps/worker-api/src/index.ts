@@ -5,6 +5,10 @@ import { handleInternalAdminConfig } from "./routes/internal-admin-config";
 import { handleInternalAdminOverview } from "./routes/internal-admin-overview";
 import { handleInternalAdminPrompts } from "./routes/internal-admin-prompts";
 import { handleInternalAdminTests } from "./routes/internal-admin-tests";
+import { handleInternalAdminAnalytics } from "./routes/internal-admin-analytics";
+import { handleInternalAdminCategories } from "./routes/internal-admin-categories";
+import { handleInternalAdminTimeline } from "./routes/internal-admin-timeline";
+import { handleInternalAdminTestData } from "./routes/internal-admin-test-data";
 import { handleInternalE2EMockPipeline } from "./routes/internal-e2e-mock";
 import { handleInternalFirecrawlSandbox } from "./routes/internal-firecrawl-sandbox";
 import { handleInternalMediaProcessed } from "./routes/internal-media-processed";
@@ -18,6 +22,7 @@ import { handleInternalTelegramOutputsRecent } from "./routes/internal-telegram-
 import { handleInternalTelegramPublishDue } from "./routes/internal-telegram-publish-due";
 import { handleInternalTelegramPublishRetry } from "./routes/internal-telegram-publish-retry";
 import { handleInternalTelegramPublishNow } from "./routes/internal-telegram-publish-now";
+import { handleInternalTelegramPublishPreview } from "./routes/internal-telegram-publish-preview";
 import { handleInternalTelegramPublishQueue } from "./routes/internal-telegram-publish-queue";
 import { handleInternalMediaProcessing } from "./routes/internal-media-processing";
 import { handleInternalTelegramTopicRoutes } from "./routes/internal-telegram-topic-routes";
@@ -74,6 +79,22 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return handleInternalAdminTests(request, env);
   }
 
+  if (url.pathname === "/internal/admin/timeline") {
+    return handleInternalAdminTimeline(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/analytics/overview") {
+    return handleInternalAdminAnalytics(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/categories" || url.pathname === "/internal/admin/categories/preview" || url.pathname === "/internal/admin/categories/create" || url.pathname.startsWith("/internal/admin/categories/") || url.pathname === "/internal/admin/prompt-map" || url.pathname === "/internal/admin/prompt-map/upsert") {
+    return handleInternalAdminCategories(request, env);
+  }
+
+  if (url.pathname === "/internal/admin/test-data/counts" || url.pathname === "/internal/admin/test-data/reset" || url.pathname === "/internal/admin/test-data/dedupe-search") {
+    return handleInternalAdminTestData(request, env);
+  }
+
   if (url.pathname === "/internal/poll") {
     return handleInternalPoll(request, env);
   }
@@ -116,6 +137,10 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/internal/telegram/publish/now") {
     return handleInternalTelegramPublishNow(request, env);
+  }
+
+  if (url.pathname === "/internal/telegram/publish/preview") {
+    return handleInternalTelegramPublishPreview(request, env);
   }
 
   if (url.pathname === "/internal/telegram/publish/queue") {
