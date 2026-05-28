@@ -269,6 +269,15 @@ async function createLanguageOutput(routesRepository: TelegramRoutesRepository, 
     prompt: language.prompt,
     ...(updatedBy === undefined ? {} : { updatedBy })
   }));
+  await promptsRepository.enforceSinglePromptForOutput({
+    routeId: route.id,
+    routeOutputId: output.id,
+    category: route.category,
+    language: language.language,
+    contentType: "social_post",
+    promptProfileId: profile.id,
+    ...(updatedBy === undefined ? {} : { updatedBy })
+  });
   const binding = await promptsRepository.upsertBinding(makePromptBindingInput({
     routeId: route.id,
     routeOutputId: output.id,
@@ -292,6 +301,15 @@ async function upsertPromptForOutput(promptsRepository: PromptProfilesRepository
     prompt: input.prompt,
     ...(updatedBy === undefined ? {} : { updatedBy })
   }));
+  await promptsRepository.enforceSinglePromptForOutput({
+    routeId: input.routeId,
+    routeOutputId: input.routeOutputId,
+    category: input.category,
+    language: input.language,
+    contentType: input.contentType,
+    promptProfileId: profile.id,
+    ...(updatedBy === undefined ? {} : { updatedBy })
+  });
   const binding = await promptsRepository.upsertBinding(makePromptBindingInput({
     routeId: input.routeId,
     routeOutputId: input.routeOutputId,
@@ -427,7 +445,9 @@ function buildTopicSuggestions(routes: TelegramRouteRecord[], outputs: TelegramR
 }
 
 function findBindingForOutput(output: TelegramRouteOutputRecord, bindings: PromptBindingRecord[]): PromptBindingRecord | undefined {
-  return bindings.find((binding) => binding.enabled && (binding.routeOutputId === output.id || (binding.routeId === output.routeId && binding.language === output.language)));
+  const exact = bindings.find((binding) => binding.enabled && binding.routeOutputId === output.id);
+  if (exact) return exact;
+  return bindings.find((binding) => binding.enabled && binding.routeId === output.routeId && binding.language === output.language);
 }
 
 function promptProfileIdFor(category: string, language: string): string {

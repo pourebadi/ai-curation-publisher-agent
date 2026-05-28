@@ -24,7 +24,7 @@ export function validateTelegramStructuredOutput(value: unknown): TelegramOutput
     return { valid: false, errors: ["Output must be an object."] };
   }
 
-  const output = value as Record<string, unknown>;
+  const output = normalizeTelegramOutputAliases(value as Record<string, unknown>);
   requireString(output, "headline", errors);
   requireString(output, "rewrittenPersianCaption", errors);
   requireString(output, "shortSummary", errors);
@@ -93,6 +93,50 @@ function extractFirstJsonObject(rawText: string): string | undefined {
   const end = rawText.lastIndexOf("}");
   if (start < 0 || end <= start) return undefined;
   return rawText.slice(start, end + 1);
+}
+
+function normalizeTelegramOutputAliases(output: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...output };
+
+  normalized.headline = firstString(
+    normalized.headline,
+    normalized.title,
+    normalized.heading
+  );
+
+  normalized.rewrittenPersianCaption = firstString(
+    normalized.rewrittenPersianCaption,
+    normalized.caption,
+    normalized.persianCaption,
+    normalized.finalCaption,
+    normalized.text
+  );
+
+  normalized.shortSummary = firstString(
+    normalized.shortSummary,
+    normalized.summary,
+    normalized.description,
+    normalized.headline
+  );
+
+  normalized.language = firstString(normalized.language, "fa");
+  normalized.sourceAttributionText = firstString(normalized.sourceAttributionText, "");
+
+  if (!Array.isArray(normalized.riskFlags)) normalized.riskFlags = [];
+  if (!Array.isArray(normalized.suggestedHashtags)) normalized.suggestedHashtags = [];
+
+  if (typeof normalized.relevanceScore !== "number" || Number.isNaN(normalized.relevanceScore)) {
+    normalized.relevanceScore = 0.5;
+  }
+
+  return normalized;
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return "";
 }
 
 function requireString(output: Record<string, unknown>, field: string, errors: string[]): void {

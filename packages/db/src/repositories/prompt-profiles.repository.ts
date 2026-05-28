@@ -298,6 +298,60 @@ export class PromptProfilesRepository {
     return { ...normalized, createdAt: now, updatedAt: now };
   }
 
+  async enforceSinglePromptForOutput(input: {
+    routeId: string;
+    routeOutputId: string;
+    category: string;
+    language: string;
+    contentType?: string;
+    promptProfileId: string;
+    updatedBy?: string;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const contentType = input.contentType ?? "social_post";
+
+    await this.db.prepare(
+      `UPDATE prompt_bindings
+       SET enabled = 0, updated_at = ?, updated_by = ?
+       WHERE enabled = 1
+         AND content_type = ?
+         AND prompt_profile_id != ?
+         AND (
+           route_output_id = ?
+           OR (route_id = ? AND language = ?)
+           OR (category = ? AND language = ?)
+         )`
+    ).bind(
+      now,
+      input.updatedBy ?? null,
+      contentType,
+      input.promptProfileId,
+      input.routeOutputId,
+      input.routeId,
+      input.language,
+      input.category,
+      input.language
+    ).run();
+
+    await this.db.prepare(
+      `UPDATE prompt_profiles
+       SET status = 'archived', updated_at = ?, updated_by = ?
+       WHERE status != 'archived'
+         AND output_target = 'telegram'
+         AND content_type = ?
+         AND category = ?
+         AND language = ?
+         AND id != ?`
+    ).bind(
+      now,
+      input.updatedBy ?? null,
+      contentType,
+      input.category,
+      input.language,
+      input.promptProfileId
+    ).run();
+  }
+
   async resolvePrompt(input: PromptResolutionInput): Promise<PromptProfileRecord | null> {
     const contentType = input.contentType ?? "social_post";
     const rows = await this.db.prepare(
