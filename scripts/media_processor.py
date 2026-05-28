@@ -89,10 +89,23 @@ def main() -> int:
             try:
                 media_type = classify_media(media_path)
                 original_metadata = probe_media(media_path)
+                original_media_type = media_type
                 prepare_started_at = time.perf_counter()
-                prepared_path = prepare_media_for_telegram(media_path, media_type)
+
+                still_photo_path = maybe_convert_still_video_to_photo(
+                    media_path,
+                    media_type,
+                    original_metadata,
+                    source_asset_count=len(media_paths)
+                )
+                if still_photo_path is not None:
+                    prepared_path = still_photo_path
+                    prepared_type = "image"
+                else:
+                    prepared_path = prepare_media_for_telegram(media_path, media_type)
+                    prepared_type = classify_media(prepared_path)
+
                 prepare_ms = elapsed_ms(prepare_started_at)
-                prepared_type = classify_media(prepared_path)
                 validate_size(prepared_path, prepared_type)
                 metadata = probe_media(prepared_path)
                 thumbnail_path = generate_thumbnail(prepared_path) if prepared_type == "video" else None
@@ -100,6 +113,10 @@ def main() -> int:
                 telegram_payload = upload_to_telegram(prepared_path, prepared_type, thumbnail_path, args.source_url, metadata)
                 upload_ms = elapsed_ms(upload_started_at)
                 telegram_payload.update(asset_diagnostics(media_path, prepared_path, original_metadata, metadata, telegram_payload, prepare_ms, upload_ms))
+                if original_media_type == "video" and prepared_type == "image":
+                    telegram_payload["convertedStillVideoToPhoto"] = True
+                    telegram_payload["originalDetectedKind"] = "video"
+                    telegram_payload["preparedKind"] = "photo"
                 if args.media_asset_id and index == 0:
                     telegram_payload["id"] = args.media_asset_id
                 if group_id is not None:
@@ -494,6 +511,67 @@ def download_with_ytdlp(source_url: str, cookie_file: Path | None) -> list[Path]
         if len(media_files) >= MAX_ASSETS:
             break
     return media_files
+
+
+
+
+def maybe_convert_still_video_to_photo(path: Path, media_type: str, metadata: dict[str, Any], source_asset_count: int) -> Path | None:
+    if media_type != "video":
+        return None
+    if shutil.which("ffmpeg") is None:
+        return None
+
+    duration = media_duration_seconds(metadata)
+    if duration is None or duration > float(os.getenv("MEDIA_STILL_VIDEO_MAX_DURATION_SECONDS", "1.5")):
+        return None
+
+    if has_audio_stream(metadata):
+        return None
+
+    size_bytes = path.stat().st_size if path.exists() else 0
+    max_still_video_bytes = int(os.getenv("MEDIA_STILL_VIDEO_MAX_BYTES", str(2 * 1024 * 1024)))
+
+    # Conservative guard:
+    # - multi-asset social posts often encode still images as 1s mp4/webm files
+    # - very small silent 1s videos are usually generated still wrappers
+    if source_asset_count <= 1 and size_bytes > max_still_video_bytes:
+        return None
+
+    target = WORK_DIR / f"still_{path.stem}.jpg"
+    completed = subprocess.run([
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        str(target)
+    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+
+    if completed.returncode != 0 or not target.exists() or target.stat().st_size <= 0:
+        return None
+
+    return target
+
+
+def media_duration_seconds(metadata: dict[str, Any]) -> float | None:
+    stream = video_stream(metadata)
+    for value in [stream.get("duration"), metadata.get("format", {}).get("duration") if isinstance(metadata.get("format"), dict) else None]:
+        try:
+            if value is not None:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def has_audio_stream(metadata: dict[str, Any]) -> bool:
+    streams = metadata.get("streams")
+    if not isinstance(streams, list):
+        return False
+    return any(isinstance(stream, dict) and stream.get("codec_type") == "audio" for stream in streams)
 
 
 def media_order_key(path: Path) -> tuple[int, int, str]:
