@@ -83,37 +83,61 @@ export class GeminiGenerateContentProvider implements AIProvider {
 
   async generate(request: AIProviderRequest): Promise<AIProviderResponse> {
     if (!this.apiKey) throw new Error("Gemini API key is not configured.");
-    const model = this.model || request.model;
+
+    const primaryModel = this.model || request.model;
+    const models = geminiModelCandidates(primaryModel);
     const system = request.messages.find((message) => message.role === "system")?.content ?? "";
     const user = request.messages.filter((message) => message.role === "user").map((message) => message.content).join("\n\n");
-    const response = await this.fetchImpl(`${this.baseUrl}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: {
-          temperature: request.temperature,
-          maxOutputTokens: request.maxTokens,
-          responseMimeType: "application/json"
+
+    let lastError: Error | undefined;
+
+    for (const model of models) {
+      const response = await this.fetchImpl(`${this.baseUrl}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: {
+            temperature: request.temperature,
+            maxOutputTokens: request.maxTokens,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      const payload = await response.json().catch(() => null) as (GeminiResponse & { error?: unknown }) | null;
+      if (!response.ok || payload === null) {
+        const error = new Error(describeAIHttpError("Gemini", response.status, payload));
+        if (isRetryableGeminiError(response.status, error.message) && model !== models[models.length - 1]) {
+          lastError = error;
+          continue;
         }
-      })
-    });
-    const payload = await response.json().catch(() => null) as (GeminiResponse & { error?: unknown }) | null;
-    if (!response.ok || payload === null) {
-      throw new Error(describeAIHttpError("Gemini", response.status, payload));
+        throw error;
+      }
+
+      const rawText = readString(payload.candidates?.[0]?.content?.parts?.[0]?.text);
+      if (!rawText) {
+        const error = new Error("Gemini API response did not include text content.");
+        if (model !== models[models.length - 1]) {
+          lastError = error;
+          continue;
+        }
+        throw error;
+      }
+
+      const inputTokens = readNumber(payload.usageMetadata?.promptTokenCount);
+      const outputTokens = readNumber(payload.usageMetadata?.candidatesTokenCount);
+      return {
+        provider: this.id,
+        model,
+        rawText,
+        ...(inputTokens === undefined ? {} : { inputTokens }),
+        ...(outputTokens === undefined ? {} : { outputTokens })
+      };
     }
-    const rawText = readString(payload.candidates?.[0]?.content?.parts?.[0]?.text);
-    if (!rawText) throw new Error("Gemini API response did not include text content.");
-    const inputTokens = readNumber(payload.usageMetadata?.promptTokenCount);
-    const outputTokens = readNumber(payload.usageMetadata?.candidatesTokenCount);
-    return {
-      provider: this.id,
-      model,
-      rawText,
-      ...(inputTokens === undefined ? {} : { inputTokens }),
-      ...(outputTokens === undefined ? {} : { outputTokens })
-    };
+
+    throw lastError ?? new Error("Gemini API request failed.");
   }
 }
 
@@ -129,6 +153,23 @@ export class CustomJsonAIProvider implements AIProvider {
     const response = await this.delegate.generate(request);
     return { ...response, provider: this.id };
   }
+}
+
+
+function geminiModelCandidates(primaryModel: string): string[] {
+  const normalized = primaryModel.trim();
+  const candidates = [normalized];
+
+  if (normalized === "gemini-2.5-flash") {
+    candidates.push("gemini-2.5-flash-lite");
+  }
+
+  return Array.from(new Set(candidates.filter((model) => model.length > 0)));
+}
+
+function isRetryableGeminiError(status: number, message: string): boolean {
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  return /UNAVAILABLE|high demand|temporarily|temporary|overloaded|rate limit|rate-limited|timeout/i.test(message);
 }
 
 function describeAIHttpError(provider: string, status: number, payload: unknown): string {
