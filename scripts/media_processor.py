@@ -595,8 +595,13 @@ def normalize_video_container(path: Path) -> Path:
     if shutil.which("ffmpeg") is None:
         return path
     metadata = probe_media(path)
+
+    if needs_video_reencode_for_telegram(metadata):
+        return transcode_video(path, media_limit_bytes("video"), reason="telegram_safe")
+
     if needs_video_reencode_for_display(metadata):
         return transcode_video(path, media_limit_bytes("video"), reason="display_aspect")
+
     if path.suffix.lower() == ".mp4" and os.getenv("MEDIA_FASTSTART_COPY", "true").lower() != "false":
         return remux_video_faststart(path)
     if path.suffix.lower() == ".mp4":
@@ -635,6 +640,49 @@ def video_stream(metadata: dict[str, Any]) -> dict[str, Any]:
         if isinstance(stream, dict) and stream.get("codec_type") == "video":
             return stream
     return {}
+
+
+def needs_video_reencode_for_telegram(metadata: dict[str, Any]) -> bool:
+    if os.getenv("MEDIA_FORCE_TELEGRAM_SAFE_VIDEO", "true").lower() == "false":
+        return False
+
+    stream = video_stream(metadata)
+    if not stream:
+        return False
+
+    codec = str(stream.get("codec_name") or "").lower()
+    pix_fmt = str(stream.get("pix_fmt") or "").lower()
+    profile = str(stream.get("profile") or "").lower()
+    fps = video_fps(stream)
+
+    # Telegram clients are most reliable with H.264 + yuv420p + sane FPS.
+    if codec not in {"h264", "avc1"}:
+        return True
+    if pix_fmt and pix_fmt not in {"yuv420p", "yuvj420p"}:
+        return True
+    if fps is not None and fps > float(os.getenv("MEDIA_VIDEO_MAX_FPS", "30")) + 0.5:
+        return True
+
+    # Avoid formats/profiles that commonly play as frozen thumbnail/audio-only in Telegram clients.
+    if any(marker in profile for marker in ["high 4:4:4", "high 4:2:2", "main 10", "high 10"]):
+        return True
+
+    return False
+
+
+def video_fps(stream: dict[str, Any]) -> float | None:
+    raw = stream.get("avg_frame_rate") or stream.get("r_frame_rate")
+    if not isinstance(raw, str) or "/" not in raw:
+        return None
+    left, right = raw.split("/", 1)
+    try:
+        numerator = float(left)
+        denominator = float(right)
+        if denominator <= 0:
+            return None
+        return numerator / denominator
+    except (TypeError, ValueError):
+        return None
 
 
 def needs_video_reencode_for_display(metadata: dict[str, Any]) -> bool:
@@ -804,6 +852,8 @@ def asset_diagnostics(original_path: Path, prepared_path: Path, original_metadat
     prepared_ratio = aspect_ratio(prepared_width, prepared_height)
     telegram_ratio = aspect_ratio(telegram_width, telegram_height)
     aspect_drift = ratio_drift(original_ratio, telegram_ratio or prepared_ratio)
+    original_video = video_stream(original_metadata)
+    prepared_video = video_stream(prepared_metadata)
     return {
         "originalWidth": original_width,
         "originalHeight": original_height,
@@ -815,6 +865,15 @@ def asset_diagnostics(original_path: Path, prepared_path: Path, original_metadat
         "preparedAspectRatio": prepared_ratio,
         "telegramAspectRatio": telegram_ratio,
         "aspectDrift": aspect_drift,
+        "originalVideoCodec": original_video.get("codec_name"),
+        "originalVideoProfile": original_video.get("profile"),
+        "originalPixelFormat": original_video.get("pix_fmt"),
+        "originalFrameRate": video_fps(original_video),
+        "preparedVideoCodec": prepared_video.get("codec_name"),
+        "preparedVideoProfile": prepared_video.get("profile"),
+        "preparedPixelFormat": prepared_video.get("pix_fmt"),
+        "preparedFrameRate": video_fps(prepared_video),
+        "telegramSafeVideoTranscodeRequired": needs_video_reencode_for_telegram(original_metadata),
         "transcoded": prepared_path.name.startswith("prepared_"),
         "remuxed": prepared_path.name.startswith("faststart_") or (prepared_path.suffix.lower() == ".mp4" and original_path.resolve() != prepared_path.resolve()),
         "rotationApplied": needs_video_reencode_for_display(original_metadata),
