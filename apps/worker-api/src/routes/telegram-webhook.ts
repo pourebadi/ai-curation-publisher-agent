@@ -6,6 +6,7 @@ import { getEffectiveEnv } from "../admin-config/service";
 import { handleTelegramOutputCallback } from "../telegram-topic-workflow/callback-orchestrator";
 import { resolveTelegramTopicRoute } from "../telegram-topic-workflow/route-resolver";
 import { handleTelegramTopicIngest } from "../telegram-topic-workflow/topic-ingest-orchestrator";
+import { handleTelegramReviewEditReply } from "../telegram-topic-workflow/review-edit-orchestrator";
 import type { Env } from "../types";
 
 export async function handleTelegramWebhook(request: Request, env: Env): Promise<Response> {
@@ -63,6 +64,21 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
   }
 
   if (parsed.kind === "manual_message") {
+    const editReplyResult = await handleTelegramReviewEditReply({
+      env: effectiveEnv,
+      parsed,
+      telegramClient: createCallbackAnswerClient(effectiveEnv)
+    });
+    if (editReplyResult !== null) {
+      return jsonResponse({
+        ok: editReplyResult.ok,
+        ...updateIdFields,
+        kind: editReplyResult.kind,
+        generatedOutputId: editReplyResult.generatedOutputId,
+        editReplyResult
+      });
+    }
+
     if (parsed.threadId !== undefined) {
       const resolution = await resolveTelegramTopicRoute(effectiveEnv, parsed);
       if (resolution.ok) {

@@ -2,6 +2,7 @@ import { MediaAssetsRepository, MediaProcessingJobsRepository, TelegramGenerated
 import { RealTelegramClient, redactTelegramApiError, validateTelegramPublishMedia, type ParsedTelegramMedia, type TelegramClient } from "@curator/telegram";
 import type { Env } from "../types";
 import { applyRouteOutputSignature } from "./channel-signature";
+import { refreshTelegramReviewMessageState } from "./review-message-state";
 
 export type TelegramQueuePublishResult = {
   ok: boolean;
@@ -15,7 +16,7 @@ export type TelegramQueuePublishResult = {
 export async function publishTelegramQueueItem(input: {
   env: Env;
   queueItem: TelegramPublishQueueRecord;
-  callbackClient?: TelegramClient;
+  callbackClient?: TelegramClient | undefined;
 }): Promise<TelegramQueuePublishResult> {
   const generatedOutputsRepository = new TelegramGeneratedOutputsRepository(input.env.DB);
   const publishQueueRepository = new TelegramPublishQueueRepository(input.env.DB);
@@ -33,12 +34,14 @@ export async function publishTelegramQueueItem(input: {
   if (!routeOutput) {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Route output is missing.");
     await publishQueueRepository.markFailed(input.queueItem.id, "Route output is missing.");
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message: "Route output is missing." };
   }
 
   if (!routeOutput.publishEnabled) {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Publishing is disabled for this route output.");
     await publishQueueRepository.markFailed(input.queueItem.id, "Publishing is disabled for this route output.");
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message: "Publishing is disabled for this route output." };
   }
 
@@ -46,12 +49,14 @@ export async function publishTelegramQueueItem(input: {
   if (!botToken) {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Telegram bot token is not configured.");
     await publishQueueRepository.markFailed(input.queueItem.id, "Telegram bot token is not configured.");
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message: "Telegram bot token is not configured." };
   }
 
   const mediaJobs = await mediaJobsRepository.listByItemId(generatedOutput.itemId);
   const unfinishedMediaJobs = mediaJobs.filter((job) => job.status === "pending" || job.status === "dispatching" || job.status === "dispatched" || job.status === "processing");
   if (unfinishedMediaJobs.length > 0) {
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return {
       ok: true,
       queueId: input.queueItem.id,
@@ -66,16 +71,19 @@ export async function publishTelegramQueueItem(input: {
     const message = failedMediaJobs[0]?.errorMessage ?? "External media processing failed.";
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", message);
     await publishQueueRepository.markFailed(input.queueItem.id, message);
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message };
   }
 
   const mediaReadiness = await mediaForItem(mediaAssetsRepository, generatedOutput.itemId);
   if (!mediaReadiness.ok) {
     if (mediaReadiness.retryable) {
+      await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
       return { ok: true, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "skipped", message: mediaReadiness.message };
     }
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", mediaReadiness.message);
     await publishQueueRepository.markFailed(input.queueItem.id, mediaReadiness.message);
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message: mediaReadiness.message };
   }
 
@@ -84,6 +92,7 @@ export async function publishTelegramQueueItem(input: {
   if (!mediaValidation.ok) {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", mediaValidation.errorMessage);
     await publishQueueRepository.markFailed(input.queueItem.id, mediaValidation.errorMessage);
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message: mediaValidation.errorMessage };
   }
 
@@ -91,6 +100,7 @@ export async function publishTelegramQueueItem(input: {
   const finalCaption = applyRouteOutputSignature(generatedOutput.output.caption, routeOutput);
 
   await publishQueueRepository.markPublishing(input.queueItem.id);
+  await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
 
   try {
     const publishClient = new RealTelegramClient({ botToken });
@@ -102,11 +112,13 @@ export async function publishTelegramQueueItem(input: {
     });
     await publishQueueRepository.markPublished(input.queueItem.id, sent.messageId);
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "published");
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: true, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "published", message: "Published to Telegram.", finalMessageId: sent.messageId };
   } catch (error) {
     const message = redactPublishError(error);
     await publishQueueRepository.markFailed(input.queueItem.id, message);
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", message);
+    await refreshTelegramReviewMessageState({ env: input.env, generatedOutputId: generatedOutput.id, telegramClient: input.callbackClient });
     return { ok: false, queueId: input.queueItem.id, generatedOutputId: generatedOutput.id, status: "failed", message };
   }
 }

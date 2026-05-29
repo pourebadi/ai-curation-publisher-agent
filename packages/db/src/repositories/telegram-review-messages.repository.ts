@@ -90,6 +90,13 @@ export class TelegramReviewMessagesRepository {
       .first<TelegramReviewMessageRow>();
     return row ? toRecord(row) : null;
   }
+
+  async findByChatAndMessageId(chatId: string, messageId: string | number): Promise<TelegramReviewMessageRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM telegram_review_messages WHERE chat_id = ? AND message_id = ? ORDER BY created_at DESC LIMIT 1")
+      .bind(chatId, String(messageId))
+      .first<TelegramReviewMessageRow>();
+    return row ? toRecord(row) : null;
+  }
 }
 
 function toRecord(row: TelegramReviewMessageRow): TelegramReviewMessageRecord {

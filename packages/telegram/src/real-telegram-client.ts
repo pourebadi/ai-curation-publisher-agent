@@ -1,6 +1,7 @@
 import type {
   AnswerCallbackQueryInput,
   EditReviewMessageInput,
+  EditReviewMessageReplyMarkupInput,
   PublishFinalMessageInput,
   SendReviewMessageInput,
   TelegramClient,
@@ -142,6 +143,16 @@ export class RealTelegramClient implements TelegramClient {
     });
 
     return toTelegramClientMessage(result, input.chatId, input.text, input.replyMarkup);
+  }
+
+  async editReviewMessageReplyMarkup(input: EditReviewMessageReplyMarkupInput): Promise<TelegramClientMessage> {
+    const result = await this.callTelegramApi<TelegramApiMessage>("editMessageReplyMarkup", {
+      chat_id: input.chatId,
+      message_id: input.messageId,
+      reply_markup: input.replyMarkup
+    });
+
+    return toTelegramClientMessage(result, input.chatId, "", input.replyMarkup);
   }
 
   async publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage> {

@@ -137,6 +137,7 @@ describe("telegram manual ingest parsing", () => {
     const callbackData = buildTelegramOutputCallbackData("send", "tgout_local");
     expect(callbackData).toBe("tgout:send:tgout_local");
     expect(parseTelegramOutputCallbackData(callbackData)).toEqual({ action: "send", token: "tgout_local" });
+    expect(parseTelegramOutputCallbackData(buildTelegramOutputCallbackData("edit", "tgout_local"))).toEqual({ action: "edit", token: "tgout_local" });
 
     const parsed = parseTelegramUpdate({
       callback_query: {
@@ -211,7 +212,7 @@ describe("telegram manual ingest parsing", () => {
     expect(draft.text).not.toContain("Telegram topic review draft");
     expect(draft.text).not.toContain("Summary:");
     expect(draft.text).not.toContain("Original excerpt:");
-    expect(draft.reply_markup.inline_keyboard.flat().map((button) => button.text)).toEqual(["Send", "Cancel", "Status", "Schedule"]);
+    expect(draft.reply_markup.inline_keyboard.flat().map((button) => button.text)).toEqual(["✅ Send", "🕒 Schedule", "✏️ Edit", "ℹ️ Status", "❌ Cancel"]);
   });
 
   it("parses comma-separated reviewer allowlists", () => {

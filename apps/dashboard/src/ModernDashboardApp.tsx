@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { describeConnectionBundle, validateWorkerBaseUrl, WorkerApiClient } from "./api";
 import { clearSettings, getInternalCredential, loadSettings, saveApiBaseUrl, saveInternalCredential } from "./storage";
 import type { AdminConfigItem, AdminConfigResponse, ApiResult, DashboardSettings, JsonObject, JsonValue, StatusBundle } from "./types";
@@ -19,6 +19,7 @@ type PromptBindingForm = { routeId: string; routeOutputId: string; category: str
 type SettingFilter = { groups?: string[]; keys?: string[]; keyIncludes?: string[]; excludeSecrets?: boolean };
 type ToastTone = "success" | "warning" | "danger" | "info";
 type ToastRecord = { id: string; tone: ToastTone; title: string; message: string; details?: JsonValue };
+type RefreshOptions = { notify?: boolean };
 
 const emptyPromptForm: PromptProfileForm = {
   id: "telegram_crypto_fa_v1",
@@ -109,6 +110,8 @@ export default function ModernDashboardApp(): JSX.Element {
   const [categoryData, setCategoryData] = useState<JsonObject | undefined>(undefined);
   const [operationsRangeDays, setOperationsRangeDays] = useState("30");
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
+  const toastTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const autoRefreshedApiBaseUrl = useRef<string | undefined>(undefined);
 
   const client = useMemo(() => new WorkerApiClient(settings.apiBaseUrl, getInternalCredential()), [settings]);
   const connectionState = describeConnectionBundle(statusBundle);
@@ -130,9 +133,13 @@ export default function ModernDashboardApp(): JSX.Element {
   function pushToast(tone: ToastTone, title: string, message: string, details?: JsonValue): void {
     const id = `toast_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     setToasts((current) => [{ id, tone, title, message, ...(details === undefined ? {} : { details }) }, ...current].slice(0, 5));
+    toastTimers.current[id] = setTimeout(() => dismissToast(id), toastDurationMs(tone, details));
   }
 
   function dismissToast(id: string): void {
+    const timer = toastTimers.current[id];
+    if (timer !== undefined) clearTimeout(timer);
+    delete toastTimers.current[id];
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }
 
@@ -142,7 +149,17 @@ export default function ModernDashboardApp(): JSX.Element {
   }
 
   useEffect(() => {
-    if (settings.apiBaseUrl.length > 0) void refreshAll();
+    return () => {
+      for (const timer of Object.values(toastTimers.current)) clearTimeout(timer);
+      toastTimers.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    if (settings.apiBaseUrl.length === 0) return;
+    if (autoRefreshedApiBaseUrl.current === settings.apiBaseUrl) return;
+    autoRefreshedApiBaseUrl.current = settings.apiBaseUrl;
+    void refreshAll(client, { notify: false });
   }, [settings.apiBaseUrl]);
 
   async function saveAndConnect(): Promise<void> {
@@ -152,8 +169,9 @@ export default function ModernDashboardApp(): JSX.Element {
     if (credentialInput.trim().length > 0) saveInternalCredential(credentialInput.trim(), false);
     setCredentialInput("");
     const nextSettings = loadSettings();
+    autoRefreshedApiBaseUrl.current = nextSettings.apiBaseUrl;
     setSettings(nextSettings);
-    await refreshAll(new WorkerApiClient(nextSettings.apiBaseUrl, getInternalCredential()));
+    await refreshAll(new WorkerApiClient(nextSettings.apiBaseUrl, getInternalCredential()), { notify: true });
   }
 
   function clearConnection(): void {
@@ -177,7 +195,7 @@ export default function ModernDashboardApp(): JSX.Element {
     notify("info", "Connection cleared", "Worker URL and Admin secret were cleared from this browser session.");
   }
 
-  async function refreshAll(targetClient = client): Promise<void> {
+  async function refreshAll(targetClient = client, options: RefreshOptions = { notify: true }): Promise<void> {
     setBusy("refresh");
     const nextStatus = await targetClient.getStatusBundle();
     setStatusBundle(nextStatus);
@@ -209,7 +227,9 @@ export default function ModernDashboardApp(): JSX.Element {
     if (nextPrompts.ok) setPromptStudio(nextPrompts.data);
     if (nextAnalytics.ok) setOperationsAnalytics(nextAnalytics.data);
     if (nextCategories.ok) setCategoryData(nextCategories.data);
-    notify(nextSummary.ok && nextValidation.ok ? "success" : "warning", "Dashboard refreshed", connectionNotice(nextStatus, nextSummary, nextValidation));
+    const refreshMessage = connectionNotice(nextStatus, nextSummary, nextValidation);
+    setNotice(refreshMessage);
+    if (options.notify !== false) notify(nextSummary.ok && nextValidation.ok ? "success" : "warning", "Dashboard refreshed", refreshMessage);
     setLastRefreshAt(new Date().toISOString());
     setBusy(undefined);
   }
@@ -679,7 +699,7 @@ export default function ModernDashboardApp(): JSX.Element {
       {activeTab === "routes" && <RoutesPage routes={scopedRoutes} outputs={scopedOutputs} promptProfiles={promptProfiles} bindings={promptBindings} issues={scopedIssues} categoryScope={categoryScope} busy={busy} onSaveRoute={saveRoute} onDisableRoute={disableRoute} onSaveOutput={saveOutput} onDisableOutput={disableOutput} />}
       {activeTab === "media" && <MediaPage summary={summary} mediaJobs={mediaJobs} items={filterSettings(allSettings, { keyIncludes: ["MEDIA", "GITHUB_MEDIA", "TELEGRAM_MEDIA", "YTDLP"] })} drafts={settingDrafts} setDrafts={setSettingDrafts} onSave={saveSetting} onReset={resetSetting} busy={busy} saveStates={settingSaveStates} mediaDebugUrl={mediaDebugUrl} setMediaDebugUrl={setMediaDebugUrl} mediaDebugResult={mediaDebugResult} onDebugMedia={debugMediaUrl} onRetryJob={retryMediaJob} onCancelJob={cancelMediaJob} busyMediaJobId={busyMediaJobId} />}
       {activeTab === "prompts" && <PromptStudioPanel profiles={promptProfiles} bindings={promptBindings} runs={promptRuns} routes={scopedRoutes} outputs={scopedOutputs} promptStudio={promptStudio} promptForm={promptForm} setPromptForm={setPromptForm} bindingForm={bindingForm} setBindingForm={setBindingForm} promptPreview={promptPreview} onSavePrompt={savePromptProfile} onActivatePrompt={activatePrompt} onArchivePrompt={archivePrompt} onSaveBinding={savePromptBinding} onPreviewPrompt={previewPrompt} onUpsertSimplePrompt={upsertSimplePrompt} busy={busy} />}
-      {activeTab === "publishing" && <PublishingPage summary={summary} publishQueue={scopedPublishQueue} outputs={scopedOutputs} items={filterSettings(allSettings, { groups: ["scheduler", "quotas"], keyIncludes: ["PUBLISH", "SCHEDULER", "MAX_PUBLISH", "TELEGRAM_PUBLISH"] })} drafts={settingDrafts} setDrafts={setSettingDrafts} onSave={saveSetting} onReset={resetSetting} busy={busy} saveStates={settingSaveStates} onPublishNow={publishQueueItemNow} onPreview={previewQueueItem} onTimeline={loadItemTimeline} onCancel={cancelQueueItem} onReschedule={rescheduleQueueItem} onRunDue={runDuePublishing} onBulkPublishNow={bulkPublishQueueItems} publishPreview={publishPreview} duePublishResult={duePublishResult} busyQueueId={busyQueueId} queueStatusFilter={queueStatusFilter} setQueueStatusFilter={setQueueStatusFilter} queueSearch={queueSearch} setQueueSearch={setQueueSearch} onEditRoutes={() => setActiveTab("routes")} />}
+      {activeTab === "publishing" && <PublishingPage summary={summary} publishQueue={scopedPublishQueue} outputs={scopedOutputs} items={filterSettings(allSettings, { groups: ["telegram", "scheduler", "quotas"], keyIncludes: ["PUBLISH", "SCHEDULER", "MAX_PUBLISH", "TELEGRAM_PUBLISH", "TELEGRAM_FINAL_PUBLISH"] })} drafts={settingDrafts} setDrafts={setSettingDrafts} onSave={saveSetting} onReset={resetSetting} busy={busy} saveStates={settingSaveStates} onPublishNow={publishQueueItemNow} onPreview={previewQueueItem} onTimeline={loadItemTimeline} onCancel={cancelQueueItem} onReschedule={rescheduleQueueItem} onRunDue={runDuePublishing} onBulkPublishNow={bulkPublishQueueItems} publishPreview={publishPreview} duePublishResult={duePublishResult} busyQueueId={busyQueueId} queueStatusFilter={queueStatusFilter} setQueueStatusFilter={setQueueStatusFilter} queueSearch={queueSearch} setQueueSearch={setQueueSearch} onEditRoutes={() => setActiveTab("routes")} />}
       {activeTab === "diagnostics" && <DiagnosticsPage issues={scopedIssues} validation={validation} summary={summary} routes={scopedRoutes} onExport={loadExport} adminExport={adminExport} importInput={configImportInput} setImportInput={setConfigImportInput} onPreviewImport={previewConfigImport} importPreview={configImportPreview} testDataResult={testDataResult} onRefreshTestData={refreshTestDataCounts} onResetTestData={resetTestData} dedupeUrl={dedupeUrl} setDedupeUrl={setDedupeUrl} dedupeResult={dedupeResult} onSearchDedupe={searchDedupeHistory} busy={busy} />}
       {activeTab === "activity" && <ActivityPage mediaJobs={mediaJobs} publishQueue={scopedPublishQueue} onPublishNow={publishQueueItemNow} onPreview={previewQueueItem} onTimeline={loadItemTimeline} onCancel={cancelQueueItem} onReschedule={rescheduleQueueItem} onBulkPublishNow={bulkPublishQueueItems} busyQueueId={busyQueueId} timelineInput={timelineInput} setTimelineInput={setTimelineInput} timelineResult={timelineResult} />}
       {activeTab === "technical" && <TechnicalPage statusBundle={statusBundle} summary={summary} metrics={metrics} timeseries={metricTimeSeries} adminConfig={adminConfig} promptStudio={promptStudio} />}
@@ -877,11 +897,25 @@ function truncateMiddle(value: string | undefined, maxLength: number): string {
 
 function PublishingPage(props: { summary: JsonObject | undefined; publishQueue: JsonObject[]; outputs: JsonObject[]; items: AdminConfigItem[]; drafts: Record<string, string>; setDrafts: (updater: (drafts: Record<string, string>) => Record<string, string>) => void; onSave: (item: AdminConfigItem) => Promise<void>; onReset: (item: AdminConfigItem) => Promise<void>; busy: string | undefined; saveStates: Record<string, SettingSaveState>; onPublishNow: (queueId: string) => Promise<void>; onPreview: (queueId: string) => Promise<void>; onTimeline: (input: { itemId?: string; queueId?: string; generatedOutputId?: string }) => Promise<void>; onBulkPublishNow: (queueIds: string[]) => Promise<void>; onCancel: (queueId: string) => Promise<void>; onReschedule: (queueId: string) => Promise<void>; onRunDue: () => Promise<void>; publishPreview: JsonObject | undefined; duePublishResult: JsonObject | undefined; busyQueueId: string | undefined; queueStatusFilter: string; setQueueStatusFilter: (value: string) => void; queueSearch: string; setQueueSearch: (value: string) => void; onEditRoutes: () => void }): JSX.Element {
   const publishing = readObject(props.summary, "publishing");
+  const secrets = readObject(props.summary, "secrets");
+  const queueCounts = readObject(publishing, "queueCounts");
   const filteredQueue = filterQueue(props.publishQueue, props.queueStatusFilter, props.queueSearch);
   const finalEnabled = readBoolean(publishing, "finalPublishingEnabled") === true;
   const schedulerEnabled = readBoolean(publishing, "publishSchedulerEnabled") === true;
   const dryRun = readBoolean(publishing, "dryRun") === true;
-  return <div className="page-grid"><Card className="hero-card"><CardHeader eyebrow="Publishing Control" title="Manual publishing, scheduler and per-output timing" description="Preview the exact caption/media/prompt state before publishing. Timing lives on route outputs; scheduler only processes due queue items." action={<Button variant="secondary" onClick={() => void props.onRunDue()} disabled={props.busy !== undefined}>Run due publishing</Button>} /><div className="stats-grid compact"><StatCard label="Final publishing" value={finalEnabled ? "Enabled" : "Disabled"} tone={finalEnabled ? "warning" : "muted"} helper={finalEnabled ? "Manual/final send may publish." : "Send will not final publish."} /><StatCard label="Publish scheduler" value={schedulerEnabled ? "Enabled" : "Disabled"} tone={schedulerEnabled ? "success" : "warning"} helper={dryRun ? "Dry-run is enabled." : "Processes due items."} /><StatCard label="Due limit" value={readNumber(publishing, "dueLimit") ?? "-"} /><StatCard label="Cron" value={readString(publishing, "workerCron") ?? "*/30 * * * *"} helper="Configured in wrangler.toml" /></div>{dryRun && <Alert title="Scheduler dry-run" tone="warning">Scheduler dry-run is enabled. Automatic scheduler work is simulated and will not publish final posts.</Alert>}<Alert title="Manual publish safety" tone="warning">Use Preview before Publish now. Rows with pending/failed media expose blockers in the preview and backend.</Alert></Card>{props.duePublishResult && <PublishDueOutcome result={props.duePublishResult} />}{props.publishPreview && <PublishPreviewCard preview={props.publishPreview} />}<RouteTimingSummary outputs={props.outputs} onEditRoutes={props.onEditRoutes} /><Card><CardHeader title="Publish queue" description="Media and prompt status are shown per queue row so final publishing is not blind." /><div className="grid two"><Select label="Status filter" value={props.queueStatusFilter} onChange={props.setQueueStatusFilter} options={["all", "pending", "scheduled", "failed", "published", "publishing"].map((value) => ({ value, label: value }))} /><Input label="Search queue/final/output" value={props.queueSearch} onChange={props.setQueueSearch} placeholder="queueId, generatedOutputId, @channel" /></div><PublishQueueTable rows={filteredQueue} onPublishNow={props.onPublishNow} onPreview={props.onPreview} onTimeline={props.onTimeline} onBulkPublishNow={props.onBulkPublishNow} onCancel={props.onCancel} onReschedule={props.onReschedule} busyQueueId={props.busyQueueId} /></Card><SettingsEditor items={props.items} drafts={props.drafts} setDrafts={props.setDrafts} onSave={props.onSave} onReset={props.onReset} busy={props.busy} saveStates={props.saveStates} /></div>;
+  const telegramBotConfigured = readBoolean(secrets, "telegramBotToken") === true;
+  const criticalSettings = props.items.filter((item) => criticalPublishingSettingKeys.has(item.key));
+  const secondarySettings = props.items.filter((item) => !criticalPublishingSettingKeys.has(item.key));
+  const dueQueueCount = (readNumber(queueCounts, "pending") ?? 0) + (readNumber(queueCounts, "scheduled") ?? 0);
+  return <div className="page-grid"><Card className="hero-card"><CardHeader eyebrow="Publishing Control" title="Manual publishing, scheduler and per-output timing" description="Preview the exact caption/media/prompt state before publishing. Timing lives on route outputs; scheduler only processes due queue items." action={<Button variant="secondary" onClick={() => void props.onRunDue()} disabled={props.busy !== undefined}>Run due publishing</Button>} /><div className="stats-grid compact"><StatCard label="Final publishing" value={finalEnabled ? "Enabled" : "Disabled"} tone={finalEnabled ? "warning" : "muted"} helper={finalEnabled ? "Manual/final send may publish." : "Send will only queue or schedule."} /><StatCard label="Publish scheduler" value={schedulerEnabled ? "Enabled" : "Disabled"} tone={schedulerEnabled ? "success" : "warning"} helper={dryRun ? "Dry-run is enabled." : "Processes due items."} /><StatCard label="Due queue" value={dueQueueCount} helper="pending + scheduled" tone={dueQueueCount > 0 ? "warning" : "success"} /><StatCard label="Cron" value={readString(publishing, "workerCron") ?? "*/30 * * * *"} helper="Configured in wrangler.toml" /></div>{dryRun && <Alert title="Scheduler dry-run" tone="warning">Scheduler dry-run is enabled. Automatic scheduler work is simulated and will not publish final posts.</Alert>}<Alert title="Manual publish safety" tone="warning">Use Preview before Publish now. Rows with pending/failed media expose blockers in the preview and backend.</Alert></Card><Card className="hero-card"><CardHeader eyebrow="Critical controls" title="Final Telegram publishing switches" description="These switches are saved through the backend admin config store and affect the effective Worker runtime. They are intentionally repeated here because Send and the cron publish runner depend on both." /><div className="stats-grid compact"><StatCard label="Bot token" value={telegramBotConfigured ? "Configured" : "Missing"} tone={telegramBotConfigured ? "success" : "danger"} helper="Required for real review and final publish." /><StatCard label="Final publish" value={finalEnabled ? "On" : "Off"} tone={finalEnabled ? "warning" : "muted"} helper={finalEnabled ? "Approved output can publish." : "Send will not hit final channels."} /><StatCard label="Due scheduler" value={schedulerEnabled ? "On" : "Off"} tone={schedulerEnabled ? "success" : "warning"} helper={schedulerEnabled ? "Cron checks due queue." : "Use Run due publishing manually."} /><StatCard label="Due limit" value={readNumber(publishing, "dueLimit") ?? "-"} /></div><PublishingControlsAlert finalEnabled={finalEnabled} schedulerEnabled={schedulerEnabled} botConfigured={telegramBotConfigured} dryRun={dryRun} />{criticalSettings.length > 0 ? <SettingsEditor items={criticalSettings} drafts={props.drafts} setDrafts={props.setDrafts} onSave={props.onSave} onReset={props.onReset} busy={props.busy} saveStates={props.saveStates} /> : <Alert title="Critical settings not found" tone="danger">The backend did not return TELEGRAM_FINAL_PUBLISH_ENABLED, TELEGRAM_PUBLISH_SCHEDULER_ENABLED, or TELEGRAM_PUBLISH_DUE_LIMIT. Apply migrations and verify the admin config allowlist.</Alert>}</Card>{props.duePublishResult && <PublishDueOutcome result={props.duePublishResult} />}{props.publishPreview && <PublishPreviewCard preview={props.publishPreview} />}<RouteTimingSummary outputs={props.outputs} onEditRoutes={props.onEditRoutes} /><Card><CardHeader title="Publish queue" description="Media and prompt status are shown per queue row so final publishing is not blind." /><div className="grid two"><Select label="Status filter" value={props.queueStatusFilter} onChange={props.setQueueStatusFilter} options={["all", "pending", "scheduled", "failed", "published", "publishing"].map((value) => ({ value, label: value }))} /><Input label="Search queue/final/output" value={props.queueSearch} onChange={props.setQueueSearch} placeholder="queueId, generatedOutputId, @channel" /></div><PublishQueueTable rows={filteredQueue} onPublishNow={props.onPublishNow} onPreview={props.onPreview} onTimeline={props.onTimeline} onBulkPublishNow={props.onBulkPublishNow} onCancel={props.onCancel} onReschedule={props.onReschedule} busyQueueId={props.busyQueueId} /></Card>{secondarySettings.length > 0 && <SettingsEditor items={secondarySettings} drafts={props.drafts} setDrafts={props.setDrafts} onSave={props.onSave} onReset={props.onReset} busy={props.busy} saveStates={props.saveStates} />}</div>;
+}
+
+function PublishingControlsAlert({ finalEnabled, schedulerEnabled, botConfigured, dryRun }: { finalEnabled: boolean; schedulerEnabled: boolean; botConfigured: boolean; dryRun: boolean }): JSX.Element {
+  if (!botConfigured) return <Alert title="Bot token missing" tone="danger">TELEGRAM_BOT_TOKEN is not configured. Final publishing will fail even when the publishing switches are on.</Alert>;
+  if (!finalEnabled) return <Alert title="Final publishing is off" tone="warning">Review Send will approve and queue or schedule outputs, but it will not publish to final Telegram channels until TELEGRAM_FINAL_PUBLISH_ENABLED is enabled.</Alert>;
+  if (!schedulerEnabled) return <Alert title="Publish scheduler is off" tone="warning">Manual Publish now can work, but the 30-minute Worker cron will not process due Telegram queue items until TELEGRAM_PUBLISH_SCHEDULER_ENABLED is enabled.</Alert>;
+  if (dryRun) return <Alert title="Scheduler dry-run is on" tone="warning">Publishing switches are on, but SCHEDULER_DRY_RUN is still enabled. Run due publishing manually for a backend-confirmed check before relying on cron.</Alert>;
+  return <Alert title="Publishing path is enabled" tone="success">Final publishing and the due queue scheduler are enabled. Due scheduled outputs should be processed by the next Worker cron tick.</Alert>;
 }
 
 function PublishPreviewCard({ preview }: { preview: JsonObject }): JSX.Element {
@@ -928,6 +962,13 @@ function ToastStack({ toasts, onDismiss }: { toasts: ToastRecord[]; onDismiss: (
   return <div className="toast-stack">{toasts.map((toast) => <div key={toast.id} className={`toast toast-${toast.tone}`}><div><strong>{toast.title}</strong><p>{toast.message}</p>{toast.details !== undefined && <details><summary>Details</summary><pre>{JSON.stringify(toast.details, null, 2)}</pre></details>}</div><button type="button" onClick={() => onDismiss(toast.id)} aria-label="Dismiss toast">×</button></div>)}</div>;
 }
 
+function toastDurationMs(tone: ToastTone, details?: JsonValue): number {
+  if (details !== undefined) return 12000;
+  if (tone === "danger") return 10000;
+  if (tone === "warning") return 8000;
+  return 5000;
+}
+
 function readDistributionObject(value: JsonObject): Record<string, number> {
   return Object.fromEntries(Object.entries(value).filter(([, raw]) => typeof raw === "number")) as Record<string, number>;
 }
@@ -935,6 +976,8 @@ function readDistributionObject(value: JsonObject): Record<string, number> {
 function TechnicalPage({ statusBundle, summary, metrics, timeseries, adminConfig, promptStudio }: { statusBundle: StatusBundle; summary: JsonObject | undefined; metrics: JsonObject | undefined; timeseries: JsonObject | undefined; adminConfig: AdminConfigResponse | undefined; promptStudio: JsonObject | undefined }): JSX.Element {
   return <div className="page-grid"><Card><CardHeader title="Raw Worker status" description="Debug only." /><pre>{JSON.stringify(statusBundle, null, 2)}</pre></Card><Card><CardHeader title="Admin summary" description="Redacted admin payload." /><pre>{JSON.stringify(summary ?? {}, null, 2)}</pre></Card><Card><CardHeader title="Admin config" description="Settings metadata and sources." /><pre>{JSON.stringify(adminConfig ?? {}, null, 2)}</pre></Card><Card><CardHeader title="Metrics" description="Data dashboard payload." /><pre>{JSON.stringify(metrics ?? {}, null, 2)}</pre></Card><Card><CardHeader title="Timeseries" description="Daily trend payload." /><pre>{JSON.stringify(timeseries ?? {}, null, 2)}</pre></Card><Card><CardHeader title="Prompt Studio" description="Prompt profiles and bindings." /><pre>{JSON.stringify(promptStudio ?? {}, null, 2)}</pre></Card></div>;
 }
+
+const criticalPublishingSettingKeys = new Set(["TELEGRAM_FINAL_PUBLISH_ENABLED", "TELEGRAM_PUBLISH_SCHEDULER_ENABLED", "TELEGRAM_PUBLISH_DUE_LIMIT"]);
 
 const tabs: Array<{ id: DashboardTab; label: string; icon: string }> = [
   { id: "overview", label: "Overview", icon: "◌" },
