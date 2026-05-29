@@ -19,6 +19,7 @@ import { handleInternalTelegramPublish } from "./routes/internal-publish";
 import { handleInternalSchedulerRun } from "./routes/internal-scheduler-run";
 import { handleInternalTelegramReviewDryRun } from "./routes/internal-telegram-review-dry-run";
 import { handleInternalTelegramOutputsRecent } from "./routes/internal-telegram-outputs-recent";
+import { handleInternalTelegramOutputDebug } from "./routes/internal-telegram-output-debug";
 import { handleInternalTelegramPublishDue } from "./routes/internal-telegram-publish-due";
 import { handleInternalTelegramPublishRetry } from "./routes/internal-telegram-publish-retry";
 import { handleInternalTelegramPublishNow } from "./routes/internal-telegram-publish-now";
@@ -125,6 +126,9 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/internal/telegram/outputs/recent") {
     return handleInternalTelegramOutputsRecent(request, env);
+  }
+  if (url.pathname === "/internal/telegram/outputs/debug") {
+    return handleInternalTelegramOutputDebug(request, env);
   }
 
   if (url.pathname === "/internal/telegram/publish/due") {
