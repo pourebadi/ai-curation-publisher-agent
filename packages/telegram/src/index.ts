@@ -1,7 +1,7 @@
 export const TELEGRAM_REVIEW_ACTIONS = ["edit", "send", "cancel", "status"] as const;
 export type TelegramReviewAction = typeof TELEGRAM_REVIEW_ACTIONS[number];
 
-export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status", "schedule"] as const;
+export const TELEGRAM_OUTPUT_REVIEW_ACTIONS = ["send", "cancel", "status", "schedule", "edit"] as const;
 export type TelegramOutputReviewAction = typeof TELEGRAM_OUTPUT_REVIEW_ACTIONS[number];
 
 export type TelegramWebhookAck = {
@@ -80,6 +80,7 @@ export type TelegramMessage = {
   video?: TelegramVideo;
   document?: TelegramDocument;
   animation?: TelegramAnimation;
+  reply_to_message?: TelegramMessage;
 };
 
 export type TelegramCallbackMessage = {
@@ -197,6 +198,18 @@ export type BuildTelegramOutputReviewDraftInput = {
   minimumGapMinutes?: number;
   sourceButtonUrl?: string;
   hasPreviewMedia?: boolean;
+};
+
+export type TelegramOutputReviewKeyboardState = {
+  callbackToken: string;
+  generatedStatus: string;
+  publishQueueStatus?: string;
+  scheduledFor?: string;
+  finalMessageId?: string;
+  lastError?: string;
+  finalPublishingEnabled?: boolean;
+  sourceButtonUrl?: string;
+  editRequested?: boolean;
 };
 
 export function parseAllowedReviewerIds(raw: string | undefined): Set<string> {
@@ -373,22 +386,78 @@ export function buildReviewInlineKeyboard(itemId: string): TelegramInlineKeyboar
 }
 
 export function buildTelegramOutputReviewInlineKeyboard(callbackToken: string, sourceButtonUrl?: string): TelegramInlineKeyboardMarkup {
-  const inlineKeyboard: TelegramInlineKeyboardButton[][] = [
-    [
-      { text: "Send", callback_data: buildTelegramOutputCallbackData("send", callbackToken) },
-      { text: "Cancel", callback_data: buildTelegramOutputCallbackData("cancel", callbackToken) }
-    ],
-    [
-      { text: "Status", callback_data: buildTelegramOutputCallbackData("status", callbackToken) },
-      { text: "Schedule", callback_data: buildTelegramOutputCallbackData("schedule", callbackToken) }
-    ]
-  ];
+  return buildTelegramOutputReviewStatefulInlineKeyboard({
+    callbackToken,
+    generatedStatus: "ready_for_review",
+    ...(sourceButtonUrl === undefined ? {} : { sourceButtonUrl })
+  });
+}
 
-  if (sourceButtonUrl !== undefined && sourceButtonUrl.trim().length > 0) {
-    inlineKeyboard.push([{ text: "Source", url: sourceButtonUrl.trim() }]);
+export function buildTelegramOutputReviewStatefulInlineKeyboard(input: TelegramOutputReviewKeyboardState): TelegramInlineKeyboardMarkup {
+  const token = input.callbackToken;
+  const status = normalizeReviewStatus(input.generatedStatus, input.publishQueueStatus);
+  const inlineKeyboard: TelegramInlineKeyboardButton[][] = [];
+
+  if (status === "ready_for_review" || status === "generated" || status === "approved") {
+    inlineKeyboard.push([
+      { text: status === "approved" ? "✅ Approved" : "✅ Send", callback_data: buildTelegramOutputCallbackData("send", token) },
+      { text: "🕒 Schedule", callback_data: buildTelegramOutputCallbackData("schedule", token) }
+    ]);
+    inlineKeyboard.push([
+      { text: input.editRequested === true ? "✏️ Waiting for reply" : "✏️ Edit", callback_data: buildTelegramOutputCallbackData("edit", token) },
+      { text: status === "approved" ? "ℹ️ Approved" : "ℹ️ Status", callback_data: buildTelegramOutputCallbackData("status", token) }
+    ]);
+    inlineKeyboard.push([{ text: "❌ Cancel", callback_data: buildTelegramOutputCallbackData("cancel", token) }]);
+  } else if (status === "queued_for_publish" || status === "pending") {
+    inlineKeyboard.push([{ text: input.finalPublishingEnabled === false ? "📥 Queued · final off" : "📥 Queued", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+    inlineKeyboard.push([{ text: "ℹ️ Status", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  } else if (status === "scheduled") {
+    inlineKeyboard.push([{ text: scheduledButtonLabel(input.scheduledFor), callback_data: buildTelegramOutputCallbackData("status", token) }]);
+    inlineKeyboard.push([{ text: "ℹ️ Status", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  } else if (status === "publishing") {
+    inlineKeyboard.push([{ text: "🚀 Publishing...", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  } else if (status === "published") {
+    inlineKeyboard.push([{ text: finalPublishedLabel(input.finalMessageId), callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  } else if (status === "failed") {
+    inlineKeyboard.push([{ text: "⚠️ Failed", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+    inlineKeyboard.push(input.publishQueueStatus === undefined
+      ? [
+        { text: "✏️ Edit", callback_data: buildTelegramOutputCallbackData("edit", token) },
+        { text: "ℹ️ Details", callback_data: buildTelegramOutputCallbackData("status", token) }
+      ]
+      : [{ text: "ℹ️ Details", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  } else if (status === "cancelled") {
+    inlineKeyboard.push([{ text: "🚫 Cancelled", callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  } else {
+    inlineKeyboard.push([{ text: `ℹ️ ${status}`, callback_data: buildTelegramOutputCallbackData("status", token) }]);
+  }
+
+  if (input.sourceButtonUrl !== undefined && input.sourceButtonUrl.trim().length > 0) {
+    inlineKeyboard.push([{ text: "Source", url: input.sourceButtonUrl.trim() }]);
   }
 
   return { inline_keyboard: inlineKeyboard };
+}
+
+function normalizeReviewStatus(generatedStatus: string, publishQueueStatus?: string): string {
+  if (generatedStatus === "published" || publishQueueStatus === "published") return "published";
+  if (generatedStatus === "failed" || publishQueueStatus === "failed") return "failed";
+  if (generatedStatus === "cancelled" || publishQueueStatus === "cancelled") return "cancelled";
+  if (generatedStatus === "publishing" || publishQueueStatus === "publishing") return "publishing";
+  if (generatedStatus === "scheduled" || publishQueueStatus === "scheduled") return "scheduled";
+  if (generatedStatus === "queued_for_publish" || publishQueueStatus === "pending") return "queued_for_publish";
+  return generatedStatus || "unknown";
+}
+
+function scheduledButtonLabel(value: string | undefined): string {
+  if (!value) return "🕒 Scheduled";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "🕒 Scheduled";
+  return `🕒 Scheduled ${parsed.toISOString().slice(11, 16)} UTC`;
+}
+
+function finalPublishedLabel(finalMessageId: string | undefined): string {
+  return finalMessageId && finalMessageId.trim().length > 0 ? `✅ Published #${finalMessageId}` : "✅ Published";
 }
 
 export function buildTelegramReviewDraft(input: BuildTelegramReviewDraftInput): TelegramReviewDraft {

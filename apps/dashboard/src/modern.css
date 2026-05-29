@@ -25,7 +25,7 @@ pre { background: #020617; border-radius: 1rem; color: #dbeafe; font-size: 0.82r
 .muted { color: var(--muted-foreground); }
 
 .modern-shell { display: grid; grid-template-columns: 18rem minmax(0, 1fr); min-height: 100vh; }
-.modern-sidebar { background: rgba(2, 6, 23, 0.94); border-right: 1px solid rgba(255, 255, 255, 0.08); color: white; display: flex; flex-direction: column; gap: 1.3rem; padding: 1.25rem; position: sticky; top: 0; height: 100vh; }
+.modern-sidebar { background: rgba(2, 6, 23, 0.94); border-right: 1px solid rgba(255, 255, 255, 0.08); color: white; display: flex; flex-direction: column; gap: 1.3rem; padding: 1.25rem; position: sticky; top: 0; height: 100vh; overflow-y: auto; overscroll-behavior: contain; }
 .brand-mark { align-items: center; background: linear-gradient(135deg, #38bdf8, #8b5cf6); border-radius: 1.2rem; display: inline-flex; font-weight: 900; height: 3rem; justify-content: center; width: 3rem; }
 .modern-sidebar h1 { font-size: 1.55rem; letter-spacing: -0.04em; margin: 0.2rem 0; }
 .modern-sidebar p { color: #cbd5e1; margin: 0; }

@@ -3,6 +3,8 @@ import type { ParsedTelegramOutputCallback, TelegramClient } from "@curator/tele
 import type { Env } from "../types";
 import { decideTelegramPublishSchedule } from "./publish-scheduler";
 import { publishTelegramQueueItem } from "./publish-runner";
+import { refreshTelegramReviewMessageState } from "./review-message-state";
+import { markTelegramReviewEditRequested } from "./review-edit-orchestrator";
 
 export type TelegramOutputCallbackResult = {
   ok: boolean;
@@ -36,12 +38,37 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
     };
   }
 
+  if (parsed.action === "edit") {
+    const queueItem = await publishQueueRepository.findByGeneratedOutputId(generatedOutput.id);
+    const locked = queueItem !== null;
+    const editable = (generatedOutput.status === "generated" || generatedOutput.status === "ready_for_review" || generatedOutput.status === "failed") && !locked;
+    const message = editable
+      ? "Reply to this review message with the revised caption. Channel signatures are still applied automatically."
+      : queueItem
+        ? `This output already has a publish queue row (${queueItem.status}). Edit is only allowed before Send/Schedule creates a queue row.`
+        : `This output cannot be edited while status is ${generatedOutput.status}.`;
+    await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
+    if (editable) await markTelegramReviewEditRequested({ env, generatedOutputId: generatedOutput.id, telegramClient });
+    else await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
+    return {
+      ok: true,
+      kind: "output_callback",
+      generatedOutputId: generatedOutput.id,
+      action: parsed.action,
+      status: generatedOutput.status,
+      ...(queueItem === null ? {} : { publishQueueStatus: queueItem.status }),
+      message,
+      finalPublishingTriggered: false
+    };
+  }
+
   if (parsed.action === "status") {
     const queueItem = await publishQueueRepository.findByGeneratedOutputId(generatedOutput.id);
     const message = queueItem
       ? `Status: ${generatedOutput.status}. Publish queue: ${queueItem.status}${queueItem.scheduledFor ? `. Scheduled for: ${queueItem.scheduledFor}` : ""}.`
       : `Status: ${generatedOutput.status}. Not queued for final publishing.`;
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: true,
       kind: "output_callback",
@@ -59,6 +86,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
     if (generatedOutput.status === "published" || generatedOutput.status === "cancelled") {
       const message = `Already ${generatedOutput.status}.`;
       await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
+      await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
       return {
         ok: true,
         kind: "output_callback",
@@ -72,6 +100,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
 
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "cancelled");
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Cancelled this output." });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: true,
       kind: "output_callback",
@@ -86,6 +115,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
   if (generatedOutput.status === "published" || generatedOutput.status === "cancelled") {
     const message = `Already ${generatedOutput.status}.`;
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: true,
       kind: "output_callback",
@@ -103,6 +133,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
       ? "Already failed. Use the retry action after checking status."
       : `Already queued for Telegram publishing. Queue status: ${existingQueueItem.status}${existingQueueItem.scheduledFor ? `. Scheduled for: ${existingQueueItem.scheduledFor}` : ""}.`;
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: message });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: existingQueueItem.status !== "failed",
       kind: "output_callback",
@@ -120,6 +151,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
   if (!routeOutput) {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Route output is missing.");
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Route output is missing." });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: false,
       kind: "output_callback",
@@ -136,6 +168,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
   if (schedule.reason === "publish_disabled") {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, "failed", "Publishing is disabled for this route output.");
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: "Publishing is disabled for this output." });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: false,
       kind: "output_callback",
@@ -171,6 +204,7 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
       ? schedule.scheduledFor === undefined ? "Queued for Telegram publishing." : `Scheduled for ${schedule.scheduledFor}.`
       : schedule.scheduledFor === undefined ? "Queued. Final Telegram publishing is disabled." : `Scheduled for ${schedule.scheduledFor}. Final Telegram publishing is disabled.`;
     await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text });
+    await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
     return {
       ok: true,
       kind: "output_callback",
@@ -184,11 +218,12 @@ export async function handleTelegramOutputCallback(parsed: ParsedTelegramOutputC
     };
   }
 
-  const publishResult = await publishTelegramQueueItem({ env, queueItem });
+  const publishResult = await publishTelegramQueueItem({ env, queueItem, callbackClient: telegramClient });
   if (publishResult.status === "skipped") {
     await generatedOutputsRepository.updateStatus(generatedOutput.id, queueItem.scheduledFor === undefined ? "queued_for_publish" : "scheduled");
   }
   await telegramClient?.answerCallbackQuery({ callbackQueryId: parsed.callback.id, text: publishResult.message });
+  await refreshTelegramReviewMessageState({ env, generatedOutputId: generatedOutput.id, telegramClient });
   const callbackStatus = publishResult.status === "published" ? "published" : publishResult.status === "skipped" ? queueItem.status : "failed";
   return {
     ok: publishResult.ok,

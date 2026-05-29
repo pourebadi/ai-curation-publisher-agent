@@ -23,6 +23,10 @@ export type TelegramLocalizedOutput = {
   riskFlags: string[];
   relevanceScore?: number;
   sourceAttributionText: string;
+  originalCaption?: string;
+  editedBy?: string;
+  editedAt?: string;
+  editCount?: number;
 };
 
 export type TelegramGeneratedOutputRecord<TOutput = TelegramLocalizedOutput> = {
@@ -138,6 +142,28 @@ export class TelegramGeneratedOutputsRepository {
     await this.db.prepare("UPDATE telegram_generated_outputs SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .bind(status, errorMessage ?? null, id)
       .run();
+  }
+
+  async updateCaption(id: string, caption: string, metadata: { editedBy: string; editedAt?: string }): Promise<TelegramGeneratedOutputRecord | null> {
+    const current = await this.findById(id);
+    if (!current) return null;
+
+    const now = metadata.editedAt ?? new Date().toISOString();
+    const currentOutput = current.output as TelegramLocalizedOutput;
+    const updatedOutput: TelegramLocalizedOutput = {
+      ...currentOutput,
+      originalCaption: currentOutput.originalCaption ?? currentOutput.caption,
+      caption,
+      editedBy: metadata.editedBy,
+      editedAt: now,
+      editCount: (currentOutput.editCount ?? 0) + 1
+    };
+
+    await this.db.prepare("UPDATE telegram_generated_outputs SET output_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(JSON.stringify(updatedOutput), id)
+      .run();
+
+    return { ...current, output: updatedOutput, updatedAt: now };
   }
 }
 

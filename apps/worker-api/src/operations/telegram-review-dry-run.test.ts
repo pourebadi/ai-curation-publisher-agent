@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MockTelegramClient, TelegramClientError, type TelegramClient } from "@curator/telegram";
+import { MockTelegramClient, TelegramClientError, type EditReviewMessageReplyMarkupInput, type TelegramClient, type TelegramClientMessage } from "@curator/telegram";
 import { runTelegramReviewDryRun } from "./telegram-review-dry-run";
 import type { Env } from "../types";
 
@@ -31,6 +31,15 @@ class FailingTelegramClient implements TelegramClient {
   }
 
   async answerCallbackQuery(): Promise<void> {}
+  async editReviewMessageReplyMarkup(input: EditReviewMessageReplyMarkupInput): Promise<TelegramClientMessage> {
+    return {
+      chatId: input.chatId,
+      messageId: input.messageId,
+      text: "",
+      replyMarkup: input.replyMarkup
+    };
+  }
+
 }
 
 describe("runTelegramReviewDryRun", () => {

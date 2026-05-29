@@ -17,6 +17,12 @@ export type EditReviewMessageInput = {
   replyMarkup?: TelegramInlineKeyboardMarkup;
 };
 
+export type EditReviewMessageReplyMarkupInput = {
+  chatId: string;
+  messageId: string;
+  replyMarkup: TelegramInlineKeyboardMarkup;
+};
+
 export type PublishFinalMessageInput = {
   chatId: string;
   messageThreadId?: number;
@@ -41,6 +47,7 @@ export type TelegramClientMessage = {
 export interface TelegramClient {
   sendReviewMessage(input: SendReviewMessageInput): Promise<TelegramClientMessage>;
   editReviewMessage(input: EditReviewMessageInput): Promise<TelegramClientMessage>;
+  editReviewMessageReplyMarkup(input: EditReviewMessageReplyMarkupInput): Promise<TelegramClientMessage>;
   publishFinalMessage(input: PublishFinalMessageInput): Promise<TelegramClientMessage>;
   answerCallbackQuery(input: AnswerCallbackQueryInput): Promise<void>;
 }
@@ -73,6 +80,17 @@ export class MockTelegramClient implements TelegramClient {
       messageId: input.messageId,
       text: input.text,
       ...(input.replyMarkup === undefined ? {} : { replyMarkup: input.replyMarkup })
+    };
+    this.editedReviewMessages.push(message);
+    return message;
+  }
+
+  async editReviewMessageReplyMarkup(input: EditReviewMessageReplyMarkupInput): Promise<TelegramClientMessage> {
+    const message: TelegramClientMessage = {
+      chatId: input.chatId,
+      messageId: input.messageId,
+      text: "",
+      replyMarkup: input.replyMarkup
     };
     this.editedReviewMessages.push(message);
     return message;

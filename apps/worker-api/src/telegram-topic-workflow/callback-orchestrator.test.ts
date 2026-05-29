@@ -62,6 +62,22 @@ type QueueRow = {
   updated_at: string;
 };
 
+
+type ReviewMessageRow = {
+  id: string;
+  generated_output_id: string;
+  item_id: string;
+  route_id: string;
+  route_output_id: string;
+  language: string;
+  chat_id: string;
+  thread_id: number;
+  message_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type MediaRow = {
   id: string;
   item_id: string;
@@ -107,6 +123,10 @@ class FakeStatement implements D1PreparedStatementLike {
     }
     if (this.query.includes("FROM telegram_publish_queue WHERE generated_output_id")) {
       const row = Array.from(this.db.queue.values()).find((entry) => entry.generated_output_id === String(this.values[0]));
+      return (row as T | undefined) ?? null;
+    }
+    if (this.query.includes("FROM telegram_review_messages WHERE generated_output_id")) {
+      const row = Array.from(this.db.reviewMessages.values()).find((entry) => entry.generated_output_id === String(this.values[0]));
       return (row as T | undefined) ?? null;
     }
     return null;
@@ -186,6 +206,7 @@ class FakeDb implements D1DatabaseLike {
   readonly outputs = new Map<string, OutputRow>();
   readonly routeOutputs = new Map<string, RouteOutputRow>();
   readonly queue = new Map<string, QueueRow>();
+  readonly reviewMessages = new Map<string, ReviewMessageRow>();
   readonly media: MediaRow[] = [];
 
   prepare(query: string): D1PreparedStatementLike {
@@ -231,6 +252,20 @@ function makeDb(): FakeDb {
     created_at: new Date(0).toISOString(),
     updated_at: new Date(0).toISOString()
   });
+  db.reviewMessages.set("review_local", {
+    id: "review_local",
+    generated_output_id: "tgout_local",
+    item_id: "item_local",
+    route_id: "crypto",
+    route_output_id: "crypto_fa",
+    language: "fa",
+    chat_id: "review-chat",
+    thread_id: 201,
+    message_id: "review-message-1",
+    status: "sent",
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString()
+  });
   return db;
 }
 
@@ -242,13 +277,13 @@ function makeEnv(db: FakeDb, finalPublishEnabled = false): Env & { TELEGRAM_FINA
   };
 }
 
-function makeParsed(): ParsedTelegramOutputCallback {
+function makeParsed(action: ParsedTelegramOutputCallback["action"] = "send"): ParsedTelegramOutputCallback {
   return {
     kind: "output_callback",
-    callback: { id: "callback-local", from: { id: 1 }, data: "tgout:send:tgout_local" },
+    callback: { id: "callback-local", from: { id: 1 }, data: `tgout:${action}:tgout_local` },
     reviewerId: "1",
     token: "tgout_local",
-    action: "send"
+    action
   };
 }
 
@@ -270,6 +305,19 @@ describe("handleTelegramOutputCallback", () => {
     expect(Array.from(db.queue.values())[0]?.status).toBe("scheduled");
     expect(db.outputs.get("tgout_local")?.status).toBe("scheduled");
     expect(telegramClient.answeredCallbacks[0]?.text).toContain("Scheduled for");
+    expect(telegramClient.editedReviewMessages[0]?.replyMarkup?.inline_keyboard[0]?.[0]?.text).toContain("Scheduled");
+  });
+
+  it("marks the review keyboard as waiting for an edit reply", async () => {
+    const db = makeDb();
+    const telegramClient = new MockTelegramClient();
+
+    const result = await handleTelegramOutputCallback(makeParsed("edit"), makeEnv(db, false), telegramClient);
+
+    expect(result).toMatchObject({ ok: true, action: "edit", status: "ready_for_review", finalPublishingTriggered: false });
+    expect(telegramClient.answeredCallbacks[0]?.text).toContain("Reply to this review message");
+    expect(telegramClient.editedReviewMessages[0]?.replyMarkup?.inline_keyboard.flat().map((button) => button.text)).toContain("✏️ Waiting for reply");
+    expect(db.outputs.get("tgout_local")?.status).toBe("ready_for_review");
   });
 
   it("publishes and marks output plus queue as published when enabled", async () => {
@@ -283,6 +331,7 @@ describe("handleTelegramOutputCallback", () => {
     expect(result).toMatchObject({ ok: true, status: "published", publishQueueStatus: "published", finalPublishingTriggered: true });
     expect(db.outputs.get("tgout_local")?.status).toBe("published");
     expect(Array.from(db.queue.values())[0]).toMatchObject({ status: "published", final_message_id: "900" });
+    expect(telegramClient.editedReviewMessages.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.text).toContain("Published");
   });
 
   it("marks output and queue as failed with redacted error when final publishing fails", async () => {
@@ -297,6 +346,7 @@ describe("handleTelegramOutputCallback", () => {
     expect(db.outputs.get("tgout_local")?.status).toBe("failed");
     expect(db.outputs.get("tgout_local")?.error_message).toBe("Telegram Bot API returned an error.");
     expect(Array.from(db.queue.values())[0]).toMatchObject({ status: "failed", last_error: "Telegram Bot API returned an error." });
+    expect(telegramClient.editedReviewMessages.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.text).toContain("Failed");
   });
 
   it("does not enqueue duplicates when Send is pressed repeatedly", async () => {
