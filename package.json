@@ -31,7 +31,8 @@
     "d1:migrate:production": "wrangler d1 migrations apply curator_mvp --remote --env production --config wrangler.toml",
     "telegram:mvp-smoke": "node scripts/telegram-mvp-smoke.mjs",
     "media:process:local": "python scripts/media_processor.py",
-    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs"
+    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs",
+    "worker:deploy:staging": "wrangler deploy --env staging --config wrangler.toml"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
